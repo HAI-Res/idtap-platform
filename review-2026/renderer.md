@@ -58,11 +58,16 @@ strategy — i.e. bolted on.
   (`Math.floor(currentTime) > currentSec`, `:1387`), snapping a one-second-wide
   half-opacity rect. No rAF, no smoothing. **Genuinely motion-free between jumps —
   this is the one done right.**
-- **`DottedLine`** (`:1933–1964`): **NOT motion-free.** It drops a static line every
-  0.5s but *every frame* recomputes a continuous opacity fade for up to 20 lines
-  (`opacity = 1 - elapsed/500`, `:1923`) and reassigns the reactive array, re-rendering
-  each frame. Fading is less provocative than translation, but it is still continuous
-  rAF-driven on-screen change. If you use this thinking it's safe, it isn't.
+- **`DottedLine`** (`:1933–1964`): drops a static line every 0.5s but *every frame*
+  recomputes a continuous opacity fade for up to 20 lines (`opacity = 1 - elapsed/500`,
+  `:1923`) and reassigns the reactive array, re-rendering each frame. **Per Jon (the
+  repo owner): this opacity fade is tolerable to his vestibular condition** — i.e. the
+  trigger is positional *translation*, not change-over-time. So DottedLine and Block are
+  both acceptable for him; only the smoothly *sliding* `Animated` playhead is the
+  problem. (The fade is still wasted CPU when idle — see the self-rescheduling leak in
+  §5 — but it is not an accessibility defect for this user.) **Key design constraint
+  going forward: the reduced-motion requirement is specifically "no smooth positional
+  motion," not "no animation."**
 
 **Three concrete problems for the accessibility requirement:**
 
@@ -214,8 +219,10 @@ rewrite risk):
 1. Make reduced-motion a **real per-user setting + `prefers-reduced-motion`**, replacing
    the userID hardcodes (`EditorComponent.vue:895`, `Renderer.vue:874`); default
    sensitive users to `Block`.
-2. Make `DottedLine` genuinely static (stop the per-frame opacity fade, `:1919`) or
-   relabel it honestly.
+2. (Revised per owner feedback) `DottedLine`'s opacity fade is acceptable to Jon, so
+   it need not be made static for accessibility — but stop it self-rescheduling when
+   idle (`:1939`) to avoid the wasted 60fps loop. The accessibility line is specifically
+   the `Animated` (sliding) playhead.
 3. **Throttle the `currentTime` highlight watcher** (`:1399`) to ~100ms and cache
    `allDisplayChikaris` instead of rebuilding per frame — the single biggest playback
    jank win.
