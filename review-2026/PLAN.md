@@ -1,0 +1,31 @@
+# IDTAP Codebase Review 2026 — Plan & Progress
+
+Full-codebase review: architecture map, security audit, bug hunt, performance
+assessment, modernization roadmap. Done incrementally (one or two subsystems
+per sitting) so it survives across sessions and usage windows.
+
+**Branch:** `review/codebase-audit-2026`
+**Resume instruction:** "continue the codebase review" — pick the next unchecked item, do it, write the section file, commit, update this checklist.
+
+## Method per sitting
+1. Skim structure (grep/headers) before deep-reading; deep-read only load-bearing code.
+2. Write findings to `review-2026/<section>.md` — concrete, file:line cited. (NB: `docs/` is gitignored — the review lives at repo-root `review-2026/`.)
+3. Update this checklist, commit to the review branch.
+4. Note security/bug/perf leads inline in each section; the synthesis pass collects them.
+
+## Sections
+
+- [x] **servers** — DONE → `servers.md`. Headline: ~90 web routes on `app` have NO auth/authz (caller asserts own userID); the `/api` router is correctly gated. Legacy server.js is fully dead (delete it). Several concrete bugs found (missing `/` in spectrogram delete path; api permission query compares Google sub vs Mongo _id).
+- [ ] **data-model** — src/js/classes.ts, src/ts/model/, shared/, server/classes.ts: class hierarchy, serialization, duplication between the three copies → `data-model.md`
+- [ ] **renderer** — src/comps/editor/renderer/ (TranscriptionLayer.vue 8k lines, Renderer.vue, SpectrogramLayer.vue): layer stack, watcher-driven jank, reduced-motion/block-mode paths, WebGL-consolidation verdict → `renderer.md`
+- [ ] **editor-core** — EditorComponent.vue + editor panels: state management, interaction model, polyphonic string coordination → `editor-core.md`
+- [ ] **audio** — audioPlayer/, audioWorklets/, synths/: Web Audio graph, synthesis engines, playhead position flow, spectrogram loading → `audio.md`
+- [ ] **frontend-other** — analysis/, files/, collections/, audioRecordings/, router, serverCalls.ts: client API surface, auth guards, state patterns → `frontend-other.md`
+- [ ] **python-pipeline** — python/ (visualization, dataManagement, mass_upload, backups): invocation paths, deploy fragility, dependency-manifest sprawl → `python-pipeline.md`
+- [ ] **python-api** — ../Python-API repo: data-class parity with TS model, serialization sync status, shared-backend requirements → `python-api.md`
+- [ ] **infra** — package.json scripts, CI workflows, test coverage map, repo hygiene (root cruft, tracked files that shouldn't be) → `infra.md`
+- [ ] **synthesis** — final report: prioritized findings (critical security → bugs → perf → hygiene), modernization roadmap (backend unification, renderer rewrite, AI-pipeline readiness), open PR → `REPORT.md`
+
+## Usage notes
+- Sitting #1 (servers) is the calibration run — measure window cost before deciding whether to add subagent parallelism for later sections.
+- A 10-agent parallel workflow attempt on 2026-06-11 burned ~30% of a usage window in minutes and was killed; avoid full-file fan-out reads.
