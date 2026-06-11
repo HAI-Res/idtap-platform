@@ -216,9 +216,15 @@ WebGL), and selection styling/accessibility.
 
 **Do these five surgical fixes first** (address both motion-safety and jank, near-zero
 rewrite risk):
-1. Make reduced-motion a **real per-user setting + `prefers-reduced-motion`**, replacing
-   the userID hardcodes (`EditorComponent.vue:895`, `Renderer.vue:874`); default
-   sensitive users to `Block`.
+1. Make reduced-motion a **real per-user setting + `prefers-reduced-motion`**, generalizing
+   beyond the userID hardcodes (`EditorComponent.vue:895`, `Renderer.vue:874`); default
+   sensitive users to `Block`. **HARD CONSTRAINT (owner): the current behavior works for Jon
+   and must not regress.** This change must be purely *additive* — keep Jon's exact current
+   experience (Block playhead + the wheel/touch suppression his userID triggers) byte-for-byte.
+   Safest implementation: leave the existing userID path in place and add the general setting
+   alongside it, or make the new setting default to precisely Jon's current values for his
+   account, verified by him before the userID branch is removed. Do not "clean up" the
+   hardcode by deleting it until the replacement is confirmed equivalent for him.
 2. (Revised per owner feedback) `DottedLine`'s opacity fade is acceptable to Jon, so
    it need not be made static for accessibility — but stop it self-rescheduling when
    idle (`:1939`) to avoid the wasted 60fps loop. The accessibility line is specifically

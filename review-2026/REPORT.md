@@ -135,10 +135,15 @@ already in `apiRoutes.ts`; lock CORS to the real origin. This both fixes C1 and 
 groundwork for backend unification. Do it before any public relaunch or AI-pipeline exposure.
 
 **Phase 2 — Editor safety & the reduced-motion fixes (1–2 weeks).**
-Add an edit-history/undo stack and a debounced autosave (H2). Ship the five renderer fixes:
-a real reduced-motion user setting + `prefers-reduced-motion`, throttle the playback highlight
-watcher, fix the unmount leaks. Fix the polyphonic string-sync bugs (H3). This is the phase that
-most improves *your* daily use.
+Add an edit-history/undo stack and a debounced autosave (H2). Ship the renderer fixes —
+**but with a hard constraint: the current reduced-motion setup already works for Jon and must
+not regress.** Generalizing it into a real user setting + `prefers-reduced-motion` must be
+*additive*, preserving Jon's exact current behavior (Block playhead + his wheel/touch
+suppression); do not remove the userID hardcode until the replacement is confirmed equivalent
+for him. The genuinely safe, independent wins here are: throttle the playback highlight
+watcher and fix the unmount leaks (neither touches his motion experience). Fix the polyphonic
+string-sync bugs (H3). This is the phase that most improves *your* daily use — without
+changing what already works.
 
 **Phase 3 — Unify the model contract (2–4 weeks).**
 Delete TS copy A. Promote the stripped-serialization rules to a **canonical JSON Schema** that
