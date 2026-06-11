@@ -70,14 +70,18 @@ behind the `/api` auth middleware (or an equivalent), and port the permission
 checks that already exist in `apiRoutes.ts`.** A lot of the hard work is already
 written — it just isn't applied to the surface real users hit.
 
-> Caveat worth stating plainly: I'm reading this statically. It's conceivable
-> there's a network-layer protection (firewall, reverse-proxy auth, the box only
-> being reachable from certain origins) that I can't see from the code. **Please
-> confirm how `137.184.90.119:3000` is exposed.** CORS is `origin: '*'`
-> (`server.ts:168`), which strongly suggests the endpoint is meant to be reachable
-> from browsers generally, i.e. no proxy auth. If the only thing standing between
-> the public internet and `/oneTranscription` is obscurity, that should be treated
-> as an active incident, not a backlog item.
+> **EXPOSURE CONFIRMED (2026-06-11):** Checked the production nginx config
+> (`/etc/nginx/sites-enabled/default`, read-only). Both server blocks use a single
+> `location / { proxy_pass http://localhost:3000; }` with **no `auth_basic`,
+> `auth_request`, `allow`/`deny`, or path filtering**. nginx (certbot-managed) only
+> terminates TLS and forwards every path to the app. Therefore the routes below are
+> publicly reachable at `https://swara.studio/<route>`. Worse: the port-80
+> `default_server` block (`server_name _`) proxies *any* host — including the bare
+> IP — to `:3000` with **no HTTPS redirect**, so `http://137.184.90.119/oneTranscription`
+> reaches the same unauthenticated route over plaintext HTTP. CORS is also `origin: '*'`
+> (`server.ts:168`). The earlier "maybe a proxy protects it" hedge is closed: it does
+> not. This is a live, unauthenticated, internet-reachable mutation/read surface and
+> should be treated as an active incident, not a backlog item.
 
 ### C2. NoSQL-injection / type-confusion on `_id` and query fields
 Many routes pass caller-controlled values straight into `new ObjectId(...)` or into
