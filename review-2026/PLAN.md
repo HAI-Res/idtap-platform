@@ -16,7 +16,7 @@ per sitting) so it survives across sessions and usage windows.
 ## Sections
 
 - [x] **servers** — DONE → `servers.md`. Headline: ~90 web routes on `app` have NO auth/authz (caller asserts own userID); the `/api` router is correctly gated. Legacy server.js is fully dead (delete it). Several concrete bugs found (missing `/` in spectrogram delete path; api permission query compares Google sub vs Mongo _id).
-- [ ] **data-model** — src/js/classes.ts, src/ts/model/, shared/, server/classes.ts: class hierarchy, serialization, duplication between the three copies → `data-model.md`
+- [x] **data-model** — DONE → `data-model.md`. Headline: TWO model copies (old `src/js/classes.ts` vs new `src/ts/model/`); BOTH frontend and deployed server bundle use the NEW one (verified against extract.js), so cross-model drift is LATENT not live — but copy A is a landmine (no fromJSON, would silently default non-ET pitches if ever repointed). Delete copy A. LIVE bug: Trajectory.instrumentation not restored on load → vocal reloads as Sitar. Deserialization boundary fully `any`-typed, server tsconfig strict:false. Shared-backend obstacle = the fork + no validated serialization schema across frontend/Node/Python.
 - [ ] **renderer** — src/comps/editor/renderer/ (TranscriptionLayer.vue 8k lines, Renderer.vue, SpectrogramLayer.vue): layer stack, watcher-driven jank, reduced-motion/block-mode paths, WebGL-consolidation verdict → `renderer.md`
 - [ ] **editor-core** — EditorComponent.vue + editor panels: state management, interaction model, polyphonic string coordination → `editor-core.md`
 - [ ] **audio** — audioPlayer/, audioWorklets/, synths/: Web Audio graph, synthesis engines, playhead position flow, spectrogram loading → `audio.md`
