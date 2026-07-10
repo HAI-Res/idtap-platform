@@ -35,8 +35,10 @@ sa = float(sys.argv[2])
 
 
 
-# path_to_audio = './../audio'
-path_to_audio = './audio'
+# Media base dir. Defaults to CWD (byte-identical to './audio' etc.); the Node
+# server sets IDTAP_MEDIA_ROOT on the new box.
+MEDIA_ROOT = os.environ.get('IDTAP_MEDIA_ROOT', '.')
+path_to_audio = os.path.join(MEDIA_ROOT, 'audio')
 # process = psutil.Process(os.getpid())
 full_path = path_to_audio + '/wav/' + file_id + '.wav'
 if len(sys.argv) > 3:
@@ -81,7 +83,7 @@ for i in range(4):
 max_size = 16383
 cmap = 'magma'
 # cmap='gray'
-folder_path = 'spectrograms/' + file_id
+folder_path = os.path.join(MEDIA_ROOT, 'spectrograms', file_id)
 
 if len(sys.argv) > 3:
     cmap = 'gray'

@@ -70,11 +70,15 @@ def make_spec_data(file_path, output_dir):
 # if main
 if __name__ == '__main__':
     rec_id = sys.argv[1]
-    path_to_audio = os.path.join(os.path.dirname(__file__), 'audio')
+    # Media base dir. Defaults to the previous __file__ location (byte-identical,
+    # preserving the original same-dir quirk); the Node server sets
+    # IDTAP_MEDIA_ROOT on the new box, unifying this with the other scripts.
+    MEDIA_ROOT = os.environ.get('IDTAP_MEDIA_ROOT') or os.path.dirname(__file__)
+    path_to_audio = os.path.join(MEDIA_ROOT, 'audio')
     print(path_to_audio)
     path_to_wav = os.path.join(path_to_audio, 'wav')
     file_path = os.path.join(path_to_wav, rec_id + '.wav')
-    path_to_spec_data = os.path.join(os.path.dirname(__file__), 'spec_data')
+    path_to_spec_data = os.path.join(MEDIA_ROOT, 'spec_data')
     out_dir = os.path.join(path_to_spec_data, rec_id)
     if not os.path.exists(out_dir):
         os.makedirs(out_dir)

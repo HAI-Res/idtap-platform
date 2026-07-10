@@ -41,7 +41,10 @@ result = client['swara']['audioEvents'].aggregate([
 
 ids = result.next()['all']
 
-path_to_audio = './audio'
+# Media base dir. Defaults to CWD (byte-identical to './audio'); the Node server
+# sets IDTAP_MEDIA_ROOT on the new box.
+MEDIA_ROOT = os.environ.get('IDTAP_MEDIA_ROOT', '.')
+path_to_audio = os.path.join(MEDIA_ROOT, 'audio')
 mp3s = os.listdir(path_to_audio + '/mp3')
 wavs = os.listdir(path_to_audio + '/wav')
 for mp3 in mp3s:
