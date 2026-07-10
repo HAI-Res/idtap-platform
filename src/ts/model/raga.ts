@@ -89,21 +89,26 @@ class Raga {
 	this.ruleSet = ruleSet;
 	this.fundamental = fundamental;
 	this.tuning = tuning ? tuning : etTuning;
-	if (ratios === undefined || ratios.length !== this.ruleSetNumPitches)  {
+	// PROP-1/RAGA-2: preserve provided (transcription) ratios — never regenerate
+	// and discard them on a count mismatch. Only generate when none are given.
+	if (ratios === undefined) {
 	  this.ratios = this.setRatios(this.ruleSet)
 	} else {
 	  this.ratios = ratios
 	}
 
-	// set tuning from ratios
-	this.ratios.forEach((ratio, rIdx) => {
-	  const tuningKeys = this.ratioIdxToTuningTuple(rIdx);
-	  if (tuningKeys[0] === 'sa' || tuningKeys[0] === 'pa') {
-		this.tuning[tuningKeys[0]] = ratio
-	  } else {
-		(this.tuning[tuningKeys[0]] as NumObj)[tuningKeys[1]!] = ratio
-	  }
-	})
+	// set tuning from ratios — only when they match the rule-set structure
+	// (otherwise ratioIdxToTuningTuple would index past the mapping).
+	if (this.ratios.length === this.ruleSetNumPitches) {
+	  this.ratios.forEach((ratio, rIdx) => {
+		const tuningKeys = this.ratioIdxToTuningTuple(rIdx);
+		if (tuningKeys[0] === 'sa' || tuningKeys[0] === 'pa') {
+		  this.tuning[tuningKeys[0]] = ratio
+		} else {
+		  (this.tuning[tuningKeys[0]] as NumObj)[tuningKeys[1]!] = ratio
+		}
+	  })
+	}
   }
 
   get sargamLetters() {
@@ -496,6 +501,9 @@ class Raga {
           fundamental: this.fundamental,
           ratios: this.ratios,
           tuning: this.tuning,
+          // PROP-1: serialize the ruleSet so the raga is self-contained (no
+          // load-time DB fetch to interpret the piece).
+          ruleSet: this.ruleSet,
         }
   }
 

@@ -1387,6 +1387,16 @@ class Piece {
     const fundamental = raga.fundamental;
     obj.raga = raga;
 
+    // PROP-2: normalize dates to real Date objects (handles ISO strings and
+    // legacy Mongo extended-JSON {$date}), so toJSON emits ISO-8601 UTC and never
+    // leaks {$date} to the wire.
+    const normDate = (d: any): Date =>
+      d instanceof Date ? d
+        : (d && typeof d === 'object' && '$date' in d) ? new Date(d.$date)
+        : new Date(d);
+    if (obj.dateCreated !== undefined) obj.dateCreated = normDate(obj.dateCreated);
+    if (obj.dateModified !== undefined) obj.dateModified = normDate(obj.dateModified);
+
     if (obj.phraseGrid === undefined && obj.phrases !== undefined) {
       obj.phraseGrid = [obj.phrases];
       while (obj.phraseGrid.length < obj.instrumentation.length) {
