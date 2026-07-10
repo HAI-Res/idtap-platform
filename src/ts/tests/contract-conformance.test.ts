@@ -16,7 +16,17 @@ import { Pitch, Raga, Trajectory, Phrase, Piece } from '../model';
 const CONTRACT = process.env.IDTAP_CONTRACT_DIR
   || path.resolve(process.cwd(), '..', 'idtap-contract');
 
+// The fixtures live in the (private) sibling idtap-contract repo. When it isn't
+// present — e.g. a plain `pnpm test` in CI without the contract checkout — degrade
+// gracefully to zero fixtures so this file doesn't error out the whole suite. A
+// dedicated conformance job sets REQUIRE_CONTRACT=1 to hard-fail if they're missing
+// (see the guard at the bottom).
+const HAVE_CONTRACT = (() => {
+  try { readdirSync(path.join(CONTRACT, 'fixtures')); return true; } catch { return false; }
+})();
+
 function fixtures(entity: string): { name: string; fx: any }[] {
+  if (!HAVE_CONTRACT) return [];
   const dir = path.join(CONTRACT, 'fixtures', entity);
   return readdirSync(dir)
     .filter(f => f.endsWith('.json') && f !== 'index.json')

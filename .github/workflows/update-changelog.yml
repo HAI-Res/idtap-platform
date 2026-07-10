@@ -44,6 +44,12 @@ jobs:
   build-deploy:
     needs: update-changelog
     runs-on: ubuntu-latest
+    # FROZEN during the MIT-infra migration: this job rsyncs the built frontend to the
+    # DigitalOcean production server (137.184.90.119). It is gated OFF until cutover so
+    # merges to main do NOT touch prod. To re-enable at switchover, set the repository
+    # variable ENABLE_PROD_DEPLOY = 'true' (Settings → Secrets and variables → Actions →
+    # Variables). No logic was removed — only gated.
+    if: ${{ vars.ENABLE_PROD_DEPLOY == 'true' }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v3
