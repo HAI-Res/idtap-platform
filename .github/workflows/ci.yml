@@ -17,6 +17,12 @@ jobs:
         with:
           fetch-depth: 1
 
+      - name: Checkout idtap-contract (golden fixtures)
+        uses: actions/checkout@v4
+        with:
+          repository: jon-myers/idtap-contract
+          path: idtap-contract
+
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
@@ -33,6 +39,11 @@ jobs:
         continue-on-error: true
 
       - name: Run tests
+        # REQUIRE_CONTRACT=1 makes the contract-conformance suite hard-fail if the
+        # fixtures checkout above is missing (instead of silently skipping).
+        env:
+          IDTAP_CONTRACT_DIR: ${{ github.workspace }}/idtap-contract
+          REQUIRE_CONTRACT: '1'
         run: pnpm test
 
       - name: Build project

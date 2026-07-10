@@ -112,3 +112,12 @@ describe('piece conformance', () => {
     });
   }
 });
+
+// When CI sets REQUIRE_CONTRACT=1, the idtap-contract fixtures MUST be present — fail
+// loudly if the checkout is missing rather than silently skipping every case above.
+describe('contract fixtures availability', () => {
+  it.runIf(process.env.REQUIRE_CONTRACT === '1')(
+    'idtap-contract fixtures are present (REQUIRE_CONTRACT=1)',
+    () => { expect(HAVE_CONTRACT).toBe(true); },
+  );
+});
