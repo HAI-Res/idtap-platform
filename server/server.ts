@@ -200,7 +200,10 @@ const webAddress = 'swara.f5cuf.mongodb.net/swara';
 const password = process.env.PASSWORD;
 const username = process.env.USER_NAME;
 const login = `srv://${username}:${password}`;
-const uri = `mongodb+${login}@${webAddress}?${settings}`;
+// MONGO_URI overrides the Atlas connection (e.g. the CSAIL box's local mongod:
+// mongodb://127.0.0.1:27017). Unset => build the Atlas srv URI from USER_NAME/PASSWORD
+// exactly as before, so the DigitalOcean deploy is unaffected. db name stays `swara`.
+const uri = process.env.MONGO_URI || `mongodb+${login}@${webAddress}?${settings}`;
 
 const runServer = async () => {
   try {
