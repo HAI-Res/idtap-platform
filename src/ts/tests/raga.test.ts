@@ -220,6 +220,8 @@ test('defaultRaga', () => {
     fundamental: 261.63,
     ratios: baseRatios,
     tuning: baseTuning,
+    // PROP-1: ruleSet is now serialized (self-contained raga)
+    ruleSet: yamanRuleSet,
   };
   expect(r.toJSON()).toEqual(json_obj);
 })
