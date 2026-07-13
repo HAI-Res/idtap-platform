@@ -1,0 +1,52 @@
+# IDTAP Node server — systemd unit (replaces the old ts-node-under-nodemon-in-tmux).
+# Install: copy to /etc/systemd/system/idtap.service, `systemctl daemon-reload`,
+#          `systemctl enable --now idtap`. Logs: `journalctl -u idtap -f`.
+#
+# Runs as jonmyers so it can read/write the lab NFS media dir (same pattern proven
+# by the idtap-mongo-backup service). Explicit-restart deploy model: build → rsync
+# dist/ → `systemctl restart idtap` (no nodemon).
+#
+# TODO(A2) markers = decisions to finalize when the deploy actually happens (this is
+# gated on the model-conformance work landing first).
+
+[Unit]
+Description=IDTAP Node server (Express + API)
+After=network-online.target mongod.service
+Wants=network-online.target
+Requires=mongod.service
+
+[Service]
+Type=simple
+User=jonmyers
+Group=jonmyers
+
+# WorkingDirectory MUST be the dir that contains the Python scripts
+# (process_audio.py, visualization_scripts/, ...) AND the built server (dist/) +
+# frontend (dist/), because the app spawns Python by bare name / ./visualization_scripts.
+WorkingDirectory=/opt/idtap/app                      # TODO(A2): finalize app layout
+
+# Google OAuth secrets — copy from DO /root/.env (GOOGLE_CLIENT_ID,
+# GOOGLE_CLIENT_SECRET, VUE_APP_GOOGLE_CLIENT_ID). Do NOT commit this file.
+EnvironmentFile=/opt/idtap/app/.env                  # TODO(A2)
+
+# Media on the backed-up NFS (A1's knob) + the audio venv interpreter.
+Environment=IDTAP_MEDIA_ROOT=/data/hai-res/shared/idtap/media
+Environment=IDTAP_PYTHON_PATH=/opt/idtap/audio-venv/bin/python   # TODO(A2): venv must be
+#   readable/executable by jonmyers — the current ~/audio-venv is under /home/ubuntu
+#   (mode 700), so move/copy it somewhere jonmyers can exec (e.g. /opt/idtap/audio-venv),
+#   and remember it needs pymongo (see openstack-migration-plan memory).
+
+# node must be an absolute path usable by jonmyers. The nvm node under /home/ubuntu
+# is NOT accessible to jonmyers — install a system Node 20 (e.g. /usr/bin/node) or
+# place a shared node under /opt.
+ExecStart=/usr/bin/node dist/server.js               # TODO(A2): system Node 20
+
+Restart=always
+RestartSec=3
+
+# NOTE: local Mongo currently has NO auth (bind 127.0.0.1 only). A4 will enable
+# auth and add the connection creds (server builds the URI from USER_NAME/PASSWORD
+# env — set them here, or repoint server.ts at the local instance).
+
+[Install]
+WantedBy=multi-user.target

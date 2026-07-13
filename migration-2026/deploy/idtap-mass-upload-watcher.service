@@ -1,0 +1,28 @@
+# IDTAP mass-upload directory watcher — systemd unit.
+# Replaces the second DO tmux session (`mass_uploads_watcher` running
+# directory_watcher.py). Ingests audio dropped into a watched folder.
+# Install: /etc/systemd/system/idtap-mass-upload-watcher.service, then
+#          `systemctl daemon-reload && systemctl enable --now idtap-mass-upload-watcher`.
+
+[Unit]
+Description=IDTAP mass-upload directory watcher
+After=network-online.target mongod.service idtap.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=jonmyers
+Group=jonmyers
+WorkingDirectory=/opt/idtap/app                      # TODO(A2): same app dir as idtap.service
+EnvironmentFile=/opt/idtap/app/.env                  # TODO(A2): needs Mongo/USER_NAME+PASSWORD once A4 lands
+Environment=IDTAP_MEDIA_ROOT=/data/hai-res/shared/idtap/media
+
+# directory_watcher.py lives under python/mass_upload/. Confirm the exact path +
+# any watched-dir argument it expects when wiring this up in A2.
+ExecStart=/opt/idtap/audio-venv/bin/python mass_upload/directory_watcher.py   # TODO(A2)
+
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

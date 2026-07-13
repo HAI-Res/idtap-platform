@@ -183,9 +183,11 @@ until 2029.
 - **New-instance boot:** SSH `Connection refused` for ~1–2 min after launch is just boot/cloud-init; wait. (ICMP ping stays blocked — normal.)
 
 ### Phase 1 — Thin vertical slice on OpenStack (de-risk the infra)
-- [ ] Attach a **Cinder volume**, mount at `/var/lib/mongodb`.
-- [ ] Install **MongoDB** (self-hosted), migrate a sample DB via `mongodump`/`mongorestore`
-      from Atlas.
+- [x] Attach a **Cinder volume**, mount at `/var/lib/mongodb`. (done)
+- [x] Install **MongoDB** (self-hosted), migrate DB via `mongodump`/`mongorestore` from Atlas.
+      **DONE 2026-07-10** — full `swara` DB copied point-in-time (16/16 collections match,
+      1598 docs, 0 failed) into local Mongo (`127.0.0.1`). Atlas read-only; DO box untouched.
+      ⚠️ Snapshot only — re-dump the delta at final cutover; enable Mongo auth before public exposure.
 - [ ] Confirm CSAIL **object-storage API** (S3 vs Swift); create a bucket/container;
       prove one upload + signed-URL download from both Node and Python.
 - [x] **Audio stack validated on Python 3.14 (2026-07-09) — the biggest risk, retired.**
@@ -286,8 +288,11 @@ NOT object storage.
 - **`idtap-contract`** as its own repo vs. a package in the monorepo dual-published?
   (leaning own-repo so the public Python client doesn't pull the whole platform)
 - **DNS / TLS:** who controls `swara.studio` DNS; cert strategy on the new box.
-- **Backups:** replicate the `/root/backups` daily `mongodump` cron; target = Cinder or
-  object storage.
+- ~~**Backups:** replicate the daily `mongodump` cron.~~ **RESOLVED 2026-07-10:** daily
+  `mongodump --gzip --archive` → backed-up NFS `/data/hai-res/shared/idtap/backups/mongo/`.
+  **GFS retention** (`prune_backups.py`): daily 14d → weekly 12w → monthly 24m → yearly
+  forever. systemd timer `idtap-mongo-backup.timer` runs the oneshot service as
+  `User=jonmyers`. Scripts + unit copies stashed on NFS (reimage-proof). Restore-verified.
 - Does CSAIL OpenStack impose **egress/firewall** limits that affect Google OAuth, PyPI,
   npm, or the MongoDB clients?
 
