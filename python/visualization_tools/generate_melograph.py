@@ -79,6 +79,6 @@ data_json = json.dumps(data_dict)
 
 folder_path = os.path.join(MEDIA_ROOT, 'melographs', file_id)
 if not os.path.exists(folder_path):
-  os.mkdir(folder_path)
+  os.makedirs(folder_path)  # makedirs, not mkdir: create the melographs/ parent too
 with open(folder_path + '/melograph.json', 'w') as f:
   f.write(data_json)
