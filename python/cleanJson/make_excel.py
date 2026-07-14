@@ -12,7 +12,7 @@ from bson import json_util
 
 username = os.environ.get('USER_NAME')
 password = os.environ.get('PASSWORD')
-query = "mongodb+srv://" + username + ":" + password + "@swara.f5cuf.mongodb.net/?retryWrites=true&w=majority"
+query = os.environ.get('MONGO_URI') or ("mongodb+srv://" + username + ":" + password + "@swara.f5cuf.mongodb.net/?retryWrites=true&w=majority")
 client = MongoClient(query)
 transcriptions = client['swara']['transcriptions']
 query = {'_id': ObjectId(sys.argv[1])}
