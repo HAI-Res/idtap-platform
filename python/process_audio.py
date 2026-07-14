@@ -26,7 +26,9 @@ def get_peaks(data, num_levels=4, block_size=64):
 
 username = os.environ.get('USER_NAME')
 password = os.environ.get('PASSWORD')
-query = "mongodb+srv://" + username + ":" + password + "@swara.f5cuf.mongodb.net/?retryWrites=true&w=majority"
+# MONGO_URI overrides the Atlas srv URI (e.g. the CSAIL box's local mongod). Unset
+# => Atlas from USER_NAME/PASSWORD as before, so the DigitalOcean box is unaffected.
+query = os.environ.get('MONGO_URI') or ("mongodb+srv://" + username + ":" + password + "@swara.f5cuf.mongodb.net/?retryWrites=true&w=majority")
 client = pymongo.MongoClient(query, server_api=ServerApi('1'))
 db = client.swara
 audio_events = db.audioEvents
