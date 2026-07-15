@@ -1,4 +1,5 @@
-const url = 'https://swara.studio/';
+import { SERVER_BASE } from '@/config';
+const url = SERVER_BASE;
 import axios from 'axios';
 import { AxiosProgressEvent } from 'axios';
 import fetch from 'cross-fetch';
@@ -1785,7 +1786,7 @@ const getAllUsers = async () => {
 const getMelographJSON = async (recID: string): Promise<MelographData> => {
   let out;
   try {
-    const url = `https://swara.studio/melographs/${recID}/melograph.json`;
+    const url = `${SERVER_BASE}melographs/${recID}/melograph.json`;
     const response = await fetch(url);
     if (response.ok) {
       out = await response.json()

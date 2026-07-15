@@ -93,7 +93,7 @@
             v-if='processingDone'
             ref='audio'
             >
-            <source :src='`https://swara.studio/audio/mp3/${audioFileId}.mp3`'>
+            <source :src='`${SERVER_BASE}audio/mp3/${audioFileId}.mp3`'>
         </audio>
         </div>
       </div>
@@ -104,7 +104,7 @@
             controls 
             ref='audio'
             >
-            <source :src='`https://swara.studio/audio/mp3/${audioFileId}.mp3`'>
+            <source :src='`${SERVER_BASE}audio/mp3/${audioFileId}.mp3`'>
           </audio>
         </div>
 
@@ -401,6 +401,7 @@
 
 <script lang="ts">
 import { defineComponent, PropType } from 'vue';
+import { SERVER_BASE } from '@/config';
 import { 
   getAllAEMetadata, 
   newUploadFile,
