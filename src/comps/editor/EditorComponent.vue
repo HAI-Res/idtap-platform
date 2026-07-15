@@ -353,6 +353,7 @@ const leadingZeros = (int: number) => {
     return String(int)
   }
 }
+import { SERVER_BASE } from '@/config';
 import {
   Piece,
   Phrase,
@@ -933,8 +934,8 @@ export default defineComponent({
       if (piece.audioID) {
         this.excerptRange = piece.excerptRange;
         this.audioSource = this.browser.name === 'safari' ?
-          `https://swara.studio/audio/mp3/${piece.audioID}.mp3` :
-          `https://swara.studio/audio/opus/${piece.audioID}.opus`;        
+          `${SERVER_BASE}audio/mp3/${piece.audioID}.mp3` :
+          `${SERVER_BASE}audio/opus/${piece.audioID}.opus`;        
         this.audioDBDoc = await getAudioRecording(piece.audioID);
         this.melographJSON = await getMelographJSON(piece.audioID);
         this.durTot = this.audioDBDoc!.duration;

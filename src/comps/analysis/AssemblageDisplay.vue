@@ -72,7 +72,8 @@
 
 <script lang="ts">
 
-import { 
+import { SERVER_BASE } from '@/config';
+import {
   defineComponent, 
   computed, 
   ref, 
@@ -410,8 +411,8 @@ export default defineComponent({
       audioContext.value = new AudioContext();
       
       const audioSource = browser.name === 'safari' ? 
-        `https://swara.studio/audio/mp3/${audioID}.mp3` :
-        `https://swara.studio/audio/opus/${audioID}.opus`;
+        `${SERVER_BASE}audio/mp3/${audioID}.mp3` :
+        `${SERVER_BASE}audio/opus/${audioID}.opus`;
       
       await loadAudio(audioSource);
     });

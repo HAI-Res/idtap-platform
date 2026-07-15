@@ -1,4 +1,5 @@
 import * as d3CMap from 'd3-scale-chromatic';
+import { SERVER_BASE } from '@/config';
 import { CMap } from '@shared/types';
 import { rgb, RGBColor } from 'd3-color';
 import ndarray, { NdArray } from 'ndarray';
@@ -263,7 +264,7 @@ const initialize = async (
     start: number,
     end: number,
   ) => {
-  const dir = 'https://swara.studio/spec_data/';
+  const dir = `${SERVER_BASE}spec_data/`;
   const dataUrl = dir + audioID + '/spec_data.gz';
   const shapeUrl = dir + audioID + '/spec_shape.json';
   try {

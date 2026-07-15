@@ -73,6 +73,7 @@
 
 <script lang='ts'>
 import { defineComponent } from 'vue';
+import { SERVER_BASE } from '@/config';
 import AudioPlayer from '@/comps/audioRecordings/ARAudioPlayer.vue';
 import ContextMenu from '@/comps/ContextMenu.vue';
 import UploadRecording from '@/comps/audioRecordings/UploadRecording.vue';
@@ -404,7 +405,7 @@ export default defineComponent({
           const nextElem = document.getElementById(`row${nextUnmapped}`);
           if (nextElem) nextElem.classList.add('playingRec');
           const id = this.activeRecording!._id;
-          this.audioSource = `Https://swara.studio/audio/mp3/${ id }.mp3`;
+          this.audioSource = `${SERVER_BASE}audio/mp3/${ id }.mp3`;
         } else {
           // randomly choose from the list of presently displayed items
           const idx = Math.floor(Math.random() * ft.itemIdxMapping.length);
@@ -413,7 +414,7 @@ export default defineComponent({
           const nextElem = document.getElementById(`row${idx}`);
           if (nextElem) nextElem.classList.add('playingRec');
           const id = this.activeRecording!._id;
-          this.audioSource = `Https://swara.studio/audio/mp3/${ id }.mp3`;
+          this.audioSource = `${SERVER_BASE}audio/mp3/${ id }.mp3`;
 
         }
       } else {
@@ -424,7 +425,7 @@ export default defineComponent({
           const nextElem = document.getElementById(`row${idx}`);
           if (nextElem) nextElem.classList.add('playingRec');
           const id = this.activeRecording!._id;
-          this.audioSource = `Https://swara.studio/audio/mp3/${ id }.mp3`;
+          this.audioSource = `${SERVER_BASE}audio/mp3/${ id }.mp3`;
         } else {
           
           const idx = Math.floor(Math.random() * ft.itemIdxMapping.length);
@@ -433,7 +434,7 @@ export default defineComponent({
           const nextElem = document.getElementById(`row${idx}`);
           if (nextElem) nextElem.classList.add('playingRec');
           const id = this.activeRecording!._id;
-          this.audioSource = `Https://swara.studio/audio/mp3/${ id }.mp3`;
+          this.audioSource = `${SERVER_BASE}audio/mp3/${ id }.mp3`;
         }
       }
     },
@@ -907,7 +908,7 @@ export default defineComponent({
       const ft = this.$refs.filterableTable as typeof FilterableTable;
       const unmappedIdx = ft.itemIdxMapping[rowIdx];
       this.playingItemId = unmappedIdx;
-      this.audioSource = `Https://swara.studio/audio/mp3/${audioFileId}.mp3`;
+      this.audioSource = `${SERVER_BASE}audio/mp3/${audioFileId}.mp3`;
       this.activeRecording = recording;
     },
 
