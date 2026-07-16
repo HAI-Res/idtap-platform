@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - main
+  # Manual re-deploy to the CSAIL box without a code push (e.g. after a box-side
+  # change). Runs the same build-deploy job on the self-hosted runner.
+  workflow_dispatch:
 
 # Serialize deploys so two quick pushes can't race on /opt/idtap/app.
 concurrency:
