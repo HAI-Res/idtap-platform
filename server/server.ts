@@ -17,6 +17,11 @@ import 'dotenv/config';
 import { $push } from 'mongo-dot-notation';
 import apiRoutes from './apiRoutes';
 import oauthRoutes from './oauthRoutes';
+import authRoutes from './authRoutes';
+import cookieParser from 'cookie-parser';
+import {
+  verifySession, signSession, sessionCookieOptions, SESSION_COOKIE, SESSION_TTL_SECONDS,
+} from './session';
 
 import { mediaPath, PYTHON_PATH, UPLOAD_TMP_DIR, pythonEnv } from './mediaConfig';
 
@@ -164,7 +169,14 @@ app.use(fileUpload({
   abortOnLimit: false
 }))
 app.use(history({
-  htmlAcceptHeaders: ['text/html']
+  htmlAcceptHeaders: ['text/html'],
+  // Don't SPA-rewrite the server-handled auth/session endpoints. /auth/callback in
+  // particular is a top-level browser navigation (Accept: text/html) that would
+  // otherwise be swallowed into index.html. Rewrite them to themselves (path + query
+  // preserved) so they fall through to the real route handlers.
+  rewrites: [
+    { from: /^\/(auth|session)\//, to: ({ parsedUrl }: any) => parsedUrl.pathname + (parsedUrl.search || '') },
+  ],
 }) as unknown as express.RequestHandler)
 
 app.use(cors({
@@ -181,6 +193,33 @@ app.use(bodyParser.urlencoded({
   extended: true
 }));
 app.use(morgan('dev'));
+
+app.set('trust proxy', 1);
+app.use(cookieParser());
+// Populate req.user from the `sid` session cookie on every request. NON-BLOCKING:
+// this only *identifies* the caller; per-route enforcement (401/403 + ownership
+// checks via shared/authz) is added in the handler sweep. Public routes keep working
+// logged-out (req.user simply stays undefined).
+app.use((req, res, next) => {
+  const token = (req as any).cookies?.[SESSION_COOKIE];
+  if (token) {
+    const s = verifySession(token);
+    if (s) {
+      (req as any).user = { id: s.sub, sub: s.sub, uid: s.uid, email: s.email, name: s.name };
+      // sliding session: re-issue once past half its lifetime so active users don't
+      // get logged out mid-session.
+      const nowSec = Math.floor(Date.now() / 1000);
+      if (s.exp - nowSec < SESSION_TTL_SECONDS / 2) {
+        res.cookie(
+          SESSION_COOKIE,
+          signSession({ sub: s.sub, uid: s.uid, email: s.email, name: s.name }),
+          sessionCookieOptions(),
+        );
+      }
+    }
+  }
+  next();
+});
 
 const apiTimeout = 600000;
 app.use((req, res, next) => {
@@ -263,6 +302,11 @@ const runServer = async () => {
         // OAuth routes for Python client (no auth middleware)
         const oauthRouter = oauthRoutes({ users }, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET);
         app.use('/oauth', oauthRouter);
+
+        // Web session auth (server-mediated OIDC + sid cookie): /auth/login,
+        // /auth/callback, /session/me, /session/logout.
+        const authRouter = authRoutes({ users, googleClientId: GOOGLE_CLIENT_ID, googleClientSecret: GOOGLE_CLIENT_SECRET });
+        app.use('/', authRouter);
 	  
 	app.post('/insertNewTranscription', async (req, res) => {
 	  // creates new transcription entry in transcriptions collection

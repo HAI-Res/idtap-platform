@@ -2192,8 +2192,23 @@ const getDNExtractExcel = async (id: string, options: DN_ExtractorOptions) => {
 }
 
 
-export { 
+// Current server session (from the httpOnly `sid` cookie). Returns the user doc when
+// logged in, or undefined on 401. The cookie rides along automatically (same-origin).
+const getSession = async (): Promise<any | undefined> => {
+  const response = await fetch(url + 'session/me', { credentials: 'same-origin' });
+  if (!response.ok) return undefined;
+  return response.json();
+};
+
+// Clear the server session (and thus the sid cookie).
+const logout = async (): Promise<void> => {
+  await fetch(url + 'session/logout', { method: 'POST', credentials: 'same-origin' });
+};
+
+export {
   getPiece,
+  getSession,
+  logout,
   savePiece,
   getAllPieces,
   createNewPiece,
