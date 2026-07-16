@@ -104,6 +104,9 @@ const deleteFiles = async (audioID: string) => {
   const mp3Path = mediaPath('audio', 'mp3', audioID + '.mp3');
   const wavPath = mediaPath('audio', 'wav', audioID + '.wav');
   const opusPath = mediaPath('audio', 'opus', audioID + '.opus');
+  // also reclaim the per-recording melograph + spec_data dirs (rm force = no-op if absent)
+  fs.rm(mediaPath('melographs', audioID), { recursive: true, force: true })
+  fs.rm(mediaPath('spec_data', audioID), { recursive: true, force: true })
   const peaksPathExists = await exists(peaksPath);
   const spectrogramsPathExists = await exists(spectrogramsPath);
   const mp3PathExists = await exists(mp3Path);
@@ -729,6 +732,8 @@ const runServer = async () => {
 		const mp3Path = mediaPath('audio', 'mp3', req.body._id + '.mp3');
 		const wavPath = mediaPath('audio', 'wav', req.body._id + '.wav');
 		const opusPath = mediaPath('audio', 'opus', req.body._id + '.opus');
+		fs.rm(mediaPath('melographs', req.body._id), { recursive: true, force: true })
+		fs.rm(mediaPath('spec_data', req.body._id), { recursive: true, force: true })
 		const peaksPathExists = await exists(peaksPath);
 		const spectrogramsPathExists = await exists(spectrogramsPath);
 		const mp3PathExists = await exists(mp3Path);
@@ -774,9 +779,7 @@ const runServer = async () => {
 		  console.log(result)
 		  // remove from peaks folder
 		  const peaksPath = mediaPath('peaks', recID + '.json');
-		  // NOTE: pre-existing bug preserved — original was `'spectrograms' + recID`
-		  // (missing slash), so this never matched a real dir. Kept as-is here; fix separately.
-		  const spectrogramsPath = mediaPath('spectrograms' + recID);
+		  const spectrogramsPath = mediaPath('spectrograms', recID);
 		  const mp3Path = mediaPath('audio', 'mp3', recID + '.mp3');
 		  const wavPath = mediaPath('audio', 'wav', recID + '.wav');
 		  const opusPath = mediaPath('audio', 'opus', recID + '.opus');
@@ -800,6 +803,8 @@ const runServer = async () => {
 		  if (opusPathExists) {
 			fs.unlink(opusPath)
 		  }
+		  fs.rm(mediaPath('melographs', recID), { recursive: true, force: true })
+		  fs.rm(mediaPath('spec_data', recID), { recursive: true, force: true })
 		})
 		const delResult = await audioEvents.deleteOne(query);
 		console.log(delResult)
