@@ -6,7 +6,10 @@ import json, sys, os
 
 file_id = sys.argv[1]
 sa = float(sys.argv[2])
-path_to_audio = './audio'
+# Media base dir. Defaults to CWD (byte-identical to './audio'); the Node server
+# sets IDTAP_MEDIA_ROOT on the new box.
+MEDIA_ROOT = os.environ.get('IDTAP_MEDIA_ROOT', '.')
+path_to_audio = os.path.join(MEDIA_ROOT, 'audio')
 full_path = path_to_audio + '/wav/' + file_id + '.wav'
 loader = ess.EasyLoader(filename = full_path, replayGain=0)
 
@@ -74,8 +77,8 @@ data_dict = {
 
 data_json = json.dumps(data_dict)
 
-folder_path = 'melographs/' + file_id
+folder_path = os.path.join(MEDIA_ROOT, 'melographs', file_id)
 if not os.path.exists(folder_path):
-  os.mkdir(folder_path)
+  os.makedirs(folder_path)  # makedirs, not mkdir: create the melographs/ parent too
 with open(folder_path + '/melograph.json', 'w') as f:
   f.write(data_json)

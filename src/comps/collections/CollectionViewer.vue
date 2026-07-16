@@ -67,6 +67,7 @@
 
 <script lang='ts'>
 import { defineComponent, PropType } from 'vue';
+import { SERVER_BASE } from '@/config';
 import { 
   CollectionType, 
   ContextMenuOptionType,
@@ -518,7 +519,7 @@ export default defineComponent({
 
     sendAudioSource(id: string, fromType: 'recording' | 'audioEvent') {
       this.playingFromType = fromType;
-      this.audioSource = `Https://swara.studio/audio/mp3/${ id }.mp3`;
+      this.audioSource = `${SERVER_BASE}audio/mp3/${ id }.mp3`;
     },
 
     emitNextTrack(shuffling: boolean, repeat: boolean) {

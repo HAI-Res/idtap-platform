@@ -26,7 +26,9 @@ def get_peaks(data, num_levels=4, block_size=64):
 
 username = os.environ.get('USER_NAME')
 password = os.environ.get('PASSWORD')
-query = "mongodb+srv://" + username + ":" + password + "@swara.f5cuf.mongodb.net/?retryWrites=true&w=majority"
+# MONGO_URI overrides the Atlas srv URI (e.g. the CSAIL box's local mongod). Unset
+# => Atlas from USER_NAME/PASSWORD as before, so the DigitalOcean box is unaffected.
+query = os.environ.get('MONGO_URI') or ("mongodb+srv://" + username + ":" + password + "@swara.f5cuf.mongodb.net/?retryWrites=true&w=majority")
 client = pymongo.MongoClient(query, server_api=ServerApi('1'))
 db = client.swara
 audio_events = db.audioEvents
@@ -38,7 +40,11 @@ objectId = sys.argv[2]
 recording_idx = sys.argv[3]
 recording_id = sys.argv[4]
 
-file_path = 'uploads/'
+# Base dir for all media I/O. Defaults to CWD (byte-identical to the previous
+# bare-relative paths); the Node server sets IDTAP_MEDIA_ROOT on the new box.
+MEDIA_ROOT = os.environ.get('IDTAP_MEDIA_ROOT', '.')
+
+file_path = os.path.join(MEDIA_ROOT, 'uploads') + os.sep
 
 split_f = path.split('.')
 suffix = split_f[-1]
@@ -68,9 +74,9 @@ if recording_id:
     update = { '$set': { dur_path: dur, sa_path: tonic_guess, verified_path: False } }
     audio_recordings.update_one(query, update, upsert=True)
 
-wav_path = 'audio/wav/' + file_name + '.wav'
-mp3_path = 'audio/mp3/' + file_name + '.mp3'
-opus_path = 'audio/opus/' + file_name + '.opus'
+wav_path = os.path.join(MEDIA_ROOT, 'audio', 'wav', file_name + '.wav')
+mp3_path = os.path.join(MEDIA_ROOT, 'audio', 'mp3', file_name + '.mp3')
+opus_path = os.path.join(MEDIA_ROOT, 'audio', 'opus', file_name + '.opus')
 sr = 44100
 
 if suffix == 'mp3':
@@ -90,5 +96,5 @@ else:
 
 
 peaks = get_peaks(audio, block_size=2**11, num_levels=5)
-with open('peaks/' + file_name + '.json', 'w') as outfile:
+with open(os.path.join(MEDIA_ROOT, 'peaks', file_name + '.json'), 'w') as outfile:
     json.dump(peaks, outfile)

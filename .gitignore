@@ -49,3 +49,4 @@ python/auto_transcribe/beeps/
 python/auto_transcribe/melodic_contours/*.png
 
 *egg-info
+server/build/

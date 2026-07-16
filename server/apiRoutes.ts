@@ -3,13 +3,12 @@ import { Collection, ObjectId } from 'mongodb';
 import { spawn } from 'child_process';
 import fileUpload from 'express-fileupload';
 
-// Python interpreter path - use Python 3.11 with uv-managed venv
-const PYTHON_PATH = '/opt/idtap-python/bin/python';
+import { mediaPath, PYTHON_PATH, pythonEnv } from './mediaConfig';
 
 // Function to run a Python script and return a Promise
 function runPythonScript(scriptPath: string, args: string[] = []): Promise<void> {
   return new Promise<void>((resolve, reject) => {
-    const pythonProcess = spawn(PYTHON_PATH, [scriptPath, ...args]);
+    const pythonProcess = spawn(PYTHON_PATH, [scriptPath, ...args], { env: pythonEnv() });
 
     pythonProcess.stdout.on('data', (data) => {
       console.log(`stdout from ${scriptPath}: ${data}`);
@@ -162,25 +161,27 @@ export default function apiRoutes(collections: Collections) {
       }
 
       // Generate and serve JSON data (same logic as original jsonData route)
+      const jsonOut = mediaPath('data', 'json', `${transcriptionId}.json`);
+      const xlsxOut = mediaPath('data', 'excel', `${transcriptionId}.xlsx`);
       const argvs = [
         'make_excel.py',
         transcriptionId,
-        `data/json/${transcriptionId}.json`,
-        `data/excel/${transcriptionId}.xlsx`
+        jsonOut,
+        xlsxOut
       ];
 
-      const pythonScript = spawn(PYTHON_PATH, argvs);
-      
+      const pythonScript = spawn(PYTHON_PATH, argvs, { env: pythonEnv() });
+
       pythonScript.stdout.on('data', data => {
         console.log(`stdout: ${data}`)
       });
-      
+
       pythonScript.stderr.on('data', data => {
         console.error(`stderr: ${data}`)
       });
-      
+
       pythonScript.on('close', () => {
-        res.download(`data/json/${transcriptionId}.json`);
+        res.download(jsonOut);
       });
 
     } catch (err) {
@@ -216,25 +217,27 @@ export default function apiRoutes(collections: Collections) {
       }
 
       // Generate and serve Excel data (same logic as original excelData route)
+      const jsonOut = mediaPath('data', 'json', `${transcriptionId}.json`);
+      const xlsxOut = mediaPath('data', 'excel', `${transcriptionId}.xlsx`);
       const argvs = [
         'make_excel.py',
         transcriptionId,
-        `data/json/${transcriptionId}.json`,
-        `data/excel/${transcriptionId}.xlsx`
+        jsonOut,
+        xlsxOut
       ];
 
-      const pythonScript = spawn(PYTHON_PATH, argvs);
-      
+      const pythonScript = spawn(PYTHON_PATH, argvs, { env: pythonEnv() });
+
       pythonScript.stdout.on('data', data => {
         console.log(`stdout: ${data}`)
       });
-      
+
       pythonScript.stderr.on('data', data => {
         console.error(`stderr: ${data}`)
       });
-      
+
       pythonScript.on('close', () => {
-        res.download(`data/excel/${transcriptionId}.xlsx`);
+        res.download(xlsxOut);
       });
 
     } catch (err) {
@@ -675,14 +678,14 @@ export default function apiRoutes(collections: Collections) {
       // Save the uploaded file
       const suffix = getSuffix(audioFile.mimetype);
       let filename = newId.toString() + suffix;
-      const uploadPath = './uploads/' + filename;
-      
+      const uploadPath = mediaPath('uploads', filename);
+
       await audioFile.mv(uploadPath);
 
       // Convert opus to wav if needed
       if (suffix === '.opus') {
         const newFilename = newId.toString() + '.wav';
-        const spawnArgs = ['-i', uploadPath, './uploads/' + newFilename];
+        const spawnArgs = ['-i', uploadPath, mediaPath('uploads', newFilename)];
         const convertProcess = spawn('ffmpeg', spawnArgs);
         
         convertProcess.stderr.on('data', data => {
@@ -698,7 +701,7 @@ export default function apiRoutes(collections: Collections) {
 
       // Process audio with Python script and wait for completion
       const processArgs = ['process_audio.py', filename, audioEventID, recIdx.toString(), newId.toString()];
-      const processAudio = spawn(PYTHON_PATH, processArgs);
+      const processAudio = spawn(PYTHON_PATH, processArgs, { env: pythonEnv() });
       
       processAudio.stderr.on('data', data => {
         console.error(`process_audio stderr: ${data}`);

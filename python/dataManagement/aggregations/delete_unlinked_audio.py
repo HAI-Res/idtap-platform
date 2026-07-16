@@ -5,7 +5,7 @@ import os
 
 username = os.environ.get('USER_NAME')
 password = os.environ.get('PASSWORD')
-query = "mongodb+srv://" + username + ":" + password + "@swara.f5cuf.mongodb.net/?retryWrites=true&w=majority"
+query = os.environ.get('MONGO_URI') or ("mongodb+srv://" + username + ":" + password + "@swara.f5cuf.mongodb.net/?retryWrites=true&w=majority")
 
 client = MongoClient(query)
 result = client['swara']['audioEvents'].aggregate([
@@ -41,7 +41,10 @@ result = client['swara']['audioEvents'].aggregate([
 
 ids = result.next()['all']
 
-path_to_audio = './audio'
+# Media base dir. Defaults to CWD (byte-identical to './audio'); the Node server
+# sets IDTAP_MEDIA_ROOT on the new box.
+MEDIA_ROOT = os.environ.get('IDTAP_MEDIA_ROOT', '.')
+path_to_audio = os.path.join(MEDIA_ROOT, 'audio')
 mp3s = os.listdir(path_to_audio + '/mp3')
 wavs = os.listdir(path_to_audio + '/wav')
 for mp3 in mp3s:

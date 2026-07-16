@@ -4,6 +4,14 @@ on:
   push:
     branches:
       - main
+  # Manual re-deploy to the CSAIL box without a code push (e.g. after a box-side
+  # change). Runs the same build-deploy job on the self-hosted runner.
+  workflow_dispatch:
+
+# Serialize deploys so two quick pushes can't race on /opt/idtap/app.
+concurrency:
+  group: deploy-csail
+  cancel-in-progress: false
 
 jobs:
   update-changelog:
@@ -33,46 +41,93 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git add src/CHANGELOG.md
-          # Only commit if there are changes
+          # Only commit if there are changes. [skip ci] so this bot commit does not
+          # trigger a second deploy + service restart.
           if ! git diff --cached --quiet; then
-            git commit -m "chore: update changelog"
+            git commit -m "chore: update changelog [skip ci]"
             git push
           else
             echo "No changes to commit."
           fi
-          
+
+  # Deploy to the CSAIL box (idtap.csail.mit.edu). This job runs on a self-hosted
+  # runner installed ON that box (label: idtap-csail), so it builds and installs
+  # locally — the CSAIL border firewall blocks inbound SSH from GitHub-hosted
+  # runners, and this sidesteps it with an outbound-only runner.
+  #
+  # NOTE: the old DigitalOcean prod (137.184.90.119) is intentionally no longer a
+  # deploy target. Do not re-add an rsync to it.
   build-deploy:
     needs: update-changelog
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, idtap-csail]
+    env:
+      APP_DIR: /opt/idtap/app
     steps:
       - name: Check out repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           ref: main
           fetch-depth: 0
           lfs: true
+
       - name: Set up Node.js
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
-          node-version: 22.9.0
+          node-version: '22.9.0'
+
       - name: Install pnpm
-        run: npm install -g pnpm
+        run: npm install -g pnpm@9.15.9
+
+      - name: Read frontend OAuth client ID from box .env
+        # The CSAIL Google client ID lives in the box .env (VUE_APP_GOOGLE_CLIENT_ID).
+        # Sourcing it here keeps the box as the single source of truth and guarantees
+        # the build never uses the old UCSC client ID. It is a public client ID, not
+        # a secret. .env is root-only, hence sudo (ubuntu has passwordless sudo).
+        run: |
+          CID=$(sudo -n grep -m1 '^VUE_APP_GOOGLE_CLIENT_ID=' "$APP_DIR/.env" | cut -d= -f2-)
+          if [ -z "$CID" ]; then
+            echo "::error::VUE_APP_GOOGLE_CLIENT_ID missing from $APP_DIR/.env"; exit 1
+          fi
+          echo "VITE_GOOGLE_CLIENT_ID=$CID" >> "$GITHUB_ENV"
+
       - name: Install dependencies
         run: pnpm install
-      - name: Build
+
+      - name: Build frontend (Vite)
         env:
-          VITE_GOOGLE_CLIENT_ID: ${{ secrets.VUE_APP_GOOGLE_CLIENT_ID }}
+          VITE_GOOGLE_CLIENT_ID: ${{ env.VITE_GOOGLE_CLIENT_ID }}
         run: pnpm run build
 
-      - name: Set up SSH agent
-        uses: webfactory/ssh-agent@v0.5.3
-        with:
-          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+      - name: Build server bundle (esbuild)
+        # Use the repo's own script (locally-installed esbuild via pnpm). Running
+        # `npx esbuild@x` inside the repo fails with EOVERRIDE because package.json
+        # pins an esbuild `overrides` entry that conflicts with npx's direct install.
+        run: pnpm run buildServer
 
-      - name: Add remote host to known_hosts
+      - name: Sync server runtime deps
+        # server.js is bundled with --packages=external, so its runtime deps must be
+        # present in the app dir. Keeping node_modules in sync with server/package.json
+        # prevents "module not found" crash-loops when a new dependency is introduced.
+        # The app dir is pnpm-managed (pnpm-lock.yaml + node_modules/.pnpm), so use
+        # pnpm, not npm — npm fights the pnpm layout. --no-frozen-lockfile lets the
+        # lockfile update when server/package.json changes; normally this is a no-op.
         run: |
-          mkdir -p ~/.ssh
-          ssh-keyscan -H 137.184.90.119 >> ~/.ssh/known_hosts
+          cp ./server/package.json "$APP_DIR/package.json"
+          cd "$APP_DIR" && pnpm install --prod --no-frozen-lockfile --prefer-offline
 
-      - name: Deploy Distribution
-        run: rsync -a ./dist/ root@137.184.90.119:dist
+      - name: Deploy build to app dir
+        run: |
+          rsync -a --delete ./dist/ "$APP_DIR/dist/"
+          cp ./server/build/server.js "$APP_DIR/server.js"
+
+      - name: Restart service
+        run: sudo -n systemctl restart idtap
+
+      - name: Health check
+        run: |
+          for i in $(seq 1 10); do
+            code=$(curl -s -m8 -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/getRagaNames || true)
+            if [ "$code" = "200" ]; then echo "healthy (HTTP 200)"; exit 0; fi
+            echo "attempt $i: HTTP $code, retrying..."; sleep 3
+          done
+          echo "::error::idtap did not return 200 after restart"; exit 1

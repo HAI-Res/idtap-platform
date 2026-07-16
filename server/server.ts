@@ -18,8 +18,7 @@ import { $push } from 'mongo-dot-notation';
 import apiRoutes from './apiRoutes';
 import oauthRoutes from './oauthRoutes';
 
-// Python interpreter path - use Python 3.11 with uv-managed venv
-const PYTHON_PATH = '/opt/idtap-python/bin/python';
+import { mediaPath, PYTHON_PATH, UPLOAD_TMP_DIR, pythonEnv } from './mediaConfig';
 
 // Load Google OAuth credentials from environment variables
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
@@ -78,7 +77,7 @@ async function exists (path: string) {
 // Function to run a Python script and return a Promise
 function runPythonScript(scriptPath: string, args: string[] = []): Promise<void> {
   return new Promise<void>((resolve, reject) => {
-	const pythonProcess = spawn(PYTHON_PATH, [scriptPath, ...args]);
+	const pythonProcess = spawn(PYTHON_PATH, [scriptPath, ...args], { env: pythonEnv() });
 
 	pythonProcess.stdout.on('data', (data) => {
 	  console.log(`stdout from ${scriptPath}: ${data}`);
@@ -100,11 +99,14 @@ function runPythonScript(scriptPath: string, args: string[] = []): Promise<void>
 }
 
 const deleteFiles = async (audioID: string) => {
-  const peaksPath = 'peaks/' + audioID + '.json';
-  const spectrogramsPath = 'spectrograms/' + audioID;
-  const mp3Path = 'audio/mp3/' + audioID + '.mp3';
-  const wavPath = 'audio/wav/' + audioID + '.wav';
-  const opusPath = 'audio/opus/' + audioID + '.opus';
+  const peaksPath = mediaPath('peaks', audioID + '.json');
+  const spectrogramsPath = mediaPath('spectrograms', audioID);
+  const mp3Path = mediaPath('audio', 'mp3', audioID + '.mp3');
+  const wavPath = mediaPath('audio', 'wav', audioID + '.wav');
+  const opusPath = mediaPath('audio', 'opus', audioID + '.opus');
+  // also reclaim the per-recording melograph + spec_data dirs (rm force = no-op if absent)
+  fs.rm(mediaPath('melographs', audioID), { recursive: true, force: true })
+  fs.rm(mediaPath('spec_data', audioID), { recursive: true, force: true })
   const peaksPathExists = await exists(peaksPath);
   const spectrogramsPathExists = await exists(spectrogramsPath);
   const mp3PathExists = await exists(mp3Path);
@@ -146,19 +148,19 @@ const getSuffix = (mimetype: string): string | undefined => {
 };
 
 cron.schedule('0 0 * * *', () => {
-  spawn(PYTHON_PATH, ['delete_unlinked_audio.py'])
+  spawn(PYTHON_PATH, ['delete_unlinked_audio.py'], { env: pythonEnv() })
 })
 
 // schedule a cron job to backup every day
 cron.schedule('0 0 * * *', () => {
-  spawn(PYTHON_PATH, ['backups/backup_mongo.py'])
+  spawn(PYTHON_PATH, ['backups/backup_mongo.py'], { env: pythonEnv() })
 });
 
 app.use(fileUpload({
   createParentPath: true,
   limits: { fileSize: 2 * 1024 * 1024 * 1024 }, // 2GB limit
   useTempFiles: true,
-  tempFileDir: '/tmp/',
+  tempFileDir: UPLOAD_TMP_DIR,
   abortOnLimit: false
 }))
 app.use(history({
@@ -201,7 +203,10 @@ const webAddress = 'swara.f5cuf.mongodb.net/swara';
 const password = process.env.PASSWORD;
 const username = process.env.USER_NAME;
 const login = `srv://${username}:${password}`;
-const uri = `mongodb+${login}@${webAddress}?${settings}`;
+// MONGO_URI overrides the Atlas connection (e.g. the CSAIL box's local mongod:
+// mongodb://127.0.0.1:27017). Unset => build the Atlas srv URI from USER_NAME/PASSWORD
+// exactly as before, so the DigitalOcean deploy is unaffected. db name stays `swara`.
+const uri = process.env.MONGO_URI || `mongodb+${login}@${webAddress}?${settings}`;
 
 const runServer = async () => {
   try {
@@ -722,11 +727,13 @@ const runServer = async () => {
 		  res.json(result1);
 		}
 
-		const peaksPath = 'peaks/' + req.body._id + '.json';
-		const spectrogramsPath = 'spectrograms/' + req.body._id;
-		const mp3Path = 'audio/mp3/' + req.body._id + '.mp3';
-		const wavPath = 'audio/wav/' + req.body._id + '.wav';
-		const opusPath = 'audio/opus/' + req.body._id + '.opus';
+		const peaksPath = mediaPath('peaks', req.body._id + '.json');
+		const spectrogramsPath = mediaPath('spectrograms', req.body._id);
+		const mp3Path = mediaPath('audio', 'mp3', req.body._id + '.mp3');
+		const wavPath = mediaPath('audio', 'wav', req.body._id + '.wav');
+		const opusPath = mediaPath('audio', 'opus', req.body._id + '.opus');
+		fs.rm(mediaPath('melographs', req.body._id), { recursive: true, force: true })
+		fs.rm(mediaPath('spec_data', req.body._id), { recursive: true, force: true })
 		const peaksPathExists = await exists(peaksPath);
 		const spectrogramsPathExists = await exists(spectrogramsPath);
 		const mp3PathExists = await exists(mp3Path);
@@ -771,11 +778,11 @@ const runServer = async () => {
 		  const result = await audioRecordings.deleteOne(query);
 		  console.log(result)
 		  // remove from peaks folder
-		  const peaksPath = 'peaks/' + recID + '.json';
-		  const spectrogramsPath = 'spectrograms' + recID;
-		  const mp3Path = 'audio/mp3/' + recID + '.mp3';
-		  const wavPath = 'audio/wav/' + recID + '.wav';
-		  const opusPath = 'audio/opus/' + recID + '.opus';
+		  const peaksPath = mediaPath('peaks', recID + '.json');
+		  const spectrogramsPath = mediaPath('spectrograms', recID);
+		  const mp3Path = mediaPath('audio', 'mp3', recID + '.mp3');
+		  const wavPath = mediaPath('audio', 'wav', recID + '.wav');
+		  const opusPath = mediaPath('audio', 'opus', recID + '.opus');
 		  const peaksPathExists = await exists(peaksPath);
 		  const spectrogramsPathExists = await exists(spectrogramsPath);
 		  const mp3PathExists = await exists(mp3Path);
@@ -796,6 +803,8 @@ const runServer = async () => {
 		  if (opusPathExists) {
 			fs.unlink(opusPath)
 		  }
+		  fs.rm(mediaPath('melographs', recID), { recursive: true, force: true })
+		  fs.rm(mediaPath('spec_data', recID), { recursive: true, force: true })
 		})
 		const delResult = await audioEvents.deleteOne(query);
 		console.log(delResult)
@@ -884,7 +893,7 @@ const runServer = async () => {
 
 	app.get('/verifySpectrogram', async (req, res) => {
 	  // verify that spectrogram exists for a particular recording
-	  const dir = 'spectrograms/' + req.query.id + '/0';
+	  const dir = mediaPath('spectrograms', String(req.query.id), '0');
 	  try {
 		const files = await fs.readdir(dir);
 		res.json(files.length > 0)
@@ -901,7 +910,7 @@ const runServer = async () => {
 
 	app.get('/verifyMelograph', async (req, res) => {
 	  // verify that melograph exists for a particular recording
-	  const dir = 'melographs/' + req.query.id;
+	  const dir = mediaPath('melographs', String(req.query.id));
 	  try {
 		const files = await fs.readdir(dir);
 		res.json(files.length > 0)
@@ -966,7 +975,7 @@ const runServer = async () => {
 
 	app.get('/getNumberOfSpectrograms', async (req, res) => {
 	  // returns the number of spectrograms that the app needs to load
-	  const dir = 'spectrograms/' + req.query.id + '/0';
+	  const dir = mediaPath('spectrograms', String(req.query.id), '0');
 	  try {  
 		const files = await fs.readdir(dir);
 		res.json(files.length)  
@@ -1047,7 +1056,8 @@ const runServer = async () => {
 	  // generate spectrograms for the given recording ID and tonic estimate
 	  const makingSpecs = spawn(
 		PYTHON_PATH,
-		['generate_log_spectrograms.py', req.body.recId, req.body.saEst]
+		['generate_log_spectrograms.py', req.body.recId, req.body.saEst],
+		{ env: pythonEnv() }
 	  );
 	  try {
 		makingSpecs.stdout.on('data', data => {
@@ -1070,7 +1080,8 @@ const runServer = async () => {
 	  res.setTimeout(10 * 60 * 1000); // 10 minutes
 	  const makingMelograph = spawn(
 		PYTHON_PATH,
-		['generate_melograph.py', req.body.recId, req.body.saEst]
+		['generate_melograph.py', req.body.recId, req.body.saEst],
+		{ env: pythonEnv() }
 	  );
 	  try {
 		makingMelograph.stdout.on('data', data => {
@@ -1780,14 +1791,16 @@ app.post('/handleGoogleAuthCodePythonAPI', async (req, res) => {
 
 	app.get('/excelData', async (req, res) => {
 	  const id = req.query._id as string;
+	  const jsonOut = mediaPath('data', 'json', `${id}.json`);
+	  const xlsxOut = mediaPath('data', 'excel', `${id}.xlsx`);
 	  const argvs = [
       'make_excel.py',
       id,
-      `data/json/${id}.json`,
-      `data/excel/${id}.xlsx`
+      jsonOut,
+      xlsxOut
 	  ];
 	  try {
-      const pythonScript = spawn(PYTHON_PATH, argvs);
+      const pythonScript = spawn(PYTHON_PATH, argvs, { env: pythonEnv() });
       pythonScript.stdout.on('data', data => {
         console.log(`stdout: ${data}`)
       });
@@ -1796,7 +1809,7 @@ app.post('/handleGoogleAuthCodePythonAPI', async (req, res) => {
         console.error(`stderr: ${data}`)
       });
       await pythonScript.on('close', () => {
-        res.download(`data/excel/${id}.xlsx`);
+        res.download(xlsxOut);
       })
 	  } catch (err) {
       console.error(err);
@@ -1806,24 +1819,26 @@ app.post('/handleGoogleAuthCodePythonAPI', async (req, res) => {
 
 	app.get('/jsonData', async (req, res) => {
 	  const id = req.query._id as string;
+	  const jsonOut = mediaPath('data', 'json', `${id}.json`);
+	  const xlsxOut = mediaPath('data', 'excel', `${id}.xlsx`);
 	  const argvs = [
 		'make_excel.py',
 		id,
-		`data/json/${id}.json`,
-		`data/excel/${id}.xlsx`
+		jsonOut,
+		xlsxOut
 	  ];
 	  try {
-		const pythonScript = spawn(PYTHON_PATH, argvs);
+		const pythonScript = spawn(PYTHON_PATH, argvs, { env: pythonEnv() });
 		pythonScript.stdout.on('data', data => {
 		  console.log(`stdout: ${data}`)
 		});
-		
+
 		pythonScript.stderr.on('data', data => {
 		  console.error(`stderr: ${data}`)
 		});
 		pythonScript.on('close', () => {
-		  res.download(`data/json/${id}.json`);
-		}) 
+		  res.download(jsonOut);
+		})
 	  } catch (err) {
 		console.error(err);
 		res.status(500).send(err)
@@ -1955,10 +1970,10 @@ app.post('/handleGoogleAuthCodePythonAPI', async (req, res) => {
 
 		  const suffix = getSuffix(audioFile.mimetype)!;
 		  let fn = newId + suffix;
-		  audioFile.mv('./uploads/' + fn);
+		  audioFile.mv(mediaPath('uploads', fn));
 		  if (suffix === '.opus') {
 			const newFN = newId + '.wav';
-			const spawnArgs = ['-i', './uploads/' + fn, './uploads/' + newFN];
+			const spawnArgs = ['-i', mediaPath('uploads', fn), mediaPath('uploads', newFN)];
 			const convertToOpus = spawn('ffmpeg', spawnArgs)
 			fn = newFN;
 			convertToOpus.stderr.on('data', data => {
@@ -1969,7 +1984,7 @@ app.post('/handleGoogleAuthCodePythonAPI', async (req, res) => {
 			})
 		  }
 		  const spawns = ['process_audio.py', fn, audioEventID, recIdx, newId];
-		  const processAudio = spawn(PYTHON_PATH, spawns);
+		  const processAudio = spawn(PYTHON_PATH, spawns, { env: pythonEnv() });
 		  processAudio.stderr.on('data', data => {
 			console.error(`stderr: ${data}`)
 		  });
@@ -2321,17 +2336,17 @@ app.post('/handleGoogleAuthCodePythonAPI', async (req, res) => {
 	  res.setHeader('Pragma', 'no-cache');
 	  res.setHeader('Expires', '0')
 	};
-	app.use('/audio', express.static('audio', { setHeaders: setNoCache }));
-	app.use('/peaks', express.static('peaks', { setHeaders: setNoCache }));
+	app.use('/audio', express.static(mediaPath('audio'), { setHeaders: setNoCache }));
+	app.use('/peaks', express.static(mediaPath('peaks'), { setHeaders: setNoCache }));
 	app.use('/test', express.static('test', { setHeaders: setNoCache }));
-	app.use('/spectrograms', express.static('spectrograms', { 
-	  setHeaders: setNoCache 
-	}))
-	app.use('/spec_data', express.static('spec_data', {
+	app.use('/spectrograms', express.static(mediaPath('spectrograms'), {
 	  setHeaders: setNoCache
 	}))
-	app.use('/melographs', express.static('melographs', { 
-	  setHeaders: setNoCache 
+	app.use('/spec_data', express.static(mediaPath('spec_data'), {
+	  setHeaders: setNoCache
+	}))
+	app.use('/melographs', express.static(mediaPath('melographs'), {
+	  setHeaders: setNoCache
 	}));
 	app.use('/', express.static('dist'))
 	const server = app.listen(3000);
