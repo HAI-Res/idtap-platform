@@ -93,7 +93,7 @@
             v-if='processingDone'
             ref='audio'
             >
-            <source :src='`${SERVER_BASE}audio/mp3/${audioFileId}.mp3`'>
+            <source :src='audioMp3Src'>
         </audio>
         </div>
       </div>
@@ -104,7 +104,7 @@
             controls 
             ref='audio'
             >
-            <source :src='`${SERVER_BASE}audio/mp3/${audioFileId}.mp3`'>
+            <source :src='audioMp3Src'>
           </audio>
         </div>
 
@@ -561,6 +561,12 @@ export default defineComponent({
   },
 
   computed: {
+
+    // SERVER_BASE is a module import and isn't visible in the Options-API template,
+    // so expose the media URL as a computed the template can bind to.
+    audioMp3Src(): string {
+      return `${SERVER_BASE}audio/mp3/${this.audioFileId}.mp3`;
+    },
 
     dateModified() {
       if (this.editingRec) {
