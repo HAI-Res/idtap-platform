@@ -2,7 +2,6 @@ import { createApp } from 'vue';
 import App from '@/App.vue';
 import router from './router';
 import { createStore } from 'vuex';
-import vue3GoogleLogin from 'vue3-google-login';
 import VueCookies from 'vue-cookies';
 import './assets/styles/global.css';
 import { Color } from '@shared/enums'
@@ -92,20 +91,9 @@ Object.entries(Color).forEach(([key, value]) => {
   root.style.setProperty(`--${key}`, value as string);
 });
 
-// Load Google Client ID from environment variable
-const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
-
-if (!GOOGLE_CLIENT_ID) {
-  console.error('ERROR: VITE_GOOGLE_CLIENT_ID environment variable must be set');
-  throw new Error('Missing required environment variable: VITE_GOOGLE_CLIENT_ID');
-}
-
 app
   .use(router)
   .use(store)
-  .use(vue3GoogleLogin, {
-    clientId: GOOGLE_CLIENT_ID
-  })
   .use(VueCookies, { expires: '7d' })
   .use(head)
   .mount('#app');

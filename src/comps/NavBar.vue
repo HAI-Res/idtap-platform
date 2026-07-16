@@ -40,23 +40,10 @@
 </template>
 
 <script lang='ts'>
-import { 
-  decodeCredential, 
-  googleLogout, 
-  googleOneTap, 
-  googleAuthCodeLogin 
-} from 'vue3-google-login';
-// import { detect } from 'detect-browser';
-import { 
-  userLoginGoogle, 
-  handleGoogleAuthCode, 
-} from '@/js/serverCalls.ts';
-import  { 
-  UserDataType
-} from '@shared/types';
+import { getSession, logout } from '@/js/serverCalls.ts';
+import { SERVER_BASE } from '@/config';
 import { defineComponent } from 'vue';
 import defaultUsrImgUrl from '@/assets/icons/user_head.svg';
-import { LocationQueryRaw } from 'vue-router';
 import { useTitle } from '@vueuse/core';
 
 type NavBarDataType = {
@@ -106,76 +93,45 @@ export default defineComponent({
     }
   },
   async mounted() {
-    this.userID = this.$cookies.get('userID');
-    if (this.userID === 'undefined') this.userID = undefined;
-    this.usrImgUrl = this.$cookies.get('usrImgUrl');
-    if (this.usrImgUrl === 'undefined') this.usrImgUrl = undefined;
-    this.firstName = this.$cookies.get('firstName');
-    if (this.firstName === 'undefined') this.firstName = undefined;
-    this.lastName = this.$cookies.get('lastName');
-    if (this.lastName === 'undefined') this.lastName = undefined;
-    this.name = this.$cookies.get('name');
-    if (this.name === 'undefined') this.name = undefined;
-    if (this.userID) {
-      this.$store.commit('update_userID', this.userID);
-      this.$store.commit('update_returning', true);
-      this.$store.commit('update_firstName', this.firstName);
-      this.$store.commit('update_lastName', this.lastName);
-      this.$store.commit('update_name', this.name);
-      let pieceId = this.$cookies.get('currentPieceId');
-      if (this.$route.query.id !== undefined) {
-        pieceId = this.$route.query.id as string
-      };
-      if (pieceId !== null) this.$store.commit('update_id', pieceId); 
-        //just for now
-    } else {
-      try {
-        console.log('trying this first')
-        const res = await googleOneTap({ autoLogin: false });
-          const userData = decodeCredential(res.credential) as UserDataType;
-          await this.loggedIn(userData);     
-      } catch (err) {
-        console.error(err);
-      }
+    // Restore the currently-open piece id regardless of auth state.
+    let pieceId = this.$cookies.get('currentPieceId');
+    if (this.$route.query.id !== undefined) pieceId = this.$route.query.id as string;
+    if (pieceId !== null && pieceId !== undefined) this.$store.commit('update_id', pieceId);
+    // The httpOnly `sid` cookie is the source of truth — ask the server who we are.
+    try {
+      const user = await getSession();
+      if (user) this.applySession(user);
+    } catch (err) {
+      console.error(err);
     }
   },
 
   methods: {
-    async loggedIn(userData: UserDataType) {
-      this.usrImgUrl = userData.picture;
-      const result = await userLoginGoogle(userData);
-      this.userID = result.value._id;    
-      this.firstName = result.value.given_name;
+    // Populate local + store state from the verified server session. The waiver
+    // page (/logIn) is shown for users who haven't agreed yet (incl. brand-new ones).
+    applySession(user: any) {
+      this.userID = user._id;
+      this.firstName = user.given_name;
+      this.lastName = user.family_name;
+      this.name = user.name;
+      this.usrImgUrl = user.picture;
+      // keep the display cookies in sync for components that still read them
       this.$cookies.set('userID', this.userID);
       this.$cookies.set('usrImgUrl', this.usrImgUrl);
       this.$cookies.set('firstName', this.firstName);
-      this.$cookies.set('lastName', result.value.family_name);
-      this.$cookies.set('name', result.value.name);
-      this.$store.commit('update_firstName', this.firstName);
-      this.$store.commit('update_lastName', result.value.family_name);
-      this.$store.commit('update_name', result.value.name);
+      this.$cookies.set('lastName', this.lastName);
+      this.$cookies.set('name', this.name);
       this.$store.commit('update_userID', this.userID);
-      if (!result.lastErrorObject.updatedExisting) {
+      this.$store.commit('update_firstName', this.firstName);
+      this.$store.commit('update_lastName', this.lastName);
+      this.$store.commit('update_name', this.name);
+      if (!user.waiverAgreed) {
         this.firstTime = true;
-        this.$store.commit('update_firstTime', this.firstTime)
-        this.$router.push('/logIn')
-      } else if (!result.value.waiverAgreed) {
-        this.firstTime = true;
-        this.$store.commit('update_firstTime', this.firstTime);
+        this.$store.commit('update_firstTime', true);
         this.$router.push('/logIn');
       } else {
-        this.returning = true
-        this.$store.commit('update_returning', this.returning);
-        if (this.$store.state.query) {
-          const q = this.$store.state.query as unknown as LocationQueryRaw;
-          this.$router.push({
-            name: 'EditorComponent',
-            query: q
-          })
-        }
-        if (this.$store.state.incomingFullPath !== undefined) {
-          this.$router.push(this.$store.state.incomingFullPath);
-        }
+        this.returning = true;
+        this.$store.commit('update_returning', true);
       }
     },
 
@@ -202,36 +158,31 @@ export default defineComponent({
       e.stopPropagation();
     },
 
-    logOut() {
-      googleLogout();
-      this.$store.commit('update_userID', undefined);
+    async logOut() {
+      try { await logout(); } catch (err) { console.error(err); }
+      this.userID = undefined;
       this.usrImgUrl = undefined;
+      this.showUserMenu = false;
+      this.$store.commit('update_userID', undefined);
       this.$store.commit('update_firstTime', false);
       this.$store.commit('update_returning', false);
       this.$store.commit('update_firstName', undefined);
       this.$store.commit('update_lastName', undefined);
       this.$store.commit('update_name', undefined);
-      this.showUserMenu = false;
-      this.$cookies.set('userID', undefined);
-      this.$cookies.set('usrImgUrl', undefined);
-      this.$cookies.set('firstName', undefined);
-      this.$cookies.set('lastName', undefined);
-      this.$cookies.set('name', undefined);
-      this.$router.push('/logIn')    
+      this.$cookies.remove('userID');
+      this.$cookies.remove('usrImgUrl');
+      this.$cookies.remove('firstName');
+      this.$cookies.remove('lastName');
+      this.$cookies.remove('name');
+      this.$router.push('/');
     },
     
-    async logIn() {
+    logIn() {
       this.showUserMenu = false;
-      if (this.$store.state.userID === undefined) {
-        try {
-          const response = await googleAuthCodeLogin();
-          const reURL = window.location.href;
-          const userData = await handleGoogleAuthCode(response.code, reURL);
-          await this.loggedIn(userData);
-        } catch (err) {
-          console.error(err)
-        }
-      }
+      // Server-mediated OIDC: navigate to our own /auth/login, which redirects to the
+      // provider and returns to `returnTo` with the session cookie set.
+      const returnTo = this.$route.fullPath || '/';
+      window.location.href = `${SERVER_BASE}auth/login?returnTo=${encodeURIComponent(returnTo)}`;
     },
 
     handleNavClick() {
