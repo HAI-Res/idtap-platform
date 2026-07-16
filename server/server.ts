@@ -22,6 +22,7 @@ import cookieParser from 'cookie-parser';
 import {
   verifySession, signSession, sessionCookieOptions, SESSION_COOKIE, SESSION_TTL_SECONDS,
 } from './session';
+import { canView, canEdit, isOwner } from '@shared/authz';
 
 import { mediaPath, PYTHON_PATH, UPLOAD_TMP_DIR, pythonEnv } from './mediaConfig';
 
@@ -221,6 +222,32 @@ app.use((req, res, next) => {
   next();
 });
 
+// Sentinel actor id for unauthenticated requests on public-readable endpoints: it is
+// not a valid ObjectId string, so `{ userID: NO_SESSION }` / permission-array matches
+// match no real document — public clauses still apply, private ones never leak.
+const NO_SESSION = '__no_session__';
+
+// --- A5 enforcement guards (used per-route in the handler sweep) ---
+// requireSession: 401 unless a verified session (sid cookie) populated req.user.
+const requireSession: express.RequestHandler = (req, res, next) => {
+  if (!(req as any).user?.uid) {
+    res.status(401).json({ error: 'authentication required' });
+    return;
+  }
+  next();
+};
+// requireCsrfHeader: 403 on state-changing requests lacking the app's custom header.
+// A cross-site attacker can't set a custom header without a CORS preflight we don't
+// grant, so this closes the residual gap left by SameSite=Lax. The SPA sends it via a
+// shared request wrapper.
+const requireCsrfHeader: express.RequestHandler = (req, res, next) => {
+  if (req.get('X-IDTAP-Client') !== 'web') {
+    res.status(403).json({ error: 'missing client header' });
+    return;
+  }
+  next();
+};
+
 const apiTimeout = 600000;
 app.use((req, res, next) => {
   // Set the timeout for all HTTP requests
@@ -329,11 +356,12 @@ const runServer = async () => {
 	  }
 	});
 
-	app.post('/updateTranscription', async (req, res) => {
+	app.post('/updateTranscription', requireSession, requireCsrfHeader, async (req, res) => {
 	  // updates a transcription
 	  const updateObj: { [key: string]: any } = {};
 	  Object.keys(req.body).forEach(key => {
-		if (key !== '_id') updateObj[key] = req.body[key]
+		// content only — ownership/sharing changes use their own owner-gated endpoints
+		if (key !== '_id' && key !== 'userID' && key !== 'permissions' && key !== 'explicitPermissions') updateObj[key] = req.body[key]
 	  });
 	  updateObj['dateModified'] = new Date();
 	  updateObj['dateCreated'] = new Date(updateObj['dateCreated'])
@@ -349,6 +377,9 @@ const runServer = async () => {
 		}
 	  };
 	  try {
+		const target = await transcriptions.findOne(query);
+		if (!target) { res.status(404).json({ error: 'not found' }); return; }
+		if (!canEdit(target, (req as any).user.uid)) { res.status(403).json({ error: 'forbidden' }); return; }
 		const result = await transcriptions.updateOne(query, update);
 		res.send(JSON.stringify({ ...result, dateModified: updateObj['dateModified'] }))
 	  } catch (err) {
@@ -389,7 +420,10 @@ const runServer = async () => {
 
 	app.get('/getAllTranscriptions', async (req, res) => {
 	  try {
-		const userID: string = JSON.parse(req.query.userID as string);
+		// Identity comes from the verified session cookie, never the query string, so it
+		// cannot be spoofed to read another user's private transcriptions. When logged
+		// out, the sentinel matches no document, so only the public clauses apply.
+		const userID: string = (req as any).user?.uid ?? NO_SESSION;
 		const sortKey: string = JSON.parse(req.query.sortKey as string);
 		let newPermissions = false;
 		const reqNP = req.query.newPermissions;
