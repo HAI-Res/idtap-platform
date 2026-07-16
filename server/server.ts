@@ -335,10 +335,11 @@ const runServer = async () => {
         const authRouter = authRoutes({ users, googleClientId: GOOGLE_CLIENT_ID, googleClientSecret: GOOGLE_CLIENT_SECRET });
         app.use('/', authRouter);
 	  
-	app.post('/insertNewTranscription', async (req, res) => {
+	app.post('/insertNewTranscription', requireSession, requireCsrfHeader, async (req, res) => {
 	  // creates new transcription entry in transcriptions collection
 	  try {
 		const insert = req.body;
+		insert.userID = (req as any).user.uid; // owner is the authenticated user, not client-supplied
 		insert['dateCreated'] = new Date(insert.dateCreated);
 		insert['dateModified'] = new Date(insert.dateModified);
 		
@@ -1414,9 +1415,12 @@ const runServer = async () => {
 	  }
 	})
 
-	app.post('/updateTranscriptionTitle', async (req, res) => {
+	app.post('/updateTranscriptionTitle', requireSession, requireCsrfHeader, async (req, res) => {
 	  try {
 		const query = { _id: new ObjectId(req.body.id) };
+		const target = await transcriptions.findOne(query);
+		if (!target) { res.status(404).json({ error: 'not found' }); return; }
+		if (!canEdit(target, (req as any).user.uid)) { res.status(403).json({ error: 'forbidden' }); return; }
 		const update = { $set: { title: req.body.title} };
 		const result = await transcriptions.updateOne(query, update);
 		res.json(result)
@@ -1426,9 +1430,12 @@ const runServer = async () => {
 	  }
 	})
 
-	app.post('/updateTranscriptionPermissions', async (req, res) => {
+	app.post('/updateTranscriptionPermissions', requireSession, requireCsrfHeader, async (req, res) => {
 	  try {
 		const query = { _id: new ObjectId(req.body.id) };
+		const target = await transcriptions.findOne(query);
+		if (!target) { res.status(404).json({ error: 'not found' }); return; }
+		if (!isOwner(target, (req as any).user.uid)) { res.status(403).json({ error: 'forbidden' }); return; }
 		const update = { $set: { permissions: req.body.permissions} };
 		const result = await transcriptions.updateOne(query, update);
 		res.json(result)
@@ -1438,10 +1445,13 @@ const runServer = async () => {
 	  }
 	})
 
-	app.post('/updateTranscriptionOwner', async (req, res) => {
+	app.post('/updateTranscriptionOwner', requireSession, requireCsrfHeader, async (req, res) => {
 	  try {
 		const query = { _id: new ObjectId(req.body.transcriptionID) };
-		const update = { $set: { 
+		const target = await transcriptions.findOne(query);
+		if (!target) { res.status(404).json({ error: 'not found' }); return; }
+		if (!isOwner(target, (req as any).user.uid)) { res.status(403).json({ error: 'forbidden' }); return; }
+		const update = { $set: {
 		  userID: req.body.userID,
 		  name: req.body.name,
 		  family_name: req.body.family_name,
