@@ -99,11 +99,10 @@ jobs:
         run: pnpm run build
 
       - name: Build server bundle (esbuild)
-        run: |
-          npx --yes esbuild@0.25.5 ./server/server.ts \
-            --bundle --platform=node --target=node20 \
-            --outfile=./server/build/server.js \
-            --alias:@shared=./shared --packages=external --format=cjs
+        # Use the repo's own script (locally-installed esbuild via pnpm). Running
+        # `npx esbuild@x` inside the repo fails with EOVERRIDE because package.json
+        # pins an esbuild `overrides` entry that conflicts with npx's direct install.
+        run: pnpm run buildServer
 
       - name: Sync server runtime deps
         # server.js is bundled with --packages=external, so its runtime deps must be
