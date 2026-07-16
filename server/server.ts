@@ -697,6 +697,7 @@ const runServer = async () => {
 	  if (req.body._id === 0) {
 		try {
 		  const result = await transcriptions.find().sort({ "_id": 1 }).next();
+		  if (result && !canView(result, (req as any).user?.uid)) { res.status(403).json({ error: 'forbidden' }); return; }
 		  res.json(result)
 		} catch (err) {
 		  console.error(err);
@@ -706,6 +707,7 @@ const runServer = async () => {
 		try {
 		  const query = { '_id': new ObjectId(req.body._id) };
 		  const result = await transcriptions.findOne(query);
+		  if (result && !canView(result, (req as any).user?.uid)) { res.status(403).json({ error: 'forbidden' }); return; }
 		  res.send(JSON.stringify(result))
 		} catch (err) {
 		  console.error(err);
@@ -1849,7 +1851,7 @@ app.post('/handleGoogleAuthCodePythonAPI', async (req, res) => {
 	  }
 	})
 
-	app.post('/cloneTranscription', async (req, res) => {
+	app.post('/cloneTranscription', requireSession, requireCsrfHeader, async (req, res) => {
 	  try {
 
 		const query = { _id: new ObjectId(req.body.id) };
@@ -1857,9 +1859,10 @@ app.post('/handleGoogleAuthCodePythonAPI', async (req, res) => {
     if (!copy) {
       return res.status(404).send('Transcription not found');
     }
+		if (!canView(copy, (req as any).user.uid)) { res.status(403).json({ error: 'forbidden' }); return; }
 		copy._id = new ObjectId();
 		copy.title = req.body.title;
-		copy.userID = req.body.newOwner;
+		copy.userID = (req as any).user.uid; // the cloner owns the new copy
 		copy.permissions = req.body.permissions;
 		copy.name = req.body.name;
 		copy.family_name = req.body.family_name;
