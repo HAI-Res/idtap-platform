@@ -108,9 +108,12 @@ jobs:
         # server.js is bundled with --packages=external, so its runtime deps must be
         # present in the app dir. Keeping node_modules in sync with server/package.json
         # prevents "module not found" crash-loops when a new dependency is introduced.
+        # The app dir is pnpm-managed (pnpm-lock.yaml + node_modules/.pnpm), so use
+        # pnpm, not npm — npm fights the pnpm layout. --no-frozen-lockfile lets the
+        # lockfile update when server/package.json changes; normally this is a no-op.
         run: |
           cp ./server/package.json "$APP_DIR/package.json"
-          cd "$APP_DIR" && npm install --omit=dev --no-audit --no-fund
+          cd "$APP_DIR" && pnpm install --prod --no-frozen-lockfile --prefer-offline
 
       - name: Deploy build to app dir
         run: |
