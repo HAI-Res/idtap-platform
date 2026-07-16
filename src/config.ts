@@ -12,6 +12,18 @@
 //
 // `location.origin` (not `window.location.origin`) so this also resolves correctly
 // inside Web Workers, where `window` is undefined but `location` exists.
+//
+// Node-safety: server.ts pulls this module into its bundle transitively
+// (server.ts → extract → serverCalls → config). In that CJS/Node context there is
+// no `import.meta.env` and no `location`, so both accesses must be guarded or the
+// server crashes on load. SERVER_BASE is never actually *used* server-side; it just
+// has to evaluate without throwing. Vite still statically provides `import.meta.env`
+// in the browser build, so the frontend behavior is unchanged.
+const _env: { VITE_API_URL?: string; DEV?: boolean } =
+  ((import.meta as unknown as { env?: Record<string, unknown> }).env as
+    | { VITE_API_URL?: string; DEV?: boolean }
+    | undefined) || {};
+const _origin: string =
+  typeof location !== 'undefined' ? location.origin + '/' : 'https://swara.studio/';
 export const SERVER_BASE: string =
-  (import.meta.env.VITE_API_URL as string | undefined) ||
-  (import.meta.env.DEV ? 'https://swara.studio/' : location.origin + '/');
+  _env.VITE_API_URL || (_env.DEV ? 'https://swara.studio/' : _origin);
