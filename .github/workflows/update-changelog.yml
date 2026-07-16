@@ -5,6 +5,11 @@ on:
     branches:
       - main
 
+# Serialize deploys so two quick pushes can't race on /opt/idtap/app.
+concurrency:
+  group: deploy-csail
+  cancel-in-progress: false
+
 jobs:
   update-changelog:
     runs-on: ubuntu-latest
@@ -33,52 +38,91 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git add src/CHANGELOG.md
-          # Only commit if there are changes
+          # Only commit if there are changes. [skip ci] so this bot commit does not
+          # trigger a second deploy + service restart.
           if ! git diff --cached --quiet; then
-            git commit -m "chore: update changelog"
+            git commit -m "chore: update changelog [skip ci]"
             git push
           else
             echo "No changes to commit."
           fi
-          
+
+  # Deploy to the CSAIL box (idtap.csail.mit.edu). This job runs on a self-hosted
+  # runner installed ON that box (label: idtap-csail), so it builds and installs
+  # locally — the CSAIL border firewall blocks inbound SSH from GitHub-hosted
+  # runners, and this sidesteps it with an outbound-only runner.
+  #
+  # NOTE: the old DigitalOcean prod (137.184.90.119) is intentionally no longer a
+  # deploy target. Do not re-add an rsync to it.
   build-deploy:
     needs: update-changelog
-    runs-on: ubuntu-latest
-    # FROZEN during the MIT-infra migration: this job rsyncs the built frontend to the
-    # DigitalOcean production server (137.184.90.119). It is gated OFF until cutover so
-    # merges to main do NOT touch prod. To re-enable at switchover, set the repository
-    # variable ENABLE_PROD_DEPLOY = 'true' (Settings → Secrets and variables → Actions →
-    # Variables). No logic was removed — only gated.
-    if: ${{ vars.ENABLE_PROD_DEPLOY == 'true' }}
+    runs-on: [self-hosted, idtap-csail]
+    env:
+      APP_DIR: /opt/idtap/app
     steps:
       - name: Check out repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           ref: main
           fetch-depth: 0
           lfs: true
+
       - name: Set up Node.js
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
-          node-version: 22.9.0
+          node-version: '22.9.0'
+
       - name: Install pnpm
-        run: npm install -g pnpm
+        run: npm install -g pnpm@9.15.9
+
+      - name: Read frontend OAuth client ID from box .env
+        # The CSAIL Google client ID lives in the box .env (VUE_APP_GOOGLE_CLIENT_ID).
+        # Sourcing it here keeps the box as the single source of truth and guarantees
+        # the build never uses the old UCSC client ID. It is a public client ID, not
+        # a secret. .env is root-only, hence sudo (ubuntu has passwordless sudo).
+        run: |
+          CID=$(sudo -n grep -m1 '^VUE_APP_GOOGLE_CLIENT_ID=' "$APP_DIR/.env" | cut -d= -f2-)
+          if [ -z "$CID" ]; then
+            echo "::error::VUE_APP_GOOGLE_CLIENT_ID missing from $APP_DIR/.env"; exit 1
+          fi
+          echo "VITE_GOOGLE_CLIENT_ID=$CID" >> "$GITHUB_ENV"
+
       - name: Install dependencies
         run: pnpm install
-      - name: Build
+
+      - name: Build frontend (Vite)
         env:
-          VITE_GOOGLE_CLIENT_ID: ${{ secrets.VUE_APP_GOOGLE_CLIENT_ID }}
+          VITE_GOOGLE_CLIENT_ID: ${{ env.VITE_GOOGLE_CLIENT_ID }}
         run: pnpm run build
 
-      - name: Set up SSH agent
-        uses: webfactory/ssh-agent@v0.5.3
-        with:
-          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
-
-      - name: Add remote host to known_hosts
+      - name: Build server bundle (esbuild)
         run: |
-          mkdir -p ~/.ssh
-          ssh-keyscan -H 137.184.90.119 >> ~/.ssh/known_hosts
+          npx --yes esbuild@0.25.5 ./server/server.ts \
+            --bundle --platform=node --target=node20 \
+            --outfile=./server/build/server.js \
+            --alias:@shared=./shared --packages=external --format=cjs
 
-      - name: Deploy Distribution
-        run: rsync -a ./dist/ root@137.184.90.119:dist
+      - name: Sync server runtime deps
+        # server.js is bundled with --packages=external, so its runtime deps must be
+        # present in the app dir. Keeping node_modules in sync with server/package.json
+        # prevents "module not found" crash-loops when a new dependency is introduced.
+        run: |
+          cp ./server/package.json "$APP_DIR/package.json"
+          cd "$APP_DIR" && npm install --omit=dev --no-audit --no-fund
+
+      - name: Deploy build to app dir
+        run: |
+          rsync -a --delete ./dist/ "$APP_DIR/dist/"
+          cp ./server/build/server.js "$APP_DIR/server.js"
+
+      - name: Restart service
+        run: sudo -n systemctl restart idtap
+
+      - name: Health check
+        run: |
+          for i in $(seq 1 10); do
+            code=$(curl -s -m8 -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/getRagaNames || true)
+            if [ "$code" = "200" ]; then echo "healthy (HTTP 200)"; exit 0; fi
+            echo "attempt $i: HTTP $code, retrying..."; sleep 3
+          done
+          echo "::error::idtap did not return 200 after restart"; exit 1
