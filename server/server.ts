@@ -1291,6 +1291,8 @@ const runServer = async () => {
 	  const myUpdates = req.body.updates;
 	  const addMusicians = req.body.addMusicians;
 	  const query = { _id: parentId };
+	  const existingAE = await audioEvents.findOne(query);
+	  if (existingAE && !canEdit(existingAE, req.user!.uid)) { res.status(403).json({ error: 'forbidden' }); return; }
 	  const update = { $set: myUpdates };
 	  const options = { upsert: true };
 	  console.log(addMusicians)
@@ -1389,6 +1391,9 @@ const runServer = async () => {
 		const estString = `recordings.${req.body.recIdx}.saEstimate`;
 		const octString = `recordings.${req.body.recIdx}.octOffset`;
 		const query = { _id: new ObjectId(req.body.aeID) };
+		const ae = await audioEvents.findOne(query);
+		if (!ae) { res.status(404).json({ error: 'not found' }); return; }
+		if (!canEdit(ae, req.user!.uid)) { res.status(403).json({ error: 'forbidden' }); return; }
 		const update: { $set: { [key: string]: any } } = { $set: {} };
 		update.$set[verString] = req.body.verified;
 		update.$set[estString] = req.body.saEstimate;
@@ -1411,6 +1416,9 @@ const runServer = async () => {
 	app.post('/updateAudioRecording', requireSession, requireCsrfHeader, async (req, res) => {
 	  try {
 		const query = { _id: new ObjectId(req.body._id) };
+		const rec = await audioRecordings.findOne(query);
+		if (!rec) { res.status(404).json({ error: 'not found' }); return; }
+		if (!canEdit(rec, req.user!.uid)) { res.status(403).json({ error: 'forbidden' }); return; }
 		const isoDateString = new Date().toISOString();
 		const update = { $set: {
 		  ...req.body.updates,
@@ -2284,6 +2292,8 @@ app.post('/handleGoogleAuthCodePythonAPI', async (req, res) => {
 		};
 		const query = { _id: new ObjectId(transcriptionID) };
 		const transcription = await transcriptions.findOne(query);
+		if (!transcription) { res.status(404).json({ error: 'not found' }); return; }
+		if (!canEdit(transcription, req.user!.uid)) { res.status(403).json({ error: 'forbidden' }); return; }
 		if (!transcription) {
 		  res.status(404).send('Transcription not found');
 		  return;
@@ -2346,6 +2356,8 @@ app.post('/handleGoogleAuthCodePythonAPI', async (req, res) => {
 		}
 		const query = { _id: new ObjectId(transcriptionID) };
 		const transcription = await transcriptions.findOne(query);
+		if (!transcription) { res.status(404).json({ error: 'not found' }); return; }
+		if (!canEdit(transcription, req.user!.uid)) { res.status(403).json({ error: 'forbidden' }); return; }
 		if (!transcription) {
 		  res.status(404).send('Transcription not found');
 		  return;
