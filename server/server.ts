@@ -727,14 +727,17 @@ const runServer = async () => {
 	  }
 	});
 
-	app.delete('/oneTranscription', async (req, res) => {
+	app.delete('/oneTranscription', requireSession, requireCsrfHeader, async (req, res) => {
 	  // delete a particular transcription
 	  try {
 		const query = { "_id": new ObjectId(req.body._id) };
+		const target = await transcriptions.findOne(query);
+		if (!target) { res.status(404).json({ error: 'not found' }); return; }
+		if (!isOwner(target, (req as any).user.uid)) { res.status(403).json({ error: 'forbidden' }); return; }
 		const result = await transcriptions.deleteOne(query);
-		
-		// also, remove from user's transcriptions array
-		const userID = req.body.userID;
+
+		// also, remove from user's transcriptions array (the owner, from the session)
+		const userID = (req as any).user.uid;
 		const query2 = { _id: new ObjectId(userID) };
 		const tID = new ObjectId(req.body._id);
 		const result2 = await users.updateOne(query2, { $pull: { 
@@ -750,7 +753,7 @@ const runServer = async () => {
 	  }    
 	});
 
-	app.delete('/deleteRecording', async (req, res) => {
+	app.delete('/deleteRecording', requireSession, requireCsrfHeader, async (req, res) => {
 	  // delete a particular recording
 	  try {
 		const query1 = { "_id": new ObjectId(req.body._id) };
@@ -758,6 +761,7 @@ const runServer = async () => {
 		if (!found1) {
 		  return res.status(404).send('Recording not found');
 		}
+		if (!isOwner(found1, (req as any).user.uid)) { res.status(403).json({ error: 'forbidden' }); return; }
 		const parentID = found1.parentID;
 		const result1 = await audioRecordings.deleteOne(query1);
 		// also delete recording from audioevent, if rec has associated audio
@@ -841,15 +845,16 @@ const runServer = async () => {
 	  }    
 	});
 
-	app.delete('/deleteAudioEvent', async (req, res) => {
+	app.delete('/deleteAudioEvent', requireSession, requireCsrfHeader, async (req, res) => {
 	  // delete a particular audio event
 	  try {
 		const query = { "_id": new ObjectId(req.body._id) };
-		const projection = { 'recordings': 1, '_id': 0 };
+		const projection = { 'recordings': 1, '_id': 0, 'userID': 1, 'explicitPermissions': 1, 'permissions': 1 };
 		const result = await audioEvents.findOne(query, { projection });
 		if (!result) {
 		  return res.status(404).send('Audio event not found');
 		}
+		if (!isOwner(result, (req as any).user.uid)) { res.status(403).json({ error: 'forbidden' }); return; }
 		const recordings = result.recordings;
 		const idxs = Object.keys(recordings);
 		idxs.forEach(async idx => {
