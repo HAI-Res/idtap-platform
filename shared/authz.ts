@@ -22,13 +22,23 @@ export interface ExplicitPermissions {
   publicView: boolean;
 }
 
+/** Collection-style sharing: `permissions` as an object of userID lists. */
+export interface PermissionLists {
+  view?: string[];
+  edit?: string[];
+}
+
 /** Any document that carries ownership + sharing metadata. */
 export interface Permissioned {
   /** owner's user _id */
   userID?: string;
   explicitPermissions?: ExplicitPermissions;
-  /** legacy visibility string, present on older documents */
-  permissions?: string;
+  /**
+   * Visibility field with two historical shapes:
+   *  - legacy string ('Public' | 'Publicly Editable' | ...) on transcriptions/recordings
+   *  - object { view, edit } of userID lists on collections
+   */
+  permissions?: string | PermissionLists;
 }
 
 /** True when `actorId` is the document's owner. */
@@ -40,8 +50,12 @@ export function isOwner(doc: Permissioned, actorId?: string): boolean {
 export function canEdit(doc: Permissioned, actorId?: string): boolean {
   if (isOwner(doc, actorId)) return true;
   if (actorId && doc.explicitPermissions?.edit?.includes(actorId)) return true;
-  // legacy: "Publicly Editable" means anyone (even logged-out) may edit
-  if (doc.permissions === 'Publicly Editable') return true;
+  const p = doc.permissions;
+  if (typeof p === 'string') {
+    if (p === 'Publicly Editable') return true; // legacy: anyone (even logged-out) may edit
+  } else if (p && actorId && p.edit?.includes(actorId)) {
+    return true; // collection-style edit list
+  }
   return false;
 }
 
@@ -52,7 +66,11 @@ export function canView(doc: Permissioned, actorId?: string): boolean {
   const ep = doc.explicitPermissions;
   if (ep?.publicView) return true;
   if (actorId && ep?.view?.includes(actorId)) return true;
-  // legacy public visibility
-  if (doc.permissions === 'Public' || doc.permissions === 'Publicly Editable') return true;
+  const p = doc.permissions;
+  if (typeof p === 'string') {
+    if (p === 'Public' || p === 'Publicly Editable') return true; // legacy public
+  } else if (p && actorId && p.view?.includes(actorId)) {
+    return true; // collection-style view list
+  }
   return false;
 }

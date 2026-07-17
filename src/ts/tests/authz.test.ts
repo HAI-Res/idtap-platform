@@ -55,6 +55,26 @@ describe('authz.canView', () => {
   });
 });
 
+describe('authz collection-style permissions (object form)', () => {
+  const coll: Permissioned = {
+    userID: OWNER,
+    permissions: { view: [VIEWER], edit: [EDITOR] },
+  };
+  it('owner and edit-list can edit; view-list and strangers cannot', () => {
+    expect(canEdit(coll, OWNER)).toBe(true);
+    expect(canEdit(coll, EDITOR)).toBe(true);
+    expect(canEdit(coll, VIEWER)).toBe(false);
+    expect(canEdit(coll, STRANGER)).toBe(false);
+  });
+  it('owner, edit-list, and view-list can view; strangers/anon cannot', () => {
+    expect(canView(coll, OWNER)).toBe(true);
+    expect(canView(coll, EDITOR)).toBe(true);
+    expect(canView(coll, VIEWER)).toBe(true);
+    expect(canView(coll, STRANGER)).toBe(false);
+    expect(canView(coll, undefined)).toBe(false);
+  });
+});
+
 describe('authz legacy permissions strings', () => {
   it("'Public' grants view to all but edit to none (except owner)", () => {
     const doc: Permissioned = { userID: OWNER, permissions: 'Public' };

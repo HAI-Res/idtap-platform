@@ -659,6 +659,9 @@ const runServer = async () => {
 	  // delete a collection
 	  try {
 		const query = { _id: new ObjectId(req.body._id) };
+		const coll = await collections.findOne(query);
+		if (!coll) { res.status(404).json({ error: 'not found' }); return; }
+		if (!isOwner(coll, req.user!.uid)) { res.status(403).json({ error: 'forbidden' }); return; }
 		const result = await collections.deleteOne(query);
 		res.json(result)
 	  } catch (err) {
@@ -671,9 +674,13 @@ const runServer = async () => {
 	  // update a collection
 	  try {
 		const query = { _id: new ObjectId(req.body._id) };
-		// copy to updates, and remove _id
+		const coll = await collections.findOne(query);
+		if (!coll) { res.status(404).json({ error: 'not found' }); return; }
+		if (!canEdit(coll, req.user!.uid)) { res.status(403).json({ error: 'forbidden' }); return; }
+		// copy to updates, and remove _id + owner (owner reassignment isn't allowed here)
 		const updates = req.body;
 		delete updates._id;
+		delete updates.userID;
 		const update = { $set: updates };
 		const result = await collections.updateOne(query, update);
 		res.json(result)
@@ -1566,6 +1573,9 @@ const runServer = async () => {
 	  try {
 		// add recordingID to collections collection
 		const query = { _id: new ObjectId(req.body.colID) };
+		const coll = await collections.findOne(query);
+		if (!coll) { res.status(404).json({ error: 'not found' }); return; }
+		if (!canEdit(coll, req.user!.uid)) { res.status(403).json({ error: 'forbidden' }); return; }
 
 		const update = { $push: { audioRecordings: req.body.recordingID } };
 		const result = await collections.updateOne(query, update);
@@ -1584,6 +1594,9 @@ const runServer = async () => {
 	  try {
 		// add recordingID to collections collection
 		const query = { _id: new ObjectId(req.body.colID) };
+		const coll = await collections.findOne(query);
+		if (!coll) { res.status(404).json({ error: 'not found' }); return; }
+		if (!canEdit(coll, req.user!.uid)) { res.status(403).json({ error: 'forbidden' }); return; }
 		const update = { $push: { transcriptions: req.body.transcriptionID } };
 		const result = await collections.updateOne(query, update);
 		// add colID to audioRecordings collection
@@ -1601,6 +1614,9 @@ const runServer = async () => {
 	  try {
 		// add recordingID to collections collection
 		const query = { _id: new ObjectId(req.body.colID) };
+		const coll = await collections.findOne(query);
+		if (!coll) { res.status(404).json({ error: 'not found' }); return; }
+		if (!canEdit(coll, req.user!.uid)) { res.status(403).json({ error: 'forbidden' }); return; }
 		const update = { $push: { audioEvents: req.body.audioEventID } };
 		const result = await collections.updateOne(query, update);
 		// add colID to audioRecordings collection
@@ -1618,6 +1634,9 @@ const runServer = async () => {
 	  try {
       // remove recordingID from collections collection
       const query = { _id: new ObjectId(req.body.colID) };
+      const coll = await collections.findOne(query);
+      if (!coll) { res.status(404).json({ error: 'not found' }); return; }
+      if (!canEdit(coll, req.user!.uid)) { res.status(403).json({ error: 'forbidden' }); return; }
       const update = { $pull: { audioRecordings: req.body.recordingID } };
       const result = await collections.updateOne(query, update);
       // remove colID from audioRecordings collection
@@ -1634,6 +1653,9 @@ const runServer = async () => {
 	app.post('/removeTranscriptionFromCollection', requireSession, requireCsrfHeader, async (req, res) => {
 	  try { 
       const query = { _id: new ObjectId(req.body.colID) };
+      const coll = await collections.findOne(query);
+      if (!coll) { res.status(404).json({ error: 'not found' }); return; }
+      if (!canEdit(coll, req.user!.uid)) { res.status(403).json({ error: 'forbidden' }); return; }
       const update = { $pull: { transcriptions: req.body.transcriptionID } };
       const result = await collections.updateOne(query, update);
 
@@ -1651,6 +1673,9 @@ const runServer = async () => {
 	app.post('/removeAudioEventFromCollection', requireSession, requireCsrfHeader, async (req, res) => {
 	  try {
       const query = { _id: new ObjectId(req.body.colID) };
+      const coll = await collections.findOne(query);
+      if (!coll) { res.status(404).json({ error: 'not found' }); return; }
+      if (!canEdit(coll, req.user!.uid)) { res.status(403).json({ error: 'forbidden' }); return; }
       const update = { $pull: { audioEvents: req.body.audioEventID } };
       const result = await collections.updateOne(query, update);
 
