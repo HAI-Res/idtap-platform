@@ -585,7 +585,7 @@ const runServer = async () => {
 	  }
 	});
 
-	app.post('/saveMultiQuery', async (req, res) => {
+	app.post('/saveMultiQuery', requireSession, requireCsrfHeader, async (req, res) => {
 	  const userID = req.body.userID;
 	  if (!userID || userID.length !== 24) {
 		console.log(userID)
@@ -612,7 +612,7 @@ const runServer = async () => {
 
 	});
 
-	app.delete('/deleteQuery', async (req, res) => {
+	app.delete('/deleteQuery', requireSession, requireCsrfHeader, async (req, res) => {
 	  const query = { _id: new ObjectId(req.body.userID) };
 	  const mQueryID = new ObjectId(req.body.queryID);
 
@@ -627,7 +627,7 @@ const runServer = async () => {
 	  }
 	});
 
-	app.post('/createCollection', async (req, res) => {
+	app.post('/createCollection', requireSession, requireCsrfHeader, async (req, res) => {
 	  // create a new collection
 	  try {
 		// get the user's name from their userID
@@ -651,7 +651,7 @@ const runServer = async () => {
 	  }
 	});
 
-	app.delete('/deleteCollection', async (req, res) => {
+	app.delete('/deleteCollection', requireSession, requireCsrfHeader, async (req, res) => {
 	  // delete a collection
 	  try {
 		const query = { _id: new ObjectId(req.body._id) };
@@ -663,7 +663,7 @@ const runServer = async () => {
 	  }
 	});
 
-	app.post('/updateCollection', async (req, res) => {
+	app.post('/updateCollection', requireSession, requireCsrfHeader, async (req, res) => {
 	  // update a collection
 	  try {
 		const query = { _id: new ObjectId(req.body._id) };
@@ -1071,7 +1071,7 @@ const runServer = async () => {
 	  }
 	});
 
-	app.post('/updateVisibility', async (req, res) => {
+	app.post('/updateVisibility', requireSession, requireCsrfHeader, async (req, res) => {
 	  // update the visibility of either a transcription, recording, or 
 	  // audioEvent
 	  if (req.body.artifactType === 'transcription') {
@@ -1080,6 +1080,9 @@ const runServer = async () => {
 		  const update = { $set: { 
 			"explicitPermissions": req.body.explicitPermissions 
 		  } };
+		  const t = await transcriptions.findOne(query);
+		  if (!t) { res.status(404).json({ error: 'not found' }); return; }
+		  if (!isOwner(t, (req as any).user.uid)) { res.status(403).json({ error: 'forbidden' }); return; }
 		  const result = await transcriptions.updateOne(query, update);
 		  res.json(result)
 		} catch (err) {
@@ -1093,6 +1096,9 @@ const runServer = async () => {
 			"explicitPermissions": req.body.explicitPermissions 
 		  } };
 		  const options = { returnDocument: 'after' as const };
+		  const recOwner = await audioRecordings.findOne(q);
+		  if (!recOwner) { res.status(404).json({ error: 'not found' }); return; }
+		  if (!isOwner(recOwner, (req as any).user.uid)) { res.status(403).json({ error: 'forbidden' }); return; }
 		  const result = await audioRecordings.findOneAndUpdate(q, up, options);
       if (!result.value) {
         return res.status(404).send('Recording not found');
@@ -1115,6 +1121,9 @@ const runServer = async () => {
 		  const update = { $set: { 
 			"explicitPermissions": req.body.explicitPermissions 
 		  } };
+		  const aeOwner = await audioEvents.findOne(query);
+		  if (!aeOwner) { res.status(404).json({ error: 'not found' }); return; }
+		  if (!isOwner(aeOwner, (req as any).user.uid)) { res.status(403).json({ error: 'forbidden' }); return; }
 		  const result = await audioEvents.findOneAndUpdate(query, update);
 		  const audioEvent = result.value;
       if (!audioEvent) {
@@ -1138,7 +1147,7 @@ const runServer = async () => {
 
 	});
 	
-	app.post('/makeSpectrograms', async (req, res) => {
+	app.post('/makeSpectrograms', requireSession, requireCsrfHeader, async (req, res) => {
 	  // generate spectrograms for the given recording ID and tonic estimate
 	  const makingSpecs = spawn(
 		PYTHON_PATH,
@@ -1162,7 +1171,7 @@ const runServer = async () => {
 	  }
 	})
 
-	app.post('/makeMelograph', async (req, res) => {
+	app.post('/makeMelograph', requireSession, requireCsrfHeader, async (req, res) => {
 	  res.setTimeout(10 * 60 * 1000); // 10 minutes
 	  const makingMelograph = spawn(
 		PYTHON_PATH,
@@ -1218,7 +1227,7 @@ const runServer = async () => {
 	  }
 	})
 
-	app.post('/initializeAudioEvent', async (req, res) => {
+	app.post('/initializeAudioEvent', requireSession, requireCsrfHeader, async (req, res) => {
 	  // Creates a new (empty) AudioEvent mongDB entry, and receives back a 
 	  // unique _id for use throughout the upload / metadata entry process.
 	  const userID = req.body.userID;
@@ -1248,7 +1257,7 @@ const runServer = async () => {
 	  }
 	})
 
-	app.delete('/cleanEmptyDoc', async (req, res) => {
+	app.delete('/cleanEmptyDoc', requireSession, requireCsrfHeader, async (req, res) => {
 	  const query = { _id: new ObjectId(req.body._id) };
 	  const projection = { projection: { _id: 0 } };
 	  try {
@@ -1266,7 +1275,7 @@ const runServer = async () => {
 	  }    
 	})
 
-	app.post('/saveAudioMetadata', async (req, res) => {
+	app.post('/saveAudioMetadata', requireSession, requireCsrfHeader, async (req, res) => {
 	  const parentId = new ObjectId(req.body._id);
 	  const myUpdates = req.body.updates;
 	  const addMusicians = req.body.addMusicians;
@@ -1293,7 +1302,7 @@ const runServer = async () => {
 	  }
 	})
 
-	app.post('/addMusicianToDB', async (req, res) => {
+	app.post('/addMusicianToDB', requireSession, requireCsrfHeader, async (req, res) => {
 	  //adding new entry to musicians db
 	  const entry = { 
 		'Initial Name': req.body.initName,
@@ -1310,7 +1319,7 @@ const runServer = async () => {
 	  }
 	})
 
-	app.post('/addGharanaToDB', async (req, res) => {
+	app.post('/addGharanaToDB', requireSession, requireCsrfHeader, async (req, res) => {
 	  //adding new entry to gharanas db
 	  const entry = { 'name': req.body.name, 'members': req.body.members };
 	  try {
@@ -1322,7 +1331,7 @@ const runServer = async () => {
 	  }
 	})
 
-	app.post('/addCountryToDB', async (req, res) => {
+	app.post('/addCountryToDB', requireSession, requireCsrfHeader, async (req, res) => {
 	  const country = req.body.country;
 	  const continent = req.body.continent;
 	  const update = { $set: { [`${continent}.${country}`]: [] } };
@@ -1336,7 +1345,7 @@ const runServer = async () => {
 	  } 
 	})
 
-	app.post('/addCityToDB', async (req, res) => {
+	app.post('/addCityToDB', requireSession, requireCsrfHeader, async (req, res) => {
 	  const continent = req.body.continent;
 	  const country = req.body.country;
 	  const city = req.body.city;
@@ -1351,7 +1360,7 @@ const runServer = async () => {
 	  }
 	})
 
-	app.post('/addRaagToDB', async (req, res) => {
+	app.post('/addRaagToDB', requireSession, requireCsrfHeader, async (req, res) => {
 	  const d = new Date();
 	  const entry = { 'name': req.body.raag, 'updatedDate': d.toISOString() };
 	  try {
@@ -1363,7 +1372,7 @@ const runServer = async () => {
 	  }
 	})
 
-	app.post('/updateSaEstimate', async (req, res) => {
+	app.post('/updateSaEstimate', requireSession, requireCsrfHeader, async (req, res) => {
 	  try {
 		const verString = `recordings.${req.body.recIdx}.saVerified`;
 		const estString = `recordings.${req.body.recIdx}.saEstimate`;
@@ -1388,7 +1397,7 @@ const runServer = async () => {
 	  }
 	})
 
-	app.post('/updateAudioRecording', async (req, res) => {
+	app.post('/updateAudioRecording', requireSession, requireCsrfHeader, async (req, res) => {
 	  try {
 		const query = { _id: new ObjectId(req.body._id) };
 		const isoDateString = new Date().toISOString();
@@ -1549,7 +1558,7 @@ const runServer = async () => {
 	  }
 	})
 	
-	app.post('/addRecordingToCollection', async (req, res) => {
+	app.post('/addRecordingToCollection', requireSession, requireCsrfHeader, async (req, res) => {
 	  try {
 		// add recordingID to collections collection
 		const query = { _id: new ObjectId(req.body.colID) };
@@ -1567,7 +1576,7 @@ const runServer = async () => {
 	  }
 	})
 
-	app.post('/addTranscriptionToCollection', async (req, res) => {
+	app.post('/addTranscriptionToCollection', requireSession, requireCsrfHeader, async (req, res) => {
 	  try {
 		// add recordingID to collections collection
 		const query = { _id: new ObjectId(req.body.colID) };
@@ -1584,7 +1593,7 @@ const runServer = async () => {
 	  }
 	})
 
-	app.post('/addAudioEventToCollection', async (req, res) => {
+	app.post('/addAudioEventToCollection', requireSession, requireCsrfHeader, async (req, res) => {
 	  try {
 		// add recordingID to collections collection
 		const query = { _id: new ObjectId(req.body.colID) };
@@ -1601,7 +1610,7 @@ const runServer = async () => {
 	  }
 	})
 
-	app.post('/removeRecordingFromCollection', async (req, res) => {
+	app.post('/removeRecordingFromCollection', requireSession, requireCsrfHeader, async (req, res) => {
 	  try {
       // remove recordingID from collections collection
       const query = { _id: new ObjectId(req.body.colID) };
@@ -1618,7 +1627,7 @@ const runServer = async () => {
 	  }
 	})
 
-	app.post('/removeTranscriptionFromCollection', async (req, res) => {
+	app.post('/removeTranscriptionFromCollection', requireSession, requireCsrfHeader, async (req, res) => {
 	  try { 
       const query = { _id: new ObjectId(req.body.colID) };
       const update = { $pull: { transcriptions: req.body.transcriptionID } };
@@ -1635,7 +1644,7 @@ const runServer = async () => {
 	  }
 	})
 
-	app.post('/removeAudioEventFromCollection', async (req, res) => {
+	app.post('/removeAudioEventFromCollection', requireSession, requireCsrfHeader, async (req, res) => {
 	  try {
       const query = { _id: new ObjectId(req.body.colID) };
       const update = { $pull: { audioEvents: req.body.audioEventID } };
@@ -1740,7 +1749,7 @@ const runServer = async () => {
 	  }
 	})
 
-	app.post('/saveRaagRules', async (req, res) => {
+	app.post('/saveRaagRules', requireSession, requireCsrfHeader, async (req, res) => {
 	  try {
       const query = { name: req.body.name };
       const update = {
@@ -1768,7 +1777,7 @@ const runServer = async () => {
 	  }
 	})
 
-	app.post('/agreeToWaiver', async (req, res) => {
+	app.post('/agreeToWaiver', requireSession, requireCsrfHeader, async (req, res) => {
 	  try {
 		const query = { _id: new ObjectId(req.body.userID) };
 		const update = { $set: { waiverAgreed: true } };
@@ -1987,7 +1996,7 @@ app.post('/handleGoogleAuthCodePythonAPI', async (req, res) => {
 	  }
 	})
 
-	app.post('/newUploadFile', async (req, res) => {
+	app.post('/newUploadFile', requireSession, requireCsrfHeader, async (req, res) => {
 	  try {
 		if (!req.files) {
 		  res.send({ status: false, message: 'No file uploaded' });
@@ -2141,7 +2150,7 @@ app.post('/handleGoogleAuthCodePythonAPI', async (req, res) => {
 	  }
 	});
 
-	app.post('/saveDisplaySettings', async (req, res) => {
+	app.post('/saveDisplaySettings', requireSession, requireCsrfHeader, async (req, res) => {
 	  try {
 		const query = { _id: new ObjectId(req.body.userID) };
 		const user = await users.findOne(query);
@@ -2165,7 +2174,7 @@ app.post('/handleGoogleAuthCodePythonAPI', async (req, res) => {
 	  }
 	});
 
-	app.post('/updateDisplaySettings', async (req, res) => {
+	app.post('/updateDisplaySettings', requireSession, requireCsrfHeader, async (req, res) => {
 	  try {
 		const { userId, uniqueId, settings } = req.body;
 		const query = { _id: new ObjectId(userId), 'savedSettings.uniqueId': uniqueId };
@@ -2199,7 +2208,7 @@ app.post('/handleGoogleAuthCodePythonAPI', async (req, res) => {
 	  }
 	})
 
-	app.post('/setDefaultSettings', async (req, res) => {
+	app.post('/setDefaultSettings', requireSession, requireCsrfHeader, async (req, res) => {
 	  try {
 		const query = { _id: new ObjectId(req.body.userID) };
 		const update = { $set: { defaultSettingsID: req.body.settingsID } };
@@ -2211,7 +2220,7 @@ app.post('/handleGoogleAuthCodePythonAPI', async (req, res) => {
 	  }
 	})
 
-	app.delete('/deleteDisplaySettings', async (req, res) => {
+	app.delete('/deleteDisplaySettings', requireSession, requireCsrfHeader, async (req, res) => {
 	  try {
 		const query = { _id: new ObjectId(req.body.userId) };
 		const savedSettings = { uniqueId: req.body.uniqueId };
@@ -2224,7 +2233,7 @@ app.post('/handleGoogleAuthCodePythonAPI', async (req, res) => {
 	  }
 	})
 
-	app.post('/updateInstrumentation', async (req, res) => {
+	app.post('/updateInstrumentation', requireSession, requireCsrfHeader, async (req, res) => {
 	  try {
 		// first get the transcription included in the query under
 		// the transcriptionID key.
@@ -2295,7 +2304,7 @@ app.post('/handleGoogleAuthCodePythonAPI', async (req, res) => {
 	  }
 	});
 
-	app.post('/updateInstrumentationAndTitles', async (req, res) => {
+	app.post('/updateInstrumentationAndTitles', requireSession, requireCsrfHeader, async (req, res) => {
 	  try {
 		const { transcriptionID, instrumentation, trackTitles } = req.body;
 		if (!transcriptionID || !instrumentation) {
@@ -2347,7 +2356,7 @@ app.post('/handleGoogleAuthCodePythonAPI', async (req, res) => {
 	  }
 	});
 
-	app.post('/updateCollectionInviteCode', async (req, res) => {
+	app.post('/updateCollectionInviteCode', requireSession, requireCsrfHeader, async (req, res) => {
 	  try {
 		const query = { _id: new ObjectId(req.body.id) };
 		const update = { $set: { inviteCode: req.body.inviteCode } };
@@ -2359,7 +2368,7 @@ app.post('/handleGoogleAuthCodePythonAPI', async (req, res) => {
 	  }
 	});
 
-	app.post('/enrollUserInCollection', async (req, res) => {
+	app.post('/enrollUserInCollection', requireSession, requireCsrfHeader, async (req, res) => {
 	  try {
 		const query = { inviteCode: req.body.inviteCode };
 		const collection = await collections.findOne(query);
@@ -2376,7 +2385,7 @@ app.post('/handleGoogleAuthCodePythonAPI', async (req, res) => {
 	  }
 	})
 
-	app.post('/updateTranscriptionViewed', async (req, res) => {
+	app.post('/updateTranscriptionViewed', requireSession, requireCsrfHeader, async (req, res) => {
 	  try {
 		const query = { _id: new ObjectId(req.body.userID) };
 		const update = { 
