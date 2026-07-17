@@ -43,8 +43,11 @@ declare global {
     interface Request {
       user?: {
         id: string;
-        email: string;
+        email?: string;
         sub: string;
+        /** Mongo user _id — present for web-session requests (attachUser) */
+        uid?: string;
+        name?: string;
       };
     }
   }
@@ -202,11 +205,11 @@ app.use(cookieParser());
 // checks via shared/authz) is added in the handler sweep. Public routes keep working
 // logged-out (req.user simply stays undefined).
 app.use((req, res, next) => {
-  const token = (req as any).cookies?.[SESSION_COOKIE];
+  const token = req.cookies?.[SESSION_COOKIE];
   if (token) {
     const s = verifySession(token);
     if (s) {
-      (req as any).user = { id: s.sub, sub: s.sub, uid: s.uid, email: s.email, name: s.name };
+      req.user = { id: s.sub, sub: s.sub, uid: s.uid, email: s.email, name: s.name };
       // sliding session: re-issue once past half its lifetime so active users don't
       // get logged out mid-session.
       const nowSec = Math.floor(Date.now() / 1000);
@@ -230,7 +233,7 @@ const NO_SESSION = '__no_session__';
 // --- A5 enforcement guards (used per-route in the handler sweep) ---
 // requireSession: 401 unless a verified session (sid cookie) populated req.user.
 const requireSession: express.RequestHandler = (req, res, next) => {
-  if (!(req as any).user?.uid) {
+  if (!req.user?.uid) {
     res.status(401).json({ error: 'authentication required' });
     return;
   }
@@ -339,7 +342,7 @@ const runServer = async () => {
 	  // creates new transcription entry in transcriptions collection
 	  try {
 		const insert = req.body;
-		insert.userID = (req as any).user.uid; // owner is the authenticated user, not client-supplied
+		insert.userID = req.user!.uid; // owner is the authenticated user, not client-supplied
 		insert['dateCreated'] = new Date(insert.dateCreated);
 		insert['dateModified'] = new Date(insert.dateModified);
 		
@@ -380,7 +383,7 @@ const runServer = async () => {
 	  try {
 		const target = await transcriptions.findOne(query);
 		if (!target) { res.status(404).json({ error: 'not found' }); return; }
-		if (!canEdit(target, (req as any).user.uid)) { res.status(403).json({ error: 'forbidden' }); return; }
+		if (!canEdit(target, req.user!.uid)) { res.status(403).json({ error: 'forbidden' }); return; }
 		const result = await transcriptions.updateOne(query, update);
 		res.send(JSON.stringify({ ...result, dateModified: updateObj['dateModified'] }))
 	  } catch (err) {
@@ -424,7 +427,7 @@ const runServer = async () => {
 		// Identity comes from the verified session cookie, never the query string, so it
 		// cannot be spoofed to read another user's private transcriptions. When logged
 		// out, the sentinel matches no document, so only the public clauses apply.
-		const userID: string = (req as any).user?.uid ?? NO_SESSION;
+		const userID: string = req.user?.uid ?? NO_SESSION;
 		const sortKey: string = JSON.parse(req.query.sortKey as string);
 		let newPermissions = false;
 		const reqNP = req.query.newPermissions;
@@ -586,7 +589,7 @@ const runServer = async () => {
 	});
 
 	app.post('/saveMultiQuery', requireSession, requireCsrfHeader, async (req, res) => {
-	  const userID = req.body.userID;
+	  const userID = req.user!.uid;
 	  if (!userID || userID.length !== 24) {
 		console.log(userID)
 		return res.status(400).send('Invalid userID: ' + userID);
@@ -613,7 +616,7 @@ const runServer = async () => {
 	});
 
 	app.delete('/deleteQuery', requireSession, requireCsrfHeader, async (req, res) => {
-	  const query = { _id: new ObjectId(req.body.userID) };
+	  const query = { _id: new ObjectId(req.user!.uid) };
 	  const mQueryID = new ObjectId(req.body.queryID);
 
 	  try {
@@ -631,7 +634,7 @@ const runServer = async () => {
 	  // create a new collection
 	  try {
 		// get the user's name from their userID
-		const query = { _id: new ObjectId(req.body.userID) };
+		const query = { _id: new ObjectId(req.user!.uid) };
 		const projection = { projection: { _id: 0, name: 1 } };
 		const result = await users.findOne(query, projection);
 		if (!result) {
@@ -640,6 +643,7 @@ const runServer = async () => {
 		const name = result.name;
 		// create the collection
 		const collection = req.body;
+		collection['userID'] = req.user!.uid; // collection owner
 		collection['dateCreated'] = new Date();
 		collection['dateModified'] = new Date();
 		collection['userName'] = name;
@@ -697,7 +701,7 @@ const runServer = async () => {
 	  if (req.body._id === 0) {
 		try {
 		  const result = await transcriptions.find().sort({ "_id": 1 }).next();
-		  if (result && !canView(result, (req as any).user?.uid)) { res.status(403).json({ error: 'forbidden' }); return; }
+		  if (result && !canView(result, req.user?.uid)) { res.status(403).json({ error: 'forbidden' }); return; }
 		  res.json(result)
 		} catch (err) {
 		  console.error(err);
@@ -707,7 +711,7 @@ const runServer = async () => {
 		try {
 		  const query = { '_id': new ObjectId(req.body._id) };
 		  const result = await transcriptions.findOne(query);
-		  if (result && !canView(result, (req as any).user?.uid)) { res.status(403).json({ error: 'forbidden' }); return; }
+		  if (result && !canView(result, req.user?.uid)) { res.status(403).json({ error: 'forbidden' }); return; }
 		  res.send(JSON.stringify(result))
 		} catch (err) {
 		  console.error(err);
@@ -733,11 +737,11 @@ const runServer = async () => {
 		const query = { "_id": new ObjectId(req.body._id) };
 		const target = await transcriptions.findOne(query);
 		if (!target) { res.status(404).json({ error: 'not found' }); return; }
-		if (!isOwner(target, (req as any).user.uid)) { res.status(403).json({ error: 'forbidden' }); return; }
+		if (!isOwner(target, req.user!.uid)) { res.status(403).json({ error: 'forbidden' }); return; }
 		const result = await transcriptions.deleteOne(query);
 
 		// also, remove from user's transcriptions array (the owner, from the session)
-		const userID = (req as any).user.uid;
+		const userID = req.user!.uid;
 		const query2 = { _id: new ObjectId(userID) };
 		const tID = new ObjectId(req.body._id);
 		const result2 = await users.updateOne(query2, { $pull: { 
@@ -761,7 +765,7 @@ const runServer = async () => {
 		if (!found1) {
 		  return res.status(404).send('Recording not found');
 		}
-		if (!isOwner(found1, (req as any).user.uid)) { res.status(403).json({ error: 'forbidden' }); return; }
+		if (!isOwner(found1, req.user!.uid)) { res.status(403).json({ error: 'forbidden' }); return; }
 		const parentID = found1.parentID;
 		const result1 = await audioRecordings.deleteOne(query1);
 		// also delete recording from audioevent, if rec has associated audio
@@ -854,7 +858,7 @@ const runServer = async () => {
 		if (!result) {
 		  return res.status(404).send('Audio event not found');
 		}
-		if (!isOwner(result, (req as any).user.uid)) { res.status(403).json({ error: 'forbidden' }); return; }
+		if (!isOwner(result, req.user!.uid)) { res.status(403).json({ error: 'forbidden' }); return; }
 		const recordings = result.recordings;
 		const idxs = Object.keys(recordings);
 		idxs.forEach(async idx => {
@@ -1082,7 +1086,7 @@ const runServer = async () => {
 		  } };
 		  const t = await transcriptions.findOne(query);
 		  if (!t) { res.status(404).json({ error: 'not found' }); return; }
-		  if (!isOwner(t, (req as any).user.uid)) { res.status(403).json({ error: 'forbidden' }); return; }
+		  if (!isOwner(t, req.user!.uid)) { res.status(403).json({ error: 'forbidden' }); return; }
 		  const result = await transcriptions.updateOne(query, update);
 		  res.json(result)
 		} catch (err) {
@@ -1098,7 +1102,7 @@ const runServer = async () => {
 		  const options = { returnDocument: 'after' as const };
 		  const recOwner = await audioRecordings.findOne(q);
 		  if (!recOwner) { res.status(404).json({ error: 'not found' }); return; }
-		  if (!isOwner(recOwner, (req as any).user.uid)) { res.status(403).json({ error: 'forbidden' }); return; }
+		  if (!isOwner(recOwner, req.user!.uid)) { res.status(403).json({ error: 'forbidden' }); return; }
 		  const result = await audioRecordings.findOneAndUpdate(q, up, options);
       if (!result.value) {
         return res.status(404).send('Recording not found');
@@ -1123,7 +1127,7 @@ const runServer = async () => {
 		  } };
 		  const aeOwner = await audioEvents.findOne(query);
 		  if (!aeOwner) { res.status(404).json({ error: 'not found' }); return; }
-		  if (!isOwner(aeOwner, (req as any).user.uid)) { res.status(403).json({ error: 'forbidden' }); return; }
+		  if (!isOwner(aeOwner, req.user!.uid)) { res.status(403).json({ error: 'forbidden' }); return; }
 		  const result = await audioEvents.findOneAndUpdate(query, update);
 		  const audioEvent = result.value;
       if (!audioEvent) {
@@ -1436,7 +1440,7 @@ const runServer = async () => {
 		const query = { _id: new ObjectId(req.body.id) };
 		const target = await transcriptions.findOne(query);
 		if (!target) { res.status(404).json({ error: 'not found' }); return; }
-		if (!canEdit(target, (req as any).user.uid)) { res.status(403).json({ error: 'forbidden' }); return; }
+		if (!canEdit(target, req.user!.uid)) { res.status(403).json({ error: 'forbidden' }); return; }
 		const update = { $set: { title: req.body.title} };
 		const result = await transcriptions.updateOne(query, update);
 		res.json(result)
@@ -1451,7 +1455,7 @@ const runServer = async () => {
 		const query = { _id: new ObjectId(req.body.id) };
 		const target = await transcriptions.findOne(query);
 		if (!target) { res.status(404).json({ error: 'not found' }); return; }
-		if (!isOwner(target, (req as any).user.uid)) { res.status(403).json({ error: 'forbidden' }); return; }
+		if (!isOwner(target, req.user!.uid)) { res.status(403).json({ error: 'forbidden' }); return; }
 		const update = { $set: { permissions: req.body.permissions} };
 		const result = await transcriptions.updateOne(query, update);
 		res.json(result)
@@ -1466,7 +1470,7 @@ const runServer = async () => {
 		const query = { _id: new ObjectId(req.body.transcriptionID) };
 		const target = await transcriptions.findOne(query);
 		if (!target) { res.status(404).json({ error: 'not found' }); return; }
-		if (!isOwner(target, (req as any).user.uid)) { res.status(403).json({ error: 'forbidden' }); return; }
+		if (!isOwner(target, req.user!.uid)) { res.status(403).json({ error: 'forbidden' }); return; }
 		const update = { $set: {
 		  userID: req.body.userID,
 		  name: req.body.name,
@@ -1873,10 +1877,10 @@ app.post('/handleGoogleAuthCodePythonAPI', async (req, res) => {
     if (!copy) {
       return res.status(404).send('Transcription not found');
     }
-		if (!canView(copy, (req as any).user.uid)) { res.status(403).json({ error: 'forbidden' }); return; }
+		if (!canView(copy, req.user!.uid)) { res.status(403).json({ error: 'forbidden' }); return; }
 		copy._id = new ObjectId();
 		copy.title = req.body.title;
-		copy.userID = (req as any).user.uid; // the cloner owns the new copy
+		copy.userID = req.user!.uid; // the cloner owns the new copy
 		copy.permissions = req.body.permissions;
 		copy.name = req.body.name;
 		copy.family_name = req.body.family_name;

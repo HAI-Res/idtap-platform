@@ -73,7 +73,7 @@ export default function authRoutes(deps: AuthDeps): Router {
     try {
       const code = req.query.code;
       const state = req.query.state;
-      const txRaw = (req as any).cookies?.[AUTH_TX_COOKIE];
+      const txRaw = req.cookies?.[AUTH_TX_COOKIE];
       res.clearCookie(AUTH_TX_COOKIE, clearSessionCookieOptions());
 
       const tx = typeof txRaw === 'string' ? verifyAuthTx(txRaw) : null;
@@ -117,7 +117,7 @@ export default function authRoutes(deps: AuthDeps): Router {
 
   // Current session — populated by the attachUser middleware from the sid cookie.
   router.get('/session/me', async (req, res) => {
-    const u = (req as any).user;
+    const u = req.user;
     if (!u?.uid) return res.status(401).json({ error: 'not authenticated' });
     try {
       const user = await users.findOne({ _id: new ObjectId(u.uid) });
