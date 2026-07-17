@@ -499,7 +499,7 @@ const runServer = async () => {
 	  const query = {
 		audioID: req.query.audioID,
 		$or: [
-		  { userID: req.query.userID },
+		  { userID: req.user?.uid ?? NO_SESSION },
 		  { permissions: { $in: ['Public', 'Publicly Editable'] } }
 		]
 	  };
@@ -1241,8 +1241,8 @@ const runServer = async () => {
 	app.post('/initializeAudioEvent', requireSession, requireCsrfHeader, async (req, res) => {
 	  // Creates a new (empty) AudioEvent mongDB entry, and receives back a 
 	  // unique _id for use throughout the upload / metadata entry process.
-	  const userID = req.body.userID;
-	  const insertion: { 
+	  const userID = req.user!.uid;
+	  const insertion: {
       userID: string; 
       permissions: string; 
       explicitPermissions: { publicView: boolean; edit: string[]; view: string[] }; 
@@ -1505,7 +1505,8 @@ const runServer = async () => {
 
 	app.get('/loadQueries', async (req, res) => {
 	  try {
-		const userID = req.query.userID;
+		if (!req.user?.uid) { res.json([]); return; }
+		const userID = req.user.uid;
 		const transcriptionID = req.query.transcriptionID;
 		const query = { _id: new ObjectId(userID as string) };
 		const projection = { projection: { multiQueries: 1, _id: 0 } };
@@ -1731,10 +1732,10 @@ const runServer = async () => {
         const query = { 
           _id: { $in: transIDs.map(id => new ObjectId(id)) },
           $or: [
-          { "explicitPermissions.view": req.body.userID },
+          { "explicitPermissions.view": req.user?.uid ?? NO_SESSION },
           { "explicitPermissions.publicView": true },
-          { "userID": req.body.userID },
-          { "explicitPermissions.edit": req.body.userID }
+          { "userID": req.user?.uid ?? NO_SESSION },
+          { "explicitPermissions.edit": req.user?.uid ?? NO_SESSION }
           ] 
         };
         const proj = {
@@ -1808,7 +1809,7 @@ const runServer = async () => {
 
 	app.post('/agreeToWaiver', requireSession, requireCsrfHeader, async (req, res) => {
 	  try {
-		const query = { _id: new ObjectId(req.body.userID) };
+		const query = { _id: new ObjectId(req.user!.uid) };
 		const update = { $set: { waiverAgreed: true } };
 		const options = { upsert: true };
 		const result = await users.updateOne(query, update, options);
@@ -2092,7 +2093,7 @@ app.post('/handleGoogleAuthCodePythonAPI', async (req, res) => {
 			parentID: audioEventID,
 			parentTitle: parentTitle,
 			aeUserID: aeUserID,
-			userID: req.body.userID,
+			userID: req.user!.uid,
 			parentTrackNumber: recIdx,
 			dateModified: dateModified,
 			explicitPermissions: {
@@ -2152,8 +2153,9 @@ app.post('/handleGoogleAuthCodePythonAPI', async (req, res) => {
 
 	app.get('/getEditableCollections', async (req, res) => {
 	  try {
-		const query1 = { userID: JSON.parse(req.query.userID as string) };
-		const query2 = { 'permissions.edit': JSON.parse(req.query.userID as string) };
+		if (!req.user?.uid) { res.json([]); return; }
+		const query1 = { userID: req.user.uid };
+		const query2 = { 'permissions.edit': req.user.uid };
 		const query = { $or: [query1, query2] };
 		const result = await collections.find(query).toArray();
 		res.json(result)
@@ -2165,7 +2167,8 @@ app.post('/handleGoogleAuthCodePythonAPI', async (req, res) => {
 	
 	app.get('/getSavedSettings', async (req, res) => {
 	  try {
-		const query = { _id: new ObjectId(req.query.userID as string) };
+		if (!req.user?.uid) { res.json([]); return; }
+		const query = { _id: new ObjectId(req.user.uid) };
 		const projection = { savedSettings: 1, _id: 0 };
 		const result = await users.findOne(query, { projection });
 		if (result && result.savedSettings) {
@@ -2181,7 +2184,7 @@ app.post('/handleGoogleAuthCodePythonAPI', async (req, res) => {
 
 	app.post('/saveDisplaySettings', requireSession, requireCsrfHeader, async (req, res) => {
 	  try {
-		const query = { _id: new ObjectId(req.body.userID) };
+		const query = { _id: new ObjectId(req.user!.uid) };
 		const user = await users.findOne(query);
 		if (user) {
 		  if (user.savedSettings) {
@@ -2205,8 +2208,8 @@ app.post('/handleGoogleAuthCodePythonAPI', async (req, res) => {
 
 	app.post('/updateDisplaySettings', requireSession, requireCsrfHeader, async (req, res) => {
 	  try {
-		const { userId, uniqueId, settings } = req.body;
-		const query = { _id: new ObjectId(userId), 'savedSettings.uniqueId': uniqueId };
+		const { uniqueId, settings } = req.body;
+		const query = { _id: new ObjectId(req.user!.uid), 'savedSettings.uniqueId': uniqueId };
 		const update = { $set: { 'savedSettings.$': settings } };
 		const result = await users.updateOne(query, update);
 		// console.log(userID, uniqueId, settings)
@@ -2223,7 +2226,8 @@ app.post('/handleGoogleAuthCodePythonAPI', async (req, res) => {
 
 	app.get('/getDefaultSettings', async (req, res) => {
 	  try {
-		const query = { _id: new ObjectId(req.query.userID as string) };
+		if (!req.user?.uid) { res.json('ffa38001-f592-4778-a91e-c4ef5c99b081'); return; }
+		const query = { _id: new ObjectId(req.user.uid) };
 		const projection = { defaultSettingsID: 1, _id: 0 };
 		const result = await users.findOne(query, { projection });
 		if (result && result.defaultSettingsID) {
@@ -2239,7 +2243,7 @@ app.post('/handleGoogleAuthCodePythonAPI', async (req, res) => {
 
 	app.post('/setDefaultSettings', requireSession, requireCsrfHeader, async (req, res) => {
 	  try {
-		const query = { _id: new ObjectId(req.body.userID) };
+		const query = { _id: new ObjectId(req.user!.uid) };
 		const update = { $set: { defaultSettingsID: req.body.settingsID } };
 		const result = await users.updateOne(query, update);
 		res.json(result);
@@ -2251,7 +2255,7 @@ app.post('/handleGoogleAuthCodePythonAPI', async (req, res) => {
 
 	app.delete('/deleteDisplaySettings', requireSession, requireCsrfHeader, async (req, res) => {
 	  try {
-		const query = { _id: new ObjectId(req.body.userId) };
+		const query = { _id: new ObjectId(req.user!.uid) };
 		const savedSettings = { uniqueId: req.body.uniqueId };
 		const update = { $pull: { savedSettings } };
 		const result = await users.updateOne(query, update);
@@ -2403,8 +2407,9 @@ app.post('/handleGoogleAuthCodePythonAPI', async (req, res) => {
 		const collection = await collections.findOne(query);
 		if (!collection) {
 		  res.status(404).send('Collection not found');
+		  return;
 		}
-		const update = { $addToSet: { "permissions.view": req.body.userID } };
+		const update = { $addToSet: { "permissions.view": req.user!.uid } };
 		const result = await collections.updateOne(query, update);
 		res.json(result);
 
@@ -2416,8 +2421,8 @@ app.post('/handleGoogleAuthCodePythonAPI', async (req, res) => {
 
 	app.post('/updateTranscriptionViewed', requireSession, requireCsrfHeader, async (req, res) => {
 	  try {
-		const query = { _id: new ObjectId(req.body.userID) };
-		const update = { 
+		const query = { _id: new ObjectId(req.user!.uid) };
+		const update = {
 		  $set: {
 			[`transcriptionsViewed.${req.body.transcriptionID}`]: new Date()
 		  }
@@ -2434,7 +2439,8 @@ app.post('/handleGoogleAuthCodePythonAPI', async (req, res) => {
 	app.post('/getUsersLastViewedTranscriptions', async (req, res) => {
 	  try {
 		// Expecting a JSON body with { userId: "someUserId" }
-		const userID = req.body.userId;
+		if (!req.user?.uid) { res.json({}); return; }
+		const userID = req.user.uid;
 		const query = { _id: new ObjectId(userID) };
 		const projection = { projection: { transcriptionsViewed: 1, _id: 0 } };
 		const user = await users.findOne(query, projection);
