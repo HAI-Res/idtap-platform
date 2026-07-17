@@ -22,6 +22,7 @@ import cookieParser from 'cookie-parser';
 import {
   verifySession, signSession, sessionCookieOptions, SESSION_COOKIE, SESSION_TTL_SECONDS,
 } from './session';
+import { canView, canEdit, isOwner } from '@shared/authz';
 
 import { mediaPath, PYTHON_PATH, UPLOAD_TMP_DIR, pythonEnv } from './mediaConfig';
 
@@ -42,8 +43,11 @@ declare global {
     interface Request {
       user?: {
         id: string;
-        email: string;
+        email?: string;
         sub: string;
+        /** Mongo user _id — present for web-session requests (attachUser) */
+        uid?: string;
+        name?: string;
       };
     }
   }
@@ -201,11 +205,11 @@ app.use(cookieParser());
 // checks via shared/authz) is added in the handler sweep. Public routes keep working
 // logged-out (req.user simply stays undefined).
 app.use((req, res, next) => {
-  const token = (req as any).cookies?.[SESSION_COOKIE];
+  const token = req.cookies?.[SESSION_COOKIE];
   if (token) {
     const s = verifySession(token);
     if (s) {
-      (req as any).user = { id: s.sub, sub: s.sub, uid: s.uid, email: s.email, name: s.name };
+      req.user = { id: s.sub, sub: s.sub, uid: s.uid, email: s.email, name: s.name };
       // sliding session: re-issue once past half its lifetime so active users don't
       // get logged out mid-session.
       const nowSec = Math.floor(Date.now() / 1000);
@@ -220,6 +224,32 @@ app.use((req, res, next) => {
   }
   next();
 });
+
+// Sentinel actor id for unauthenticated requests on public-readable endpoints: it is
+// not a valid ObjectId string, so `{ userID: NO_SESSION }` / permission-array matches
+// match no real document — public clauses still apply, private ones never leak.
+const NO_SESSION = '__no_session__';
+
+// --- A5 enforcement guards (used per-route in the handler sweep) ---
+// requireSession: 401 unless a verified session (sid cookie) populated req.user.
+const requireSession: express.RequestHandler = (req, res, next) => {
+  if (!req.user?.uid) {
+    res.status(401).json({ error: 'authentication required' });
+    return;
+  }
+  next();
+};
+// requireCsrfHeader: 403 on state-changing requests lacking the app's custom header.
+// A cross-site attacker can't set a custom header without a CORS preflight we don't
+// grant, so this closes the residual gap left by SameSite=Lax. The SPA sends it via a
+// shared request wrapper.
+const requireCsrfHeader: express.RequestHandler = (req, res, next) => {
+  if (req.get('X-IDTAP-Client') !== 'web') {
+    res.status(403).json({ error: 'missing client header' });
+    return;
+  }
+  next();
+};
 
 const apiTimeout = 600000;
 app.use((req, res, next) => {
@@ -308,10 +338,11 @@ const runServer = async () => {
         const authRouter = authRoutes({ users, googleClientId: GOOGLE_CLIENT_ID, googleClientSecret: GOOGLE_CLIENT_SECRET });
         app.use('/', authRouter);
 	  
-	app.post('/insertNewTranscription', async (req, res) => {
+	app.post('/insertNewTranscription', requireSession, requireCsrfHeader, async (req, res) => {
 	  // creates new transcription entry in transcriptions collection
 	  try {
 		const insert = req.body;
+		insert.userID = req.user!.uid; // owner is the authenticated user, not client-supplied
 		insert['dateCreated'] = new Date(insert.dateCreated);
 		insert['dateModified'] = new Date(insert.dateModified);
 		
@@ -329,11 +360,12 @@ const runServer = async () => {
 	  }
 	});
 
-	app.post('/updateTranscription', async (req, res) => {
+	app.post('/updateTranscription', requireSession, requireCsrfHeader, async (req, res) => {
 	  // updates a transcription
 	  const updateObj: { [key: string]: any } = {};
 	  Object.keys(req.body).forEach(key => {
-		if (key !== '_id') updateObj[key] = req.body[key]
+		// content only — ownership/sharing changes use their own owner-gated endpoints
+		if (key !== '_id' && key !== 'userID' && key !== 'permissions' && key !== 'explicitPermissions') updateObj[key] = req.body[key]
 	  });
 	  updateObj['dateModified'] = new Date();
 	  updateObj['dateCreated'] = new Date(updateObj['dateCreated'])
@@ -349,6 +381,9 @@ const runServer = async () => {
 		}
 	  };
 	  try {
+		const target = await transcriptions.findOne(query);
+		if (!target) { res.status(404).json({ error: 'not found' }); return; }
+		if (!canEdit(target, req.user!.uid)) { res.status(403).json({ error: 'forbidden' }); return; }
 		const result = await transcriptions.updateOne(query, update);
 		res.send(JSON.stringify({ ...result, dateModified: updateObj['dateModified'] }))
 	  } catch (err) {
@@ -389,7 +424,10 @@ const runServer = async () => {
 
 	app.get('/getAllTranscriptions', async (req, res) => {
 	  try {
-		const userID: string = JSON.parse(req.query.userID as string);
+		// Identity comes from the verified session cookie, never the query string, so it
+		// cannot be spoofed to read another user's private transcriptions. When logged
+		// out, the sentinel matches no document, so only the public clauses apply.
+		const userID: string = req.user?.uid ?? NO_SESSION;
 		const sortKey: string = JSON.parse(req.query.sortKey as string);
 		let newPermissions = false;
 		const reqNP = req.query.newPermissions;
@@ -461,7 +499,7 @@ const runServer = async () => {
 	  const query = {
 		audioID: req.query.audioID,
 		$or: [
-		  { userID: req.query.userID },
+		  { userID: req.user?.uid ?? NO_SESSION },
 		  { permissions: { $in: ['Public', 'Publicly Editable'] } }
 		]
 	  };
@@ -550,8 +588,8 @@ const runServer = async () => {
 	  }
 	});
 
-	app.post('/saveMultiQuery', async (req, res) => {
-	  const userID = req.body.userID;
+	app.post('/saveMultiQuery', requireSession, requireCsrfHeader, async (req, res) => {
+	  const userID = req.user!.uid;
 	  if (!userID || userID.length !== 24) {
 		console.log(userID)
 		return res.status(400).send('Invalid userID: ' + userID);
@@ -577,8 +615,8 @@ const runServer = async () => {
 
 	});
 
-	app.delete('/deleteQuery', async (req, res) => {
-	  const query = { _id: new ObjectId(req.body.userID) };
+	app.delete('/deleteQuery', requireSession, requireCsrfHeader, async (req, res) => {
+	  const query = { _id: new ObjectId(req.user!.uid) };
 	  const mQueryID = new ObjectId(req.body.queryID);
 
 	  try {
@@ -592,11 +630,11 @@ const runServer = async () => {
 	  }
 	});
 
-	app.post('/createCollection', async (req, res) => {
+	app.post('/createCollection', requireSession, requireCsrfHeader, async (req, res) => {
 	  // create a new collection
 	  try {
 		// get the user's name from their userID
-		const query = { _id: new ObjectId(req.body.userID) };
+		const query = { _id: new ObjectId(req.user!.uid) };
 		const projection = { projection: { _id: 0, name: 1 } };
 		const result = await users.findOne(query, projection);
 		if (!result) {
@@ -605,6 +643,7 @@ const runServer = async () => {
 		const name = result.name;
 		// create the collection
 		const collection = req.body;
+		collection['userID'] = req.user!.uid; // collection owner
 		collection['dateCreated'] = new Date();
 		collection['dateModified'] = new Date();
 		collection['userName'] = name;
@@ -616,10 +655,13 @@ const runServer = async () => {
 	  }
 	});
 
-	app.delete('/deleteCollection', async (req, res) => {
+	app.delete('/deleteCollection', requireSession, requireCsrfHeader, async (req, res) => {
 	  // delete a collection
 	  try {
 		const query = { _id: new ObjectId(req.body._id) };
+		const coll = await collections.findOne(query);
+		if (!coll) { res.status(404).json({ error: 'not found' }); return; }
+		if (!isOwner(coll, req.user!.uid)) { res.status(403).json({ error: 'forbidden' }); return; }
 		const result = await collections.deleteOne(query);
 		res.json(result)
 	  } catch (err) {
@@ -628,13 +670,17 @@ const runServer = async () => {
 	  }
 	});
 
-	app.post('/updateCollection', async (req, res) => {
+	app.post('/updateCollection', requireSession, requireCsrfHeader, async (req, res) => {
 	  // update a collection
 	  try {
 		const query = { _id: new ObjectId(req.body._id) };
-		// copy to updates, and remove _id
+		const coll = await collections.findOne(query);
+		if (!coll) { res.status(404).json({ error: 'not found' }); return; }
+		if (!canEdit(coll, req.user!.uid)) { res.status(403).json({ error: 'forbidden' }); return; }
+		// copy to updates, and remove _id + owner (owner reassignment isn't allowed here)
 		const updates = req.body;
 		delete updates._id;
+		delete updates.userID;
 		const update = { $set: updates };
 		const result = await collections.updateOne(query, update);
 		res.json(result)
@@ -662,6 +708,7 @@ const runServer = async () => {
 	  if (req.body._id === 0) {
 		try {
 		  const result = await transcriptions.find().sort({ "_id": 1 }).next();
+		  if (result && !canView(result, req.user?.uid)) { res.status(403).json({ error: 'forbidden' }); return; }
 		  res.json(result)
 		} catch (err) {
 		  console.error(err);
@@ -671,6 +718,7 @@ const runServer = async () => {
 		try {
 		  const query = { '_id': new ObjectId(req.body._id) };
 		  const result = await transcriptions.findOne(query);
+		  if (result && !canView(result, req.user?.uid)) { res.status(403).json({ error: 'forbidden' }); return; }
 		  res.send(JSON.stringify(result))
 		} catch (err) {
 		  console.error(err);
@@ -690,14 +738,17 @@ const runServer = async () => {
 	  }
 	});
 
-	app.delete('/oneTranscription', async (req, res) => {
+	app.delete('/oneTranscription', requireSession, requireCsrfHeader, async (req, res) => {
 	  // delete a particular transcription
 	  try {
 		const query = { "_id": new ObjectId(req.body._id) };
+		const target = await transcriptions.findOne(query);
+		if (!target) { res.status(404).json({ error: 'not found' }); return; }
+		if (!isOwner(target, req.user!.uid)) { res.status(403).json({ error: 'forbidden' }); return; }
 		const result = await transcriptions.deleteOne(query);
-		
-		// also, remove from user's transcriptions array
-		const userID = req.body.userID;
+
+		// also, remove from user's transcriptions array (the owner, from the session)
+		const userID = req.user!.uid;
 		const query2 = { _id: new ObjectId(userID) };
 		const tID = new ObjectId(req.body._id);
 		const result2 = await users.updateOne(query2, { $pull: { 
@@ -713,7 +764,7 @@ const runServer = async () => {
 	  }    
 	});
 
-	app.delete('/deleteRecording', async (req, res) => {
+	app.delete('/deleteRecording', requireSession, requireCsrfHeader, async (req, res) => {
 	  // delete a particular recording
 	  try {
 		const query1 = { "_id": new ObjectId(req.body._id) };
@@ -721,6 +772,7 @@ const runServer = async () => {
 		if (!found1) {
 		  return res.status(404).send('Recording not found');
 		}
+		if (!isOwner(found1, req.user!.uid)) { res.status(403).json({ error: 'forbidden' }); return; }
 		const parentID = found1.parentID;
 		const result1 = await audioRecordings.deleteOne(query1);
 		// also delete recording from audioevent, if rec has associated audio
@@ -804,15 +856,16 @@ const runServer = async () => {
 	  }    
 	});
 
-	app.delete('/deleteAudioEvent', async (req, res) => {
+	app.delete('/deleteAudioEvent', requireSession, requireCsrfHeader, async (req, res) => {
 	  // delete a particular audio event
 	  try {
 		const query = { "_id": new ObjectId(req.body._id) };
-		const projection = { 'recordings': 1, '_id': 0 };
+		const projection = { 'recordings': 1, '_id': 0, 'userID': 1, 'explicitPermissions': 1, 'permissions': 1 };
 		const result = await audioEvents.findOne(query, { projection });
 		if (!result) {
 		  return res.status(404).send('Audio event not found');
 		}
+		if (!isOwner(result, req.user!.uid)) { res.status(403).json({ error: 'forbidden' }); return; }
 		const recordings = result.recordings;
 		const idxs = Object.keys(recordings);
 		idxs.forEach(async idx => {
@@ -1029,7 +1082,7 @@ const runServer = async () => {
 	  }
 	});
 
-	app.post('/updateVisibility', async (req, res) => {
+	app.post('/updateVisibility', requireSession, requireCsrfHeader, async (req, res) => {
 	  // update the visibility of either a transcription, recording, or 
 	  // audioEvent
 	  if (req.body.artifactType === 'transcription') {
@@ -1038,6 +1091,9 @@ const runServer = async () => {
 		  const update = { $set: { 
 			"explicitPermissions": req.body.explicitPermissions 
 		  } };
+		  const t = await transcriptions.findOne(query);
+		  if (!t) { res.status(404).json({ error: 'not found' }); return; }
+		  if (!isOwner(t, req.user!.uid)) { res.status(403).json({ error: 'forbidden' }); return; }
 		  const result = await transcriptions.updateOne(query, update);
 		  res.json(result)
 		} catch (err) {
@@ -1051,6 +1107,9 @@ const runServer = async () => {
 			"explicitPermissions": req.body.explicitPermissions 
 		  } };
 		  const options = { returnDocument: 'after' as const };
+		  const recOwner = await audioRecordings.findOne(q);
+		  if (!recOwner) { res.status(404).json({ error: 'not found' }); return; }
+		  if (!isOwner(recOwner, req.user!.uid)) { res.status(403).json({ error: 'forbidden' }); return; }
 		  const result = await audioRecordings.findOneAndUpdate(q, up, options);
       if (!result.value) {
         return res.status(404).send('Recording not found');
@@ -1073,6 +1132,9 @@ const runServer = async () => {
 		  const update = { $set: { 
 			"explicitPermissions": req.body.explicitPermissions 
 		  } };
+		  const aeOwner = await audioEvents.findOne(query);
+		  if (!aeOwner) { res.status(404).json({ error: 'not found' }); return; }
+		  if (!isOwner(aeOwner, req.user!.uid)) { res.status(403).json({ error: 'forbidden' }); return; }
 		  const result = await audioEvents.findOneAndUpdate(query, update);
 		  const audioEvent = result.value;
       if (!audioEvent) {
@@ -1096,7 +1158,7 @@ const runServer = async () => {
 
 	});
 	
-	app.post('/makeSpectrograms', async (req, res) => {
+	app.post('/makeSpectrograms', requireSession, requireCsrfHeader, async (req, res) => {
 	  // generate spectrograms for the given recording ID and tonic estimate
 	  const makingSpecs = spawn(
 		PYTHON_PATH,
@@ -1120,7 +1182,7 @@ const runServer = async () => {
 	  }
 	})
 
-	app.post('/makeMelograph', async (req, res) => {
+	app.post('/makeMelograph', requireSession, requireCsrfHeader, async (req, res) => {
 	  res.setTimeout(10 * 60 * 1000); // 10 minutes
 	  const makingMelograph = spawn(
 		PYTHON_PATH,
@@ -1176,11 +1238,11 @@ const runServer = async () => {
 	  }
 	})
 
-	app.post('/initializeAudioEvent', async (req, res) => {
+	app.post('/initializeAudioEvent', requireSession, requireCsrfHeader, async (req, res) => {
 	  // Creates a new (empty) AudioEvent mongDB entry, and receives back a 
 	  // unique _id for use throughout the upload / metadata entry process.
-	  const userID = req.body.userID;
-	  const insertion: { 
+	  const userID = req.user!.uid;
+	  const insertion: {
       userID: string; 
       permissions: string; 
       explicitPermissions: { publicView: boolean; edit: string[]; view: string[] }; 
@@ -1206,7 +1268,7 @@ const runServer = async () => {
 	  }
 	})
 
-	app.delete('/cleanEmptyDoc', async (req, res) => {
+	app.delete('/cleanEmptyDoc', requireSession, requireCsrfHeader, async (req, res) => {
 	  const query = { _id: new ObjectId(req.body._id) };
 	  const projection = { projection: { _id: 0 } };
 	  try {
@@ -1224,11 +1286,13 @@ const runServer = async () => {
 	  }    
 	})
 
-	app.post('/saveAudioMetadata', async (req, res) => {
+	app.post('/saveAudioMetadata', requireSession, requireCsrfHeader, async (req, res) => {
 	  const parentId = new ObjectId(req.body._id);
 	  const myUpdates = req.body.updates;
 	  const addMusicians = req.body.addMusicians;
 	  const query = { _id: parentId };
+	  const existingAE = await audioEvents.findOne(query);
+	  if (existingAE && !canEdit(existingAE, req.user!.uid)) { res.status(403).json({ error: 'forbidden' }); return; }
 	  const update = { $set: myUpdates };
 	  const options = { upsert: true };
 	  console.log(addMusicians)
@@ -1251,7 +1315,7 @@ const runServer = async () => {
 	  }
 	})
 
-	app.post('/addMusicianToDB', async (req, res) => {
+	app.post('/addMusicianToDB', requireSession, requireCsrfHeader, async (req, res) => {
 	  //adding new entry to musicians db
 	  const entry = { 
 		'Initial Name': req.body.initName,
@@ -1268,7 +1332,7 @@ const runServer = async () => {
 	  }
 	})
 
-	app.post('/addGharanaToDB', async (req, res) => {
+	app.post('/addGharanaToDB', requireSession, requireCsrfHeader, async (req, res) => {
 	  //adding new entry to gharanas db
 	  const entry = { 'name': req.body.name, 'members': req.body.members };
 	  try {
@@ -1280,7 +1344,7 @@ const runServer = async () => {
 	  }
 	})
 
-	app.post('/addCountryToDB', async (req, res) => {
+	app.post('/addCountryToDB', requireSession, requireCsrfHeader, async (req, res) => {
 	  const country = req.body.country;
 	  const continent = req.body.continent;
 	  const update = { $set: { [`${continent}.${country}`]: [] } };
@@ -1294,7 +1358,7 @@ const runServer = async () => {
 	  } 
 	})
 
-	app.post('/addCityToDB', async (req, res) => {
+	app.post('/addCityToDB', requireSession, requireCsrfHeader, async (req, res) => {
 	  const continent = req.body.continent;
 	  const country = req.body.country;
 	  const city = req.body.city;
@@ -1309,7 +1373,7 @@ const runServer = async () => {
 	  }
 	})
 
-	app.post('/addRaagToDB', async (req, res) => {
+	app.post('/addRaagToDB', requireSession, requireCsrfHeader, async (req, res) => {
 	  const d = new Date();
 	  const entry = { 'name': req.body.raag, 'updatedDate': d.toISOString() };
 	  try {
@@ -1321,12 +1385,15 @@ const runServer = async () => {
 	  }
 	})
 
-	app.post('/updateSaEstimate', async (req, res) => {
+	app.post('/updateSaEstimate', requireSession, requireCsrfHeader, async (req, res) => {
 	  try {
 		const verString = `recordings.${req.body.recIdx}.saVerified`;
 		const estString = `recordings.${req.body.recIdx}.saEstimate`;
 		const octString = `recordings.${req.body.recIdx}.octOffset`;
 		const query = { _id: new ObjectId(req.body.aeID) };
+		const ae = await audioEvents.findOne(query);
+		if (!ae) { res.status(404).json({ error: 'not found' }); return; }
+		if (!canEdit(ae, req.user!.uid)) { res.status(403).json({ error: 'forbidden' }); return; }
 		const update: { $set: { [key: string]: any } } = { $set: {} };
 		update.$set[verString] = req.body.verified;
 		update.$set[estString] = req.body.saEstimate;
@@ -1346,9 +1413,12 @@ const runServer = async () => {
 	  }
 	})
 
-	app.post('/updateAudioRecording', async (req, res) => {
+	app.post('/updateAudioRecording', requireSession, requireCsrfHeader, async (req, res) => {
 	  try {
 		const query = { _id: new ObjectId(req.body._id) };
+		const rec = await audioRecordings.findOne(query);
+		if (!rec) { res.status(404).json({ error: 'not found' }); return; }
+		if (!canEdit(rec, req.user!.uid)) { res.status(403).json({ error: 'forbidden' }); return; }
 		const isoDateString = new Date().toISOString();
 		const update = { $set: {
 		  ...req.body.updates,
@@ -1380,9 +1450,12 @@ const runServer = async () => {
 	  }
 	})
 
-	app.post('/updateTranscriptionTitle', async (req, res) => {
+	app.post('/updateTranscriptionTitle', requireSession, requireCsrfHeader, async (req, res) => {
 	  try {
 		const query = { _id: new ObjectId(req.body.id) };
+		const target = await transcriptions.findOne(query);
+		if (!target) { res.status(404).json({ error: 'not found' }); return; }
+		if (!canEdit(target, req.user!.uid)) { res.status(403).json({ error: 'forbidden' }); return; }
 		const update = { $set: { title: req.body.title} };
 		const result = await transcriptions.updateOne(query, update);
 		res.json(result)
@@ -1392,9 +1465,12 @@ const runServer = async () => {
 	  }
 	})
 
-	app.post('/updateTranscriptionPermissions', async (req, res) => {
+	app.post('/updateTranscriptionPermissions', requireSession, requireCsrfHeader, async (req, res) => {
 	  try {
 		const query = { _id: new ObjectId(req.body.id) };
+		const target = await transcriptions.findOne(query);
+		if (!target) { res.status(404).json({ error: 'not found' }); return; }
+		if (!isOwner(target, req.user!.uid)) { res.status(403).json({ error: 'forbidden' }); return; }
 		const update = { $set: { permissions: req.body.permissions} };
 		const result = await transcriptions.updateOne(query, update);
 		res.json(result)
@@ -1404,10 +1480,13 @@ const runServer = async () => {
 	  }
 	})
 
-	app.post('/updateTranscriptionOwner', async (req, res) => {
+	app.post('/updateTranscriptionOwner', requireSession, requireCsrfHeader, async (req, res) => {
 	  try {
 		const query = { _id: new ObjectId(req.body.transcriptionID) };
-		const update = { $set: { 
+		const target = await transcriptions.findOne(query);
+		if (!target) { res.status(404).json({ error: 'not found' }); return; }
+		if (!isOwner(target, req.user!.uid)) { res.status(403).json({ error: 'forbidden' }); return; }
+		const update = { $set: {
 		  userID: req.body.userID,
 		  name: req.body.name,
 		  family_name: req.body.family_name,
@@ -1434,7 +1513,8 @@ const runServer = async () => {
 
 	app.get('/loadQueries', async (req, res) => {
 	  try {
-		const userID = req.query.userID;
+		if (!req.user?.uid) { res.json([]); return; }
+		const userID = req.user.uid;
 		const transcriptionID = req.query.transcriptionID;
 		const query = { _id: new ObjectId(userID as string) };
 		const projection = { projection: { multiQueries: 1, _id: 0 } };
@@ -1498,10 +1578,13 @@ const runServer = async () => {
 	  }
 	})
 	
-	app.post('/addRecordingToCollection', async (req, res) => {
+	app.post('/addRecordingToCollection', requireSession, requireCsrfHeader, async (req, res) => {
 	  try {
 		// add recordingID to collections collection
 		const query = { _id: new ObjectId(req.body.colID) };
+		const coll = await collections.findOne(query);
+		if (!coll) { res.status(404).json({ error: 'not found' }); return; }
+		if (!canEdit(coll, req.user!.uid)) { res.status(403).json({ error: 'forbidden' }); return; }
 
 		const update = { $push: { audioRecordings: req.body.recordingID } };
 		const result = await collections.updateOne(query, update);
@@ -1516,10 +1599,13 @@ const runServer = async () => {
 	  }
 	})
 
-	app.post('/addTranscriptionToCollection', async (req, res) => {
+	app.post('/addTranscriptionToCollection', requireSession, requireCsrfHeader, async (req, res) => {
 	  try {
 		// add recordingID to collections collection
 		const query = { _id: new ObjectId(req.body.colID) };
+		const coll = await collections.findOne(query);
+		if (!coll) { res.status(404).json({ error: 'not found' }); return; }
+		if (!canEdit(coll, req.user!.uid)) { res.status(403).json({ error: 'forbidden' }); return; }
 		const update = { $push: { transcriptions: req.body.transcriptionID } };
 		const result = await collections.updateOne(query, update);
 		// add colID to audioRecordings collection
@@ -1533,10 +1619,13 @@ const runServer = async () => {
 	  }
 	})
 
-	app.post('/addAudioEventToCollection', async (req, res) => {
+	app.post('/addAudioEventToCollection', requireSession, requireCsrfHeader, async (req, res) => {
 	  try {
 		// add recordingID to collections collection
 		const query = { _id: new ObjectId(req.body.colID) };
+		const coll = await collections.findOne(query);
+		if (!coll) { res.status(404).json({ error: 'not found' }); return; }
+		if (!canEdit(coll, req.user!.uid)) { res.status(403).json({ error: 'forbidden' }); return; }
 		const update = { $push: { audioEvents: req.body.audioEventID } };
 		const result = await collections.updateOne(query, update);
 		// add colID to audioRecordings collection
@@ -1550,10 +1639,13 @@ const runServer = async () => {
 	  }
 	})
 
-	app.post('/removeRecordingFromCollection', async (req, res) => {
+	app.post('/removeRecordingFromCollection', requireSession, requireCsrfHeader, async (req, res) => {
 	  try {
       // remove recordingID from collections collection
       const query = { _id: new ObjectId(req.body.colID) };
+      const coll = await collections.findOne(query);
+      if (!coll) { res.status(404).json({ error: 'not found' }); return; }
+      if (!canEdit(coll, req.user!.uid)) { res.status(403).json({ error: 'forbidden' }); return; }
       const update = { $pull: { audioRecordings: req.body.recordingID } };
       const result = await collections.updateOne(query, update);
       // remove colID from audioRecordings collection
@@ -1567,9 +1659,12 @@ const runServer = async () => {
 	  }
 	})
 
-	app.post('/removeTranscriptionFromCollection', async (req, res) => {
+	app.post('/removeTranscriptionFromCollection', requireSession, requireCsrfHeader, async (req, res) => {
 	  try { 
       const query = { _id: new ObjectId(req.body.colID) };
+      const coll = await collections.findOne(query);
+      if (!coll) { res.status(404).json({ error: 'not found' }); return; }
+      if (!canEdit(coll, req.user!.uid)) { res.status(403).json({ error: 'forbidden' }); return; }
       const update = { $pull: { transcriptions: req.body.transcriptionID } };
       const result = await collections.updateOne(query, update);
 
@@ -1584,9 +1679,12 @@ const runServer = async () => {
 	  }
 	})
 
-	app.post('/removeAudioEventFromCollection', async (req, res) => {
+	app.post('/removeAudioEventFromCollection', requireSession, requireCsrfHeader, async (req, res) => {
 	  try {
       const query = { _id: new ObjectId(req.body.colID) };
+      const coll = await collections.findOne(query);
+      if (!coll) { res.status(404).json({ error: 'not found' }); return; }
+      if (!canEdit(coll, req.user!.uid)) { res.status(403).json({ error: 'forbidden' }); return; }
       const update = { $pull: { audioEvents: req.body.audioEventID } };
       const result = await collections.updateOne(query, update);
 
@@ -1642,10 +1740,10 @@ const runServer = async () => {
         const query = { 
           _id: { $in: transIDs.map(id => new ObjectId(id)) },
           $or: [
-          { "explicitPermissions.view": req.body.userID },
+          { "explicitPermissions.view": req.user?.uid ?? NO_SESSION },
           { "explicitPermissions.publicView": true },
-          { "userID": req.body.userID },
-          { "explicitPermissions.edit": req.body.userID }
+          { "userID": req.user?.uid ?? NO_SESSION },
+          { "explicitPermissions.edit": req.user?.uid ?? NO_SESSION }
           ] 
         };
         const proj = {
@@ -1689,7 +1787,7 @@ const runServer = async () => {
 	  }
 	})
 
-	app.post('/saveRaagRules', async (req, res) => {
+	app.post('/saveRaagRules', requireSession, requireCsrfHeader, async (req, res) => {
 	  try {
       const query = { name: req.body.name };
       const update = {
@@ -1717,9 +1815,9 @@ const runServer = async () => {
 	  }
 	})
 
-	app.post('/agreeToWaiver', async (req, res) => {
+	app.post('/agreeToWaiver', requireSession, requireCsrfHeader, async (req, res) => {
 	  try {
-		const query = { _id: new ObjectId(req.body.userID) };
+		const query = { _id: new ObjectId(req.user!.uid) };
 		const update = { $set: { waiverAgreed: true } };
 		const options = { upsert: true };
 		const result = await users.updateOne(query, update, options);
@@ -1805,7 +1903,7 @@ app.post('/handleGoogleAuthCodePythonAPI', async (req, res) => {
 	  }
 	})
 
-	app.post('/cloneTranscription', async (req, res) => {
+	app.post('/cloneTranscription', requireSession, requireCsrfHeader, async (req, res) => {
 	  try {
 
 		const query = { _id: new ObjectId(req.body.id) };
@@ -1813,9 +1911,10 @@ app.post('/handleGoogleAuthCodePythonAPI', async (req, res) => {
     if (!copy) {
       return res.status(404).send('Transcription not found');
     }
+		if (!canView(copy, req.user!.uid)) { res.status(403).json({ error: 'forbidden' }); return; }
 		copy._id = new ObjectId();
 		copy.title = req.body.title;
-		copy.userID = req.body.newOwner;
+		copy.userID = req.user!.uid; // the cloner owns the new copy
 		copy.permissions = req.body.permissions;
 		copy.name = req.body.name;
 		copy.family_name = req.body.family_name;
@@ -1935,7 +2034,7 @@ app.post('/handleGoogleAuthCodePythonAPI', async (req, res) => {
 	  }
 	})
 
-	app.post('/newUploadFile', async (req, res) => {
+	app.post('/newUploadFile', requireSession, requireCsrfHeader, async (req, res) => {
 	  try {
 		if (!req.files) {
 		  res.send({ status: false, message: 'No file uploaded' });
@@ -1961,7 +2060,14 @@ app.post('/handleGoogleAuthCodePythonAPI', async (req, res) => {
 			const dateModifiedPath = `${recPath}.dateModified`
 			const expPermissionsPath = `${recPath}.explicitPermissions`;
 			const q = { _id: new ObjectId(audioEventID) };
-			const update = { $set: { 
+			// 'add' attaches to an EXISTING audio event → require edit rights on it.
+			// 'create' upserts a brand-new event (owned by this uploader), so no check.
+			if (req.body.audioEventType === 'add') {
+			  const existingAE = await audioEvents.findOne(q);
+			  if (!existingAE) { res.status(404).json({ error: 'audio event not found' }); return; }
+			  if (!canEdit(existingAE, req.user!.uid)) { res.status(403).json({ error: 'forbidden' }); return; }
+			}
+			const update = { $set: {
 			  [afIdPath]: newId,
 			  [datePath]: {},
 			  [locationPath]: {},
@@ -2002,7 +2108,7 @@ app.post('/handleGoogleAuthCodePythonAPI', async (req, res) => {
 			parentID: audioEventID,
 			parentTitle: parentTitle,
 			aeUserID: aeUserID,
-			userID: req.body.userID,
+			userID: req.user!.uid,
 			parentTrackNumber: recIdx,
 			dateModified: dateModified,
 			explicitPermissions: {
@@ -2062,8 +2168,9 @@ app.post('/handleGoogleAuthCodePythonAPI', async (req, res) => {
 
 	app.get('/getEditableCollections', async (req, res) => {
 	  try {
-		const query1 = { userID: JSON.parse(req.query.userID as string) };
-		const query2 = { 'permissions.edit': JSON.parse(req.query.userID as string) };
+		if (!req.user?.uid) { res.json([]); return; }
+		const query1 = { userID: req.user.uid };
+		const query2 = { 'permissions.edit': req.user.uid };
 		const query = { $or: [query1, query2] };
 		const result = await collections.find(query).toArray();
 		res.json(result)
@@ -2075,7 +2182,8 @@ app.post('/handleGoogleAuthCodePythonAPI', async (req, res) => {
 	
 	app.get('/getSavedSettings', async (req, res) => {
 	  try {
-		const query = { _id: new ObjectId(req.query.userID as string) };
+		if (!req.user?.uid) { res.json([]); return; }
+		const query = { _id: new ObjectId(req.user.uid) };
 		const projection = { savedSettings: 1, _id: 0 };
 		const result = await users.findOne(query, { projection });
 		if (result && result.savedSettings) {
@@ -2089,9 +2197,9 @@ app.post('/handleGoogleAuthCodePythonAPI', async (req, res) => {
 	  }
 	});
 
-	app.post('/saveDisplaySettings', async (req, res) => {
+	app.post('/saveDisplaySettings', requireSession, requireCsrfHeader, async (req, res) => {
 	  try {
-		const query = { _id: new ObjectId(req.body.userID) };
+		const query = { _id: new ObjectId(req.user!.uid) };
 		const user = await users.findOne(query);
 		if (user) {
 		  if (user.savedSettings) {
@@ -2113,10 +2221,10 @@ app.post('/handleGoogleAuthCodePythonAPI', async (req, res) => {
 	  }
 	});
 
-	app.post('/updateDisplaySettings', async (req, res) => {
+	app.post('/updateDisplaySettings', requireSession, requireCsrfHeader, async (req, res) => {
 	  try {
-		const { userId, uniqueId, settings } = req.body;
-		const query = { _id: new ObjectId(userId), 'savedSettings.uniqueId': uniqueId };
+		const { uniqueId, settings } = req.body;
+		const query = { _id: new ObjectId(req.user!.uid), 'savedSettings.uniqueId': uniqueId };
 		const update = { $set: { 'savedSettings.$': settings } };
 		const result = await users.updateOne(query, update);
 		// console.log(userID, uniqueId, settings)
@@ -2133,7 +2241,8 @@ app.post('/handleGoogleAuthCodePythonAPI', async (req, res) => {
 
 	app.get('/getDefaultSettings', async (req, res) => {
 	  try {
-		const query = { _id: new ObjectId(req.query.userID as string) };
+		if (!req.user?.uid) { res.json('ffa38001-f592-4778-a91e-c4ef5c99b081'); return; }
+		const query = { _id: new ObjectId(req.user.uid) };
 		const projection = { defaultSettingsID: 1, _id: 0 };
 		const result = await users.findOne(query, { projection });
 		if (result && result.defaultSettingsID) {
@@ -2147,9 +2256,9 @@ app.post('/handleGoogleAuthCodePythonAPI', async (req, res) => {
 	  }
 	})
 
-	app.post('/setDefaultSettings', async (req, res) => {
+	app.post('/setDefaultSettings', requireSession, requireCsrfHeader, async (req, res) => {
 	  try {
-		const query = { _id: new ObjectId(req.body.userID) };
+		const query = { _id: new ObjectId(req.user!.uid) };
 		const update = { $set: { defaultSettingsID: req.body.settingsID } };
 		const result = await users.updateOne(query, update);
 		res.json(result);
@@ -2159,9 +2268,9 @@ app.post('/handleGoogleAuthCodePythonAPI', async (req, res) => {
 	  }
 	})
 
-	app.delete('/deleteDisplaySettings', async (req, res) => {
+	app.delete('/deleteDisplaySettings', requireSession, requireCsrfHeader, async (req, res) => {
 	  try {
-		const query = { _id: new ObjectId(req.body.userId) };
+		const query = { _id: new ObjectId(req.user!.uid) };
 		const savedSettings = { uniqueId: req.body.uniqueId };
 		const update = { $pull: { savedSettings } };
 		const result = await users.updateOne(query, update);
@@ -2172,7 +2281,7 @@ app.post('/handleGoogleAuthCodePythonAPI', async (req, res) => {
 	  }
 	})
 
-	app.post('/updateInstrumentation', async (req, res) => {
+	app.post('/updateInstrumentation', requireSession, requireCsrfHeader, async (req, res) => {
 	  try {
 		// first get the transcription included in the query under
 		// the transcriptionID key.
@@ -2190,6 +2299,8 @@ app.post('/handleGoogleAuthCodePythonAPI', async (req, res) => {
 		};
 		const query = { _id: new ObjectId(transcriptionID) };
 		const transcription = await transcriptions.findOne(query);
+		if (!transcription) { res.status(404).json({ error: 'not found' }); return; }
+		if (!canEdit(transcription, req.user!.uid)) { res.status(403).json({ error: 'forbidden' }); return; }
 		if (!transcription) {
 		  res.status(404).send('Transcription not found');
 		  return;
@@ -2243,7 +2354,7 @@ app.post('/handleGoogleAuthCodePythonAPI', async (req, res) => {
 	  }
 	});
 
-	app.post('/updateInstrumentationAndTitles', async (req, res) => {
+	app.post('/updateInstrumentationAndTitles', requireSession, requireCsrfHeader, async (req, res) => {
 	  try {
 		const { transcriptionID, instrumentation, trackTitles } = req.body;
 		if (!transcriptionID || !instrumentation) {
@@ -2252,6 +2363,8 @@ app.post('/handleGoogleAuthCodePythonAPI', async (req, res) => {
 		}
 		const query = { _id: new ObjectId(transcriptionID) };
 		const transcription = await transcriptions.findOne(query);
+		if (!transcription) { res.status(404).json({ error: 'not found' }); return; }
+		if (!canEdit(transcription, req.user!.uid)) { res.status(403).json({ error: 'forbidden' }); return; }
 		if (!transcription) {
 		  res.status(404).send('Transcription not found');
 		  return;
@@ -2295,9 +2408,12 @@ app.post('/handleGoogleAuthCodePythonAPI', async (req, res) => {
 	  }
 	});
 
-	app.post('/updateCollectionInviteCode', async (req, res) => {
+	app.post('/updateCollectionInviteCode', requireSession, requireCsrfHeader, async (req, res) => {
 	  try {
 		const query = { _id: new ObjectId(req.body.id) };
+		const coll = await collections.findOne(query);
+		if (!coll) { res.status(404).json({ error: 'not found' }); return; }
+		if (!isOwner(coll, req.user!.uid)) { res.status(403).json({ error: 'forbidden' }); return; }
 		const update = { $set: { inviteCode: req.body.inviteCode } };
 		const result = await collections.updateOne(query, update);
 		res.json(result);
@@ -2307,14 +2423,15 @@ app.post('/handleGoogleAuthCodePythonAPI', async (req, res) => {
 	  }
 	});
 
-	app.post('/enrollUserInCollection', async (req, res) => {
+	app.post('/enrollUserInCollection', requireSession, requireCsrfHeader, async (req, res) => {
 	  try {
 		const query = { inviteCode: req.body.inviteCode };
 		const collection = await collections.findOne(query);
 		if (!collection) {
 		  res.status(404).send('Collection not found');
+		  return;
 		}
-		const update = { $addToSet: { "permissions.view": req.body.userID } };
+		const update = { $addToSet: { "permissions.view": req.user!.uid } };
 		const result = await collections.updateOne(query, update);
 		res.json(result);
 
@@ -2324,10 +2441,10 @@ app.post('/handleGoogleAuthCodePythonAPI', async (req, res) => {
 	  }
 	})
 
-	app.post('/updateTranscriptionViewed', async (req, res) => {
+	app.post('/updateTranscriptionViewed', requireSession, requireCsrfHeader, async (req, res) => {
 	  try {
-		const query = { _id: new ObjectId(req.body.userID) };
-		const update = { 
+		const query = { _id: new ObjectId(req.user!.uid) };
+		const update = {
 		  $set: {
 			[`transcriptionsViewed.${req.body.transcriptionID}`]: new Date()
 		  }
@@ -2344,7 +2461,8 @@ app.post('/handleGoogleAuthCodePythonAPI', async (req, res) => {
 	app.post('/getUsersLastViewedTranscriptions', async (req, res) => {
 	  try {
 		// Expecting a JSON body with { userId: "someUserId" }
-		const userID = req.body.userId;
+		if (!req.user?.uid) { res.json({}); return; }
+		const userID = req.user.uid;
 		const query = { _id: new ObjectId(userID) };
 		const projection = { projection: { transcriptionsViewed: 1, _id: 0 } };
 		const user = await users.findOne(query, projection);
