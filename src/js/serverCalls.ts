@@ -25,7 +25,7 @@ const getPiece = async (id: string): Promise<Piece> => {
   const request = {
     method: "POST",
     headers: {
-      "Content-Type": "application/json"
+      "Content-Type": "application/json", "X-IDTAP-Client": "web"
     },
     body: JSON.stringify({
       _id: id
@@ -150,7 +150,7 @@ const getAllPieces = async (
   let request = {
     method: "GET",
     headers: {
-      "Content-Type": "application/json"
+      "Content-Type": "application/json", "X-IDTAP-Client": "web"
     },
   };
   const query = '?' + new URLSearchParams({

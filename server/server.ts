@@ -2060,7 +2060,14 @@ app.post('/handleGoogleAuthCodePythonAPI', async (req, res) => {
 			const dateModifiedPath = `${recPath}.dateModified`
 			const expPermissionsPath = `${recPath}.explicitPermissions`;
 			const q = { _id: new ObjectId(audioEventID) };
-			const update = { $set: { 
+			// 'add' attaches to an EXISTING audio event → require edit rights on it.
+			// 'create' upserts a brand-new event (owned by this uploader), so no check.
+			if (req.body.audioEventType === 'add') {
+			  const existingAE = await audioEvents.findOne(q);
+			  if (!existingAE) { res.status(404).json({ error: 'audio event not found' }); return; }
+			  if (!canEdit(existingAE, req.user!.uid)) { res.status(403).json({ error: 'forbidden' }); return; }
+			}
+			const update = { $set: {
 			  [afIdPath]: newId,
 			  [datePath]: {},
 			  [locationPath]: {},
@@ -2404,6 +2411,9 @@ app.post('/handleGoogleAuthCodePythonAPI', async (req, res) => {
 	app.post('/updateCollectionInviteCode', requireSession, requireCsrfHeader, async (req, res) => {
 	  try {
 		const query = { _id: new ObjectId(req.body.id) };
+		const coll = await collections.findOne(query);
+		if (!coll) { res.status(404).json({ error: 'not found' }); return; }
+		if (!isOwner(coll, req.user!.uid)) { res.status(403).json({ error: 'forbidden' }); return; }
 		const update = { $set: { inviteCode: req.body.inviteCode } };
 		const result = await collections.updateOne(query, update);
 		res.json(result);
