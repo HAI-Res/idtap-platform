@@ -11,10 +11,9 @@ const mocks = vi.hoisted(() => ({
   request: vi.fn(),
 }));
 
-// google-auth-library is installed only under server/node_modules, so the bare
-// specifier resolves to a different module ID here than inside oauthRoutes.ts —
-// mock the server's copy explicitly.
-vi.mock('../../../server/node_modules/google-auth-library', () => ({
+// Resolution is pinned to the root copy via the test alias in vite.config.js,
+// so this bare specifier and the import in oauthRoutes.ts hit the same module.
+vi.mock('google-auth-library', () => ({
   OAuth2Client: vi.fn(() => mocks),
 }));
 

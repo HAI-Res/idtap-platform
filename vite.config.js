@@ -30,6 +30,14 @@ export default defineConfig(({ command }) => {
         '@model': path.resolve(__dirname, './src/ts/model'),
       },
     },
+    test: {
+      alias: {
+        // server/ code resolves this from server/node_modules when that's
+        // installed locally, but CI installs only the root workspace. Pin
+        // tests to the root copy so vi.mock and the import agree everywhere.
+        'google-auth-library': path.resolve(__dirname, 'node_modules/google-auth-library'),
+      },
+    },
     server: {
       port: 3000,
     },
