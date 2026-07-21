@@ -120,14 +120,29 @@ jobs:
           rsync -a --delete ./dist/ "$APP_DIR/dist/"
           cp ./server/build/server.js "$APP_DIR/server.js"
 
+      - name: Wait for LDAP user resolution
+        # idtap.service runs as jonmyers, a CSAIL LDAP account (nslcd; not in
+        # /etc/passwd). If ldap.csail.mit.edu is unreachable, a restart
+        # crashloops with 217/USER (seen 2026-07-21: ~90s LDAP outage). Gate the
+        # restart on resolution so an outage fails the deploy while the old,
+        # already-running process keeps serving.
+        run: |
+          for i in $(seq 1 40); do
+            if getent passwd jonmyers > /dev/null; then echo "LDAP OK"; exit 0; fi
+            echo "attempt $i: cannot resolve service user (LDAP down?), retrying..."; sleep 5
+          done
+          echo "::error::LDAP user resolution unavailable; skipping restart (old build still running)"; exit 1
+
       - name: Restart service
         run: sudo -n systemctl restart idtap
 
       - name: Health check
+        # Window must outlast a transient LDAP blip mid-restart (systemd
+        # Restart=always recovers on its own once LDAP returns).
         run: |
-          for i in $(seq 1 10); do
+          for i in $(seq 1 30); do
             code=$(curl -s -m8 -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/getRagaNames || true)
             if [ "$code" = "200" ]; then echo "healthy (HTTP 200)"; exit 0; fi
-            echo "attempt $i: HTTP $code, retrying..."; sleep 3
+            echo "attempt $i: HTTP $code, retrying..."; sleep 5
           done
           echo "::error::idtap did not return 200 after restart"; exit 1
