@@ -4,6 +4,7 @@ import { spawn } from 'child_process';
 import fileUpload from 'express-fileupload';
 
 import { mediaPath, PYTHON_PATH, pythonEnv } from './mediaConfig';
+import { isOwner, canEdit, canView } from '../shared/authz';
 
 // Function to run a Python script and return a Promise
 function runPythonScript(scriptPath: string, args: string[] = []): Promise<void> {
@@ -41,12 +42,16 @@ interface Collections {
 export default function apiRoutes(collections: Collections) {
   const router = express.Router();
 
+  // The /api auth middleware verifies a Google id_token and sets req.user.id to
+  // the Google `sub`. Ownership/permission fields in the DB hold Mongo user _id
+  // strings, so every authz decision needs this lookup first.
+  const mongoUserId = async (req: express.Request): Promise<string | undefined> => {
+    const user = await collections.users?.findOne({ sub: req.user!.id });
+    return user?._id?.toString();
+  };
+
   router.get('/transcriptions', async (req, res) => {
-    const googleUserId = req.user!.id; // Google OAuth sub
-    
-    // Look up MongoDB user ID from Google OAuth sub
-    const user = await collections.users?.findOne({ sub: googleUserId });
-    const mongoUserId = user?._id?.toString();
+    const actorId = await mongoUserId(req);
     const sortKey = String(req.query.sortKey);
     const sortDirParam = String(req.query.sortDir);
     const sortDir = sortDirParam === '1' ? 1 : -1;
@@ -74,9 +79,9 @@ export default function apiRoutes(collections: Collections) {
     const query = {
       $or: [
         { "explicitPermissions.publicView": true },
-        { "explicitPermissions.edit": mongoUserId },
-        { "explicitPermissions.view": mongoUserId },
-        { userID: mongoUserId },
+        { "explicitPermissions.edit": actorId },
+        { "explicitPermissions.view": actorId },
+        { userID: actorId },
       ],
     };
 
@@ -98,33 +103,23 @@ export default function apiRoutes(collections: Collections) {
   });
 
   router.get('/transcription/:id', async (req, res) => {
-    const googleUserId = req.user!.id; // Google OAuth sub
     const transcriptionId = req.params.id;
-    
-    // Look up MongoDB user ID from Google OAuth sub
-    const user = await collections.users?.findOne({ sub: googleUserId });
-    const mongoUserId = user?._id?.toString();
+    const actorId = await mongoUserId(req);
 
     if (!transcriptionId) {
       return res.status(400).json({ error: 'Transcription ID is required' });
     }
 
     try {
-      // Build the same permission query as in GET /transcriptions
-      const query = {
+      const transcription = await collections.transcriptions.findOne({
         _id: new ObjectId(transcriptionId),
-        $or: [
-          { "explicitPermissions.publicView": true },
-          { "explicitPermissions.edit": mongoUserId },
-          { "explicitPermissions.view": mongoUserId },
-          { userID: mongoUserId },
-        ],
-      };
-
-      const transcription = await collections.transcriptions.findOne(query);
+      });
 
       if (!transcription) {
-        return res.status(404).json({ error: 'Transcription not found or access denied' });
+        return res.status(404).json({ error: 'Transcription not found' });
+      }
+      if (!canView(transcription, actorId)) {
+        return res.status(403).json({ error: 'forbidden' });
       }
 
       res.json(transcription);
@@ -135,29 +130,27 @@ export default function apiRoutes(collections: Collections) {
   });
 
   router.get('/transcription/:id/json', async (req, res) => {
-    const userId = req.user!.id; // Get from authenticated token
     const transcriptionId = req.params.id;
+    // Previously this queried on req.user.id (the Google sub), which never
+    // matches the Mongo user ids stored in userID/edit/view — so owners were
+    // denied their own private transcriptions here. canView + mongoUserId
+    // fixes that and also honors legacy string permissions.
+    const actorId = await mongoUserId(req);
 
     if (!transcriptionId) {
       return res.status(400).json({ error: 'Transcription ID is required' });
     }
 
     try {
-      // Check permissions using the same logic as GET /transcription/:id
-      const query = {
+      const transcription = await collections.transcriptions.findOne({
         _id: new ObjectId(transcriptionId),
-        $or: [
-          { "explicitPermissions.publicView": true },
-          { "explicitPermissions.edit": userId },
-          { "explicitPermissions.view": userId },
-          { userID: userId },
-        ],
-      };
-
-      const transcription = await collections.transcriptions.findOne(query);
+      });
 
       if (!transcription) {
-        return res.status(404).json({ error: 'Transcription not found or access denied' });
+        return res.status(404).json({ error: 'Transcription not found' });
+      }
+      if (!canView(transcription, actorId)) {
+        return res.status(403).json({ error: 'forbidden' });
       }
 
       // Generate and serve JSON data (same logic as original jsonData route)
@@ -191,29 +184,24 @@ export default function apiRoutes(collections: Collections) {
   });
 
   router.get('/transcription/:id/excel', async (req, res) => {
-    const userId = req.user!.id; // Get from authenticated token
     const transcriptionId = req.params.id;
+    // Same sub-vs-Mongo-id fix as /transcription/:id/json above.
+    const actorId = await mongoUserId(req);
 
     if (!transcriptionId) {
       return res.status(400).json({ error: 'Transcription ID is required' });
     }
 
     try {
-      // Check permissions using the same logic as GET /transcription/:id
-      const query = {
+      const transcription = await collections.transcriptions.findOne({
         _id: new ObjectId(transcriptionId),
-        $or: [
-          { "explicitPermissions.publicView": true },
-          { "explicitPermissions.edit": userId },
-          { "explicitPermissions.view": userId },
-          { userID: userId },
-        ],
-      };
-
-      const transcription = await collections.transcriptions.findOne(query);
+      });
 
       if (!transcription) {
-        return res.status(404).json({ error: 'Transcription not found or access denied' });
+        return res.status(404).json({ error: 'Transcription not found' });
+      }
+      if (!canView(transcription, actorId)) {
+        return res.status(403).json({ error: 'forbidden' });
       }
 
       // Generate and serve Excel data (same logic as original excelData route)
@@ -247,14 +235,30 @@ export default function apiRoutes(collections: Collections) {
   });
 
   router.post('/transcription', async (req, res) => {
-    const googleUserId = req.user!.id; // Google OAuth sub
-    
-    // Look up MongoDB user ID from Google OAuth sub
-    const user = await collections.users?.findOne({ sub: googleUserId });
-    const mongoUserId = user?._id?.toString();
+    const actorId = await mongoUserId(req);
+    if (!actorId) {
+      return res.status(401).json({ error: 'User not authenticated' });
+    }
 
+    // No _id -> insert a new transcription owned by the caller (the Bearer
+    // counterpart of the session-guarded web /insertNewTranscription route).
     if (!req.body._id) {
-      return res.status(400).json({ error: 'Transcription ID is required' });
+      try {
+        const insert = { ...req.body };
+        insert.userID = actorId; // owner is the authenticated user, not client-supplied
+        insert.dateCreated = new Date(insert.dateCreated);
+        insert.dateModified = new Date(insert.dateModified);
+
+        const result = await collections.transcriptions.insertOne(insert);
+        await collections.users?.updateOne(
+          { _id: new ObjectId(actorId) },
+          { $push: { transcriptions: result.insertedId } } as any,
+        );
+        return res.json(result);
+      } catch (err) {
+        console.error(err);
+        return res.status(500).json({ error: 'Internal server error' });
+      }
     }
 
     try {
@@ -266,20 +270,19 @@ export default function apiRoutes(collections: Collections) {
         return res.status(404).json({ error: 'Transcription not found' });
       }
 
-      // Check permissions: user must be owner OR have explicit edit permission
-      const isOwner = existingTranscription.userID === mongoUserId;
-      const hasEditPermission = existingTranscription.explicitPermissions?.edit?.includes(mongoUserId);
-
-      if (!isOwner && !hasEditPermission) {
-        return res.status(403).json({ 
-          error: 'You do not have permission to edit this transcription' 
+      if (!canEdit(existingTranscription, actorId)) {
+        return res.status(403).json({
+          error: 'You do not have permission to edit this transcription'
         });
       }
 
-      // Prepare update object (exclude _id from updates)
+      // Content-only update: ownership/sharing changes go through their own
+      // owner-gated endpoints (same rule as the web /updateTranscription route).
       const updateObj: { [key: string]: any } = {};
       Object.keys(req.body).forEach(key => {
-        if (key !== '_id') updateObj[key] = req.body[key];
+        if (key !== '_id' && key !== 'userID' && key !== 'permissions' && key !== 'explicitPermissions') {
+          updateObj[key] = req.body[key];
+        }
       });
       updateObj['dateModified'] = new Date();
       if (updateObj['dateCreated']) {
@@ -307,12 +310,96 @@ export default function apiRoutes(collections: Collections) {
     }
   });
 
+  router.post('/transcription/:id/clone', async (req, res) => {
+    // Bearer counterpart of the session-guarded web /cloneTranscription route.
+    const actorId = await mongoUserId(req);
+    if (!actorId) {
+      return res.status(401).json({ error: 'User not authenticated' });
+    }
+
+    try {
+      const copy = await collections.transcriptions.findOne({ _id: new ObjectId(req.params.id) });
+      if (!copy) {
+        return res.status(404).json({ error: 'Transcription not found' });
+      }
+      if (!canView(copy, actorId)) {
+        return res.status(403).json({ error: 'forbidden' });
+      }
+
+      copy._id = new ObjectId();
+      copy.userID = actorId; // the cloner owns the new copy
+      copy.dateModified = new Date();
+      copy.dateCreated = new Date();
+      if (req.body.title !== undefined) copy.title = req.body.title;
+      if (req.body.permissions !== undefined) copy.permissions = req.body.permissions;
+      if (req.body.name !== undefined) copy.name = req.body.name;
+      if (req.body.family_name !== undefined) copy.family_name = req.body.family_name;
+      if (req.body.given_name !== undefined) copy.given_name = req.body.given_name;
+      if (req.body.explicitPermissions) copy.explicitPermissions = req.body.explicitPermissions;
+      if (req.body.soloist !== undefined) copy.soloist = req.body.soloist;
+      if (req.body.soloInstrument !== undefined) copy.soloInstrument = req.body.soloInstrument;
+
+      const result = await collections.transcriptions.insertOne(copy);
+      res.json(result);
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  router.delete('/transcription/:id', async (req, res) => {
+    // Bearer counterpart of the session-guarded web /oneTranscription route.
+    const actorId = await mongoUserId(req);
+    if (!actorId) {
+      return res.status(401).json({ error: 'User not authenticated' });
+    }
+
+    try {
+      const query = { _id: new ObjectId(req.params.id) };
+      const target = await collections.transcriptions.findOne(query);
+      if (!target) {
+        return res.status(404).json({ error: 'Transcription not found' });
+      }
+      if (!isOwner(target, actorId)) {
+        return res.status(403).json({ error: 'forbidden' });
+      }
+
+      const result = await collections.transcriptions.deleteOne(query);
+      await collections.users?.updateOne(
+        { _id: new ObjectId(actorId) },
+        { $pull: { transcriptions: { $in: [new ObjectId(req.params.id)] } } } as any,
+      );
+      res.json(result);
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  router.get('/audioRecording/:id', async (req, res) => {
+    // View-gated single recording metadata (Bearer counterpart of the web
+    // /getAudioRecording route).
+    const actorId = await mongoUserId(req);
+
+    try {
+      const recording = await collections.audioRecordings?.findOne({
+        _id: new ObjectId(req.params.id),
+      });
+      if (!recording) {
+        return res.status(404).json({ error: 'Recording not found' });
+      }
+      if (!canView(recording, actorId)) {
+        return res.status(403).json({ error: 'forbidden' });
+      }
+      res.json(recording);
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
   router.post('/visibility', async (req, res) => {
-    const googleUserId = req.user!.id; // Google OAuth sub
-    
-    // Look up MongoDB user ID from Google OAuth sub
-    const user = await collections.users?.findOne({ sub: googleUserId });
-    const mongoUserId = user?._id?.toString();
+    const actorId = await mongoUserId(req);
 
     if (!req.body._id) {
       return res.status(400).json({ error: 'Artifact ID is required' });
@@ -338,11 +425,9 @@ export default function apiRoutes(collections: Collections) {
         }
 
         // Check ownership: only the owner can update visibility/permissions
-        const isOwner = existingTranscription.userID === mongoUserId;
-
-        if (!isOwner) {
-          return res.status(403).json({ 
-            error: 'Only the owner can update visibility settings' 
+        if (!isOwner(existingTranscription, actorId)) {
+          return res.status(403).json({
+            error: 'Only the owner can update visibility settings'
           });
         }
 
@@ -384,18 +469,14 @@ export default function apiRoutes(collections: Collections) {
   });
 
   router.post('/agreeToWaiver', async (req, res) => {
-    const googleUserId = req.user!.id; // Google OAuth sub
-    
-    // Look up MongoDB user ID from Google OAuth sub
-    const user = await collections.users?.findOne({ sub: googleUserId });
-    const mongoUserId = user?._id?.toString();
+    const actorId = await mongoUserId(req);
 
-    if (!mongoUserId) {
+    if (!actorId) {
       return res.status(400).json({ error: 'User not found' });
     }
 
     try {
-      const query = { _id: new ObjectId(mongoUserId) };
+      const query = { _id: new ObjectId(actorId) };
       const update = { $set: { waiverAgreed: true } };
       const options = { upsert: true };
       const result = await collections.users?.updateOne(query, update, options);
@@ -531,19 +612,16 @@ export default function apiRoutes(collections: Collections) {
   });
 
   router.get('/audioEvents', async (req, res) => {
-    const googleUserId = req.user!.id;
-    
     try {
-      const user = await collections.users?.findOne({ sub: googleUserId });
-      const mongoUserId = user?._id?.toString();
+      const actorId = await mongoUserId(req);
 
-      if (!mongoUserId) {
+      if (!actorId) {
         return res.status(401).json({ error: 'User not authenticated' });
       }
 
       // Get audio events user can edit
-      const events = await collections.audioEvents?.find({ 
-        userID: mongoUserId 
+      const events = await collections.audioEvents?.find({
+        userID: actorId
       }).toArray();
       
       res.json(events || []);
@@ -573,13 +651,9 @@ export default function apiRoutes(collections: Collections) {
   }
 
   router.post('/uploadAudio', async (req, res) => {
-    const googleUserId = req.user!.id; // Google OAuth sub
-    
-    // Look up MongoDB user ID from Google OAuth sub  
-    const user = await collections.users?.findOne({ sub: googleUserId });
-    const mongoUserId = user?._id?.toString();
+    const actorId = await mongoUserId(req);
 
-    if (!mongoUserId) {
+    if (!actorId) {
       return res.status(401).json({ error: 'User not authenticated' });
     }
 
@@ -605,10 +679,17 @@ export default function apiRoutes(collections: Collections) {
         const newAudioEvent = {
           _id: new ObjectId(),
           name: metadata.title || 'Untitled Recording',
-          userID: mongoUserId,
+          userID: actorId,
           recordings: [{}], // Will be populated below
           dateModified: dateModified,
-          visibility: metadata.permissions?.publicView ? 'public' : 'private'
+          visibility: metadata.permissions?.publicView ? 'public' : 'private',
+          // give the event the same permission shape the rest of the app uses,
+          // so canView/canEdit work on it without the visibility special case
+          explicitPermissions: {
+            publicView: metadata.permissions?.publicView || true,
+            edit: metadata.permissions?.edit || [],
+            view: metadata.permissions?.view || []
+          }
         };
         
         const audioEventResult = await collections.audioEvents?.insertOne(newAudioEvent);
@@ -662,8 +743,8 @@ export default function apiRoutes(collections: Collections) {
         raags: metadata.ragas || {},
         parentID: audioEventID,
         parentTitle: metadata.title || 'Untitled Recording',
-        aeUserID: mongoUserId,
-        userID: mongoUserId,
+        aeUserID: actorId,
+        userID: actorId,
         parentTrackNumber: recIdx,
         dateModified: dateModified,
         explicitPermissions: {
