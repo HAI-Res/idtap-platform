@@ -493,7 +493,6 @@ export default defineComponent({
     })
 
     const emptyDivIdxMap = new Map<HTMLDivElement, number>();
-    const maxEmptyDivWidth = props.clientWidth;
 
     // Manually load a chunk (used by both IntersectionObserver and preloading)
     const manuallyLoadChunk = (idx: number) => {
@@ -1058,6 +1057,15 @@ export default defineComponent({
     // Bidirectional lazy loading: trigger cleanup on scroll
     watch(() => props.scrollX, () => {
       checkForDistantChunks();
+    });
+    // Window resize: chunkDur follows clientWidth, so the sentinel divs and all
+    // index-keyed chunk tracking must be rebuilt to the new chunking or the
+    // observer loads/unloads the wrong chunks (visible content disappears
+    // after scrolling — the div grid and the chunk grid disagree).
+    watch(() => props.clientWidth, () => {
+      if (tranSvg.value) {
+        resetTranscription();
+      }
     });
     watch(() => props.width, () => {
       if (tranSvg.value) {
@@ -3102,6 +3110,13 @@ export default defineComponent({
       isProcessingUnloadQueue = false; // Reset queue processing flag
       preloadQueue.length = 0; // Clear preload queue
       isProcessingPreloadQueue = false; // Reset preload queue processing flag
+      // Chunk indices may be renumbered (chunkDur/div width changed), so every
+      // index-keyed tracking structure is stale, not just renderedChunks. The
+      // unload-cooldown map in particular would silently veto re-loading the
+      // renumbered chunks for RELOAD_COOLDOWN_MS.
+      intersectingChunks.value.clear();
+      recentlyLoadedChunks.value.clear();
+      recentlyUnloadedChunks.clear();
       const selectedTrajUIds = selectedTrajs.value.map(t => t.uniqueId!);
       resetTrajRenderStatus(selectedTrajUIds);
       resetEmptyObserverDivs();
@@ -5301,11 +5316,16 @@ export default defineComponent({
       });
       emptyDivs.value = [];
       emptyDivIdxMap.clear();
-      const numDivs = Math.ceil(props.width / maxEmptyDivWidth);
+      // One sentinel div per chunk, each exactly one viewport wide. Must read
+      // the CURRENT clientWidth: chunkDur is derived from it, so a stale width
+      // here desyncs div indices from chunk indices after a window resize —
+      // the active range drifts and visible chunks get unloaded.
+      const divWidth = props.clientWidth;
+      const numDivs = Math.ceil(props.width / divWidth);
       for (let i = 0; i < numDivs; i++) {
         const div = document.createElement('div');
-        const width = Math.min(maxEmptyDivWidth, 
-          props.width - i * maxEmptyDivWidth);
+        const width = Math.min(divWidth,
+          props.width - i * divWidth);
         div.style.width = `${width}px`;
         div.style.height = `${props.height}px`;
         emptyOverlay.value?.appendChild(div);
