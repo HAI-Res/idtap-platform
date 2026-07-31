@@ -1062,11 +1062,16 @@ export default defineComponent({
     // index-keyed chunk tracking must be rebuilt to the new chunking or the
     // observer loads/unloads the wrong chunks (visible content disappears
     // after scrolling — the div grid and the chunk grid disagree).
-    watch(() => props.clientWidth, () => {
+    // Debounced: clientWidth updates on every intermediate width while the
+    // user is still dragging the resize, and re-chunking on each one visibly
+    // reloads the transcription over and over. One rebuild after the resize
+    // settles is enough — already-rendered chunks stay on screen meanwhile.
+    const rechunkAfterResize = debounce(() => {
       if (tranSvg.value) {
         resetTranscription();
       }
-    });
+    }, 250);
+    watch(() => props.clientWidth, rechunkAfterResize);
     watch(() => props.width, () => {
       if (tranSvg.value) {
         d3.select(tranSvg.value)
