@@ -891,4 +891,31 @@ describe('stratifiedRatios under rule-set/ratios count mismatch', () => {
     expect((sr[3] as number[])[1]).toBe(storedRatios[3]);
     expect(sr.flat()).not.toContain(undefined);
   });
+
+  test('getFrequencies pairs 1:1 with getPitches (y-axis zips them by index)', () => {
+    const mismatched = Raga.fromJSON({
+      name: 'Yaman',
+      fundamental,
+      ratios: [...storedRatios],
+      tuning: storedTuning,
+      ruleSet: graftedRuleSet,
+    });
+    const aligned = Raga.fromJSON({
+      name: 'Yaman',
+      fundamental,
+      ratios: [...storedRatios],
+      tuning: storedTuning,
+    });
+    for (const raga of [mismatched, aligned]) {
+      const freqs = raga.getFrequencies({ low: 100, high: 800 });
+      const pitches = raga.getPitches({ low: 100, high: 800 });
+      expect(freqs.length).toBe(pitches.length);
+      freqs.forEach((f, i) => expect(f).toBeCloseTo(pitches[i].frequency, 10));
+    }
+    // the mismatch raga's octave now genuinely has 8 degrees (komal ma added)
+    const inOctave = mismatched.getFrequencies({
+      low: fundamental, high: fundamental * 1.999,
+    });
+    expect(inOctave.length).toBe(8);
+  });
 });
