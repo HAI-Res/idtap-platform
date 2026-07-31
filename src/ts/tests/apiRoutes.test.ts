@@ -1,7 +1,15 @@
-import { describe, test, expect } from 'vitest';
+import { describe, test, expect, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
 import apiRoutes from '../../../server/apiRoutes';
+
+// uploadAudio spawns PYTHON_PATH and builds media paths after its DB writes;
+// neuter both so the upload tests never touch disk or a real interpreter.
+vi.mock('../../../server/mediaConfig', () => ({
+  mediaPath: (...segs: string[]) => ['mocked-media', ...segs].join('/'),
+  PYTHON_PATH: 'echo',
+  pythonEnv: () => ({ ...process.env }),
+}));
 
 describe('apiRoutes /transcriptions', () => {
   test('succeeds when many documents are present', async () => {
@@ -203,5 +211,71 @@ describe('apiRoutes authz', () => {
       },
     });
     expect((await request(pub).get(`/audioRecording/${DOC}`)).status).toBe(200);
+  });
+});
+
+describe('apiRoutes POST /uploadAudio permissions', () => {
+  function uploadApp(captured: {
+    event?: any; aeUpdate?: any; recording?: any;
+  }) {
+    const app = express2();
+    app.use(express2.json());
+    app.use((req, res, next) => {
+      req.user = { id: 'sub-actor', sub: 'sub-actor' };
+      (req as any).files = {
+        audioFile: {
+          name: 'a.mp3',
+          mimetype: 'audio/mpeg',
+          size: 3,
+          mv: () => Promise.resolve(),
+        },
+      };
+      next();
+    });
+    app.use(apiRoutes({
+      users: { findOne: () => Promise.resolve({ _id: { toString: () => ACTOR } }) },
+      audioEvents: {
+        insertOne: (doc: any) => { captured.event = doc; return Promise.resolve({ insertedId: doc._id }); },
+        findOneAndUpdate: (q: any, u: any) => { captured.aeUpdate = u; return Promise.resolve({}); },
+      },
+      audioRecordings: {
+        insertOne: (doc: any) => { captured.recording = doc; return Promise.resolve({ acknowledged: true }); },
+      },
+    } as any));
+    return app;
+  }
+
+  test('publicView: false stays false on event, recording slot, and recording doc', async () => {
+    const captured: any = {};
+    const res = await request(uploadApp(captured)).post('/uploadAudio').send({
+      metadata: JSON.stringify({ title: 'x', permissions: { publicView: false, edit: [], view: [] } }),
+    });
+    expect(res.status).toBe(200);
+    expect(captured.event.visibility).toBe('private');
+    expect(captured.event.explicitPermissions.publicView).toBe(false);
+    expect(captured.aeUpdate.$set['recordings.0.explicitPermissions'].publicView).toBe(false);
+    expect(captured.recording.explicitPermissions.publicView).toBe(false);
+  });
+
+  test('omitted permissions default to private (matching visibility)', async () => {
+    const captured: any = {};
+    const res = await request(uploadApp(captured)).post('/uploadAudio').send({
+      metadata: JSON.stringify({ title: 'x' }),
+    });
+    expect(res.status).toBe(200);
+    expect(captured.event.visibility).toBe('private');
+    expect(captured.event.explicitPermissions.publicView).toBe(false);
+    expect(captured.recording.explicitPermissions.publicView).toBe(false);
+  });
+
+  test('publicView: true passes through', async () => {
+    const captured: any = {};
+    const res = await request(uploadApp(captured)).post('/uploadAudio').send({
+      metadata: JSON.stringify({ title: 'x', permissions: { publicView: true, edit: [], view: [] } }),
+    });
+    expect(res.status).toBe(200);
+    expect(captured.event.visibility).toBe('public');
+    expect(captured.event.explicitPermissions.publicView).toBe(true);
+    expect(captured.recording.explicitPermissions.publicView).toBe(true);
   });
 });

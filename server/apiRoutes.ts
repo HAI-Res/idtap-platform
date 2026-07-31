@@ -686,12 +686,12 @@ export default function apiRoutes(collections: Collections) {
           // give the event the same permission shape the rest of the app uses,
           // so canView/canEdit work on it without the visibility special case
           explicitPermissions: {
-            publicView: metadata.permissions?.publicView || true,
+            publicView: metadata.permissions?.publicView ?? false,
             edit: metadata.permissions?.edit || [],
             view: metadata.permissions?.view || []
           }
         };
-        
+
         const audioEventResult = await collections.audioEvents?.insertOne(newAudioEvent);
         audioEventID = audioEventResult?.insertedId.toString();
         recIdx = 0;
@@ -719,7 +719,7 @@ export default function apiRoutes(collections: Collections) {
           [octOffsetPath]: 0,
           [dateModifiedPath]: dateModified,
           [expPermissionsPath]: {
-            publicView: metadata.permissions?.publicView || true,
+            publicView: metadata.permissions?.publicView ?? false,
             edit: metadata.permissions?.edit || [],
             view: metadata.permissions?.view || []
           }         
@@ -748,7 +748,7 @@ export default function apiRoutes(collections: Collections) {
         parentTrackNumber: recIdx,
         dateModified: dateModified,
         explicitPermissions: {
-          publicView: metadata.permissions?.publicView || true,
+          publicView: metadata.permissions?.publicView ?? false,
           edit: metadata.permissions?.edit || [],
           view: metadata.permissions?.view || []
         }
