@@ -1231,6 +1231,8 @@ const runServer = async () => {
 		const result = await audioRecordings.findOne({
 		  _id: new ObjectId(req.query._id as string)
 		});
+		if (!result) { res.status(404).json({ error: 'not found' }); return; }
+		if (!canView(result, req.user?.uid)) { res.status(403).json({ error: 'forbidden' }); return; }
 		res.json(result)
 	  } catch (err) {
 		console.error(err);
@@ -1703,8 +1705,9 @@ const runServer = async () => {
       const reqIds: string[] = req.body.reqIds
       const query = { _id: { $in: reqIds.map(id => new ObjectId(id)) } };
       const result = await audioRecordings.find(query).toArray();
-      console.log(result)
-      res.json(result)
+      // post-filter (not a query clause) so legacy string `permissions` docs
+      // are honored too — canView handles both permission shapes
+      res.json(result.filter(rec => canView(rec, req.user?.uid)))
 	  } catch (err) {
       console.error(err);
       res.status(500).send(err)
@@ -1727,7 +1730,9 @@ const runServer = async () => {
       const aeIDs: string[] = req.body.aeIDs
       const query = { _id: { $in: aeIDs.map(id => new ObjectId(id)) } };
       const result = await audioEvents.find(query).toArray();
-      res.json(result)
+      // audioEvents created via /api/uploadAudio historically carry only a
+      // `visibility` string instead of explicitPermissions — honor it too.
+      res.json(result.filter(ae => canView(ae, req.user?.uid) || ae.visibility === 'public'))
 	  } catch (err) {
       console.error(err);
       res.status(500).send(err)
