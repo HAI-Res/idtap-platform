@@ -3133,6 +3133,7 @@ export default defineComponent({
     };
 
     const deletePhraseDiv = (uId: string) => {
+      if (!props.editable) return;
       const phrase = props.piece.phraseFromUId(uId);
       const track = props.piece.trackFromPhraseUId(uId);
       removePhraseDiv(uId);
@@ -3219,6 +3220,7 @@ export default defineComponent({
     }
 
     const deleteTrajs = (trajs: Trajectory[]) => {
+      if (!props.editable) return;
       const affectedPhrases: Phrase[] = [];
       trajs.forEach(traj => {
         removeTraj(traj);
@@ -5442,11 +5444,11 @@ export default defineComponent({
           emit('update:selectedMode', EditorMode.Meter);
         }
       } else if (e.key === 'd') {
-        if (selectedTraj.value !== undefined && inst === Instrument.Sitar) {
+        if (selectedTraj.value !== undefined && inst === Instrument.Sitar && props.editable) {
           emit('update:toggleDampen')
         }
       } else if (e.key === 'p') {
-        if (selectedTraj.value !== undefined && inst === Instrument.Sitar) {
+        if (selectedTraj.value !== undefined && inst === Instrument.Sitar && props.editable) {
           emit('update:togglePluck')
         } else {
           emit('update:selectedMode', EditorMode.PhraseDiv);
@@ -5465,6 +5467,7 @@ export default defineComponent({
       } else if (e.key === 'Shift') {
         shifted.value = true;
       } else if (e.key === 'Backspace') {
+        if (!props.editable) return;
         if (selectedChikari.value !== undefined) {
           const cd = selectedChikari.value;
           const phrase = props.piece.phraseGrid[cd.track][cd.phraseIdx];
@@ -5778,6 +5781,7 @@ export default defineComponent({
       if (selectedPhraseDivUid.value === undefined) {
         throw new Error('No phrase div selected');
       }
+      if (!props.editable) return;
       const phrase = props.piece.phraseFromUId(selectedPhraseDivUid.value);
       const track = props.piece.trackFromPhraseUId(selectedPhraseDivUid.value);
       const pIdx = phrase.pieceIdx!;
@@ -5890,6 +5894,7 @@ export default defineComponent({
     };
 
     const nudgeChikari = (amt: number) => {
+      if (!props.editable) return;
       const cd = selectedChikari.value!;
       const phrase = props.piece.phraseGrid[cd.track][cd.phraseIdx];
       const newPhraseTime = String(Math.round(100 * (Number(cd.phraseTimeKey) + amt)) / 100);
@@ -6006,6 +6011,7 @@ export default defineComponent({
       if (selectedTraj.value === undefined) {
         throw new Error('No trajectory selected');
       }
+      if (!props.editable) return;
       const traj = selectedTraj.value!;
       if (traj.sloped) {
         if (dir === 'left' || dir === 'down') {
@@ -6021,6 +6027,7 @@ export default defineComponent({
     }
 
     const nudgeDragDot = (dir: 'left' | 'right' | 'up' | 'down') => {
+      if (!props.editable) return;
       const traj = selectedTraj.value!;
       const track = props.piece.trackFromTraj(traj);
       const phrase = props.piece.phraseGrid[track][traj.phraseIdx!];
@@ -6639,6 +6646,7 @@ export default defineComponent({
     };
 
     const insertPulse = (time: number) => {
+      if (!props.editable) return;
       let inserted = false;
       if (!timeWithinMeter(time)) {
         if (insertPulses.value.length > 0) {
@@ -6912,6 +6920,7 @@ export default defineComponent({
       pIdx: number,
       atPhraseDiv: boolean = false
     ) => {
+      if (!props.editable) return;
       if (props.meterMagnetMode) {
         time = meterMagnetize(time)
       }
@@ -7072,6 +7081,7 @@ export default defineComponent({
     };
 
     const insertNewPhraseDiv = (time: number, track: number, pIdx: number) => {
+      if (!props.editable) return;
       const phrase = props.piece.phraseGrid[track][pIdx];
       
       // Note: Phrase divisions are always based on string 1 trajectories.
@@ -7537,6 +7547,7 @@ export default defineComponent({
     }
 
     const insertNewChikari = (time: number, track: number, pIdx: number) => {
+      if (!props.editable) return;
       const phrase = props.piece.phraseGrid[track][pIdx];
         const phraseTime = time - phrase.startTime!;
         const c = new Chikari();
@@ -7719,6 +7730,7 @@ export default defineComponent({
     }
 
     const pasteTrajs = () => {
+      if (!props.editable) return;
       if (clipboardTrajs.value.length === 0) {
         return;
       }
