@@ -394,19 +394,12 @@ class Raga {
 	low = 100,
 	high = 800
   } = {}) {
-	// returns all oct instances of raga's pitches that are between low and high
-	const baseFreqs = this.ratios.map(r => r * this.fundamental);
-	const freqs: number[] = [];
-	baseFreqs.forEach(f => {
-	  const lowExp = Math.ceil(Math.log2(low / f));
-	  const highExp = Math.floor(Math.log2(high / f));
-	  let range = [...Array(highExp - lowExp + 1).keys()].map(i => i + lowExp);
-	  const exps = range.map(r => 2.0 ** r);
-	  const additionalFreqs = exps.map(exp => f * exp);
-	  freqs.push(...additionalFreqs)
-	});
-	freqs.sort((a, b) => (a - b));
-	return freqs;
+	// returns all oct instances of raga's pitches that are between low and high.
+	// Derived from getPitches so consumers that zip positions with pitch-derived
+	// labels by index (YAxis, sargam lines) always stay 1:1 — walking this.ratios
+	// here diverges from the rule-set walk whenever stored ratios and the current
+	// rule set disagree (see stratifiedRatios), which offset every y-axis label.
+	return this.getPitches({ low, high }).map(p => p.frequency);
   }
 
   get sargamNames() {
