@@ -43,9 +43,12 @@ jobs:
           git add src/CHANGELOG.md
           # Only commit if there are changes. [skip ci] so this bot commit does not
           # trigger a second deploy + service restart.
+          # The push is best-effort: main's branch protection (require-PR) rejects
+          # direct bot pushes, and a missed changelog entry must never skip the
+          # build-deploy job below (which needs: this job).
           if ! git diff --cached --quiet; then
             git commit -m "chore: update changelog [skip ci]"
-            git push
+            git push || echo "::warning::changelog push rejected (branch protection?) — continuing so deploy still runs"
           else
             echo "No changes to commit."
           fi
