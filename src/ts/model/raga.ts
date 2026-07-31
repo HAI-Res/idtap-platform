@@ -317,11 +317,21 @@ class Raga {
   get stratifiedRatios() {
 	const sargam = ['sa', 're', 'ga', 'ma', 'pa', 'dha', 'ni'];
 	const ratios: (number | number[])[] = [];
+	// this.ratios maps onto the rule set positionally, so it is only usable when
+	// the counts line up. They can diverge on old transcriptions: the editor
+	// grafts the raga's CURRENT db rule set onto the saved raga, and if the rules
+	// gained a variant since the transcription was saved (e.g. Yaman later
+	// allowing komal ma), walking this.ratios would misassign every ratio after
+	// the divergence and run off the end (undefined → Pitch constructor throws).
+	// In that case fall back to tuning, which holds a value for every variant and
+	// was synced from these same ratios at save time — existing pitches keep
+	// their exact frequencies. (PROP-1: this.ratios itself stays untouched.)
+	const aligned = this.ratios.length === this.ruleSetNumPitches;
 	let ct = 0;
 	sargam.forEach((s, sIdx) => {
 	  if (typeof(this.ruleSet[s]) === 'boolean') {
 		if (this.ruleSet[s]) {
-		  ratios.push(this.ratios[ct]);
+		  ratios.push(aligned ? this.ratios[ct] : this.tuning[s] as number);
 		  ct++;
 		} else {
 		  ratios.push(this.tuning[s] as number)
@@ -329,18 +339,22 @@ class Raga {
 	  } else {
 		ratios.push([]);
 		if ((this.ruleSet[s] as BoolObj).lowered) {
-		  (ratios[sIdx] as number[]).push(this.ratios[ct]);
+		  (ratios[sIdx] as number[]).push(
+			aligned ? this.ratios[ct] : (this.tuning[s] as NumObj).lowered
+		  );
 		  ct++;
 		} else {
 		  (ratios[sIdx] as number[]).push((this.tuning[s] as NumObj).lowered)
 		}
 		if ((this.ruleSet[s] as BoolObj).raised) {
-		  (ratios[sIdx] as number[]).push(this.ratios[ct]);
+		  (ratios[sIdx] as number[]).push(
+			aligned ? this.ratios[ct] : (this.tuning[s] as NumObj).raised
+		  );
 		  ct++;
 		} else {
 		  (ratios[sIdx] as number[]).push((this.tuning[s] as NumObj).raised)
 		}
-	  } 
+	  }
 	});
 	return ratios
   }

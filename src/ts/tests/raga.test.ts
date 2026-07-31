@@ -816,3 +816,79 @@ test('constructor applies custom ratios to tuning', () => {
   expect(sa.frequency).toBeCloseTo(ratios[0] * fundamental);
   expect(re.frequency).toBeCloseTo(ratios[1] * fundamental);
 });
+
+describe('stratifiedRatios under rule-set/ratios count mismatch', () => {
+  // Regression: transcription 63445d13 ("Mushtaq Ali Khan - Yaman", saved 2022)
+  // stored 7 ratios + a synced tuning block. The editor grafts the raga's
+  // CURRENT db rule set onto the saved raga before Piece.fromJSON, and Yaman's
+  // db rules later gained lowered ma (8 pitches). Positional mapping would
+  // misassign everything after ga and run off the end (undefined ratios →
+  // Pitch constructor throws, transcription unloadable).
+  const fundamental = 248.8843372467667;
+  const storedRatios = [
+    1, 1.122462048309373, 1.2591935011032134, 1.4142135623730951,
+    1.4983070768766815, 1.6817928305074292, 1.8790454984280236,
+  ];
+  const storedTuning = {
+    sa: 1,
+    re: { lowered: 1.0594630943592953, raised: 1.122462048309373 },
+    ga: { lowered: 1.189207115002721, raised: 1.2591935011032134 },
+    ma: { lowered: 1.3348398541700344, raised: 1.4142135623730951 },
+    pa: 1.4983070768766815,
+    dha: { lowered: 1.5874010519681994, raised: 1.6817928305074292 },
+    ni: { lowered: 1.7817974362806785, raised: 1.8790454984280236 },
+  };
+  const graftedRuleSet = {
+    sa: true,
+    re: { lowered: false, raised: true },
+    ga: { lowered: false, raised: true },
+    ma: { lowered: true, raised: true }, // gained lowered ma since save
+    pa: true,
+    dha: { lowered: false, raised: true },
+    ni: { lowered: false, raised: true },
+  };
+
+  test('falls back to tuning, no undefined, frequencies preserved', () => {
+    const raga = Raga.fromJSON({
+      name: 'Yaman',
+      fundamental,
+      ratios: [...storedRatios],
+      tuning: storedTuning,
+      ruleSet: graftedRuleSet,
+    });
+
+    // PROP-1: stored ratios preserved verbatim
+    expect(raga.ratios).toEqual(storedRatios);
+
+    const flat = raga.stratifiedRatios.flat();
+    expect(flat).not.toContain(undefined);
+
+    // existing variants keep their saved values (tuning was synced from the
+    // same ratios at save time)
+    const sr = raga.stratifiedRatios;
+    expect(sr[0]).toBe(1);
+    expect((sr[1] as number[])[1]).toBe(storedRatios[1]); // re raised
+    expect((sr[3] as number[])[1]).toBe(storedRatios[3]); // ma raised (tivra)
+    expect(sr[4]).toBe(storedRatios[4]); // pa
+    expect((sr[6] as number[])[1]).toBe(storedRatios[6]); // ni raised
+    // the newly-enabled variant gets its tuning value
+    expect((sr[3] as number[])[0]).toBe(storedTuning.ma.lowered);
+
+    // and Pitch construction no longer throws
+    const p = new Pitch({ swara: 'ma', raised: true, fundamental, ratios: sr });
+    expect(p.frequency).toBeCloseTo(storedRatios[3] * fundamental);
+  });
+
+  test('aligned counts keep exact positional behavior', () => {
+    const raga = Raga.fromJSON({
+      name: 'Yaman',
+      fundamental,
+      ratios: [...storedRatios],
+      tuning: storedTuning,
+    });
+    const sr = raga.stratifiedRatios;
+    expect(sr[0]).toBe(storedRatios[0]);
+    expect((sr[3] as number[])[1]).toBe(storedRatios[3]);
+    expect(sr.flat()).not.toContain(undefined);
+  });
+});
