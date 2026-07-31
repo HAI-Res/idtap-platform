@@ -5,11 +5,9 @@ import {
 	BoolObj,
 
 } from '@shared/types';
-import { 
+import {
 	isObject,
-	getClosest,
-	isUpperCase,
-	closeTo
+	getClosest
 } from '@/ts/utils';
 import { Pitch } from './pitch';
 
@@ -452,31 +450,24 @@ class Raga {
 
 
   pitchFromLogFreq(logFreq: number) {
-	const epsilon = 1e-6
-	const options = this.getFrequencies({ low: 75, high: 2400 })
-	  .map(f => Math.log2(f));
+	// Quantize to the nearest raga pitch and take swara/oct/raised from that
+	// pitch directly. Looking the letter up by index into this.ratios (as this
+	// used to) breaks whenever stored ratios and the current rule set disagree
+	// (see stratifiedRatios): the index runs against a differently-shaped array
+	// and every degree from the divergence up gets the wrong swara — corrupting
+	// newly drawn trajectories on such transcriptions.
+	const pitches = this.getPitches({ low: 75, high: 2400 });
+	const options = pitches.map(p => Math.log2(p.frequency));
 	const quantizedLogFreq = getClosest(options, logFreq);
 	const logOffset = logFreq - quantizedLogFreq;
-	let logDiff = quantizedLogFreq - Math.log2(this.fundamental);
-	// for situations when logDiff is 0.99999999999991 or similar
-	const roundedLogDiff = Math.round(logDiff)
-	if (Math.abs(logDiff - roundedLogDiff) < epsilon) {
-	  logDiff = roundedLogDiff
-	}
-
-	const octOffset = Math.floor(logDiff);
-	logDiff -= octOffset;
-	const rIdx = this.ratios.findIndex(r => closeTo(r, 2 ** logDiff));
-	const swara = this.sargamLetters[rIdx];
-	
-	const raised = isUpperCase(swara);
-	return new Pitch({ 
-	  swara: swara, 
-	  oct: octOffset, 
+	const chosen = pitches[options.indexOf(quantizedLogFreq)];
+	return new Pitch({
+	  swara: chosen.swara,
+	  oct: chosen.oct,
 	  fundamental: this.fundamental,
 	  ratios: this.stratifiedRatios,
 	  logOffset: logOffset,
-	  raised
+	  raised: chosen.raised
 	})
   }
 

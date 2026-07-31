@@ -918,4 +918,33 @@ describe('stratifiedRatios under rule-set/ratios count mismatch', () => {
     });
     expect(inOctave.length).toBe(8);
   });
+
+  test('pitchFromLogFreq assigns correct swara on mismatch ragas', () => {
+    const raga = Raga.fromJSON({
+      name: 'Yaman',
+      fundamental,
+      ratios: [...storedRatios],
+      tuning: storedTuning,
+      ruleSet: graftedRuleSet,
+    });
+    // used to index this.ratios (7) against the rule-set walk (8): drawing a
+    // tivra ma came back labeled komal ma, pa came back as tivra ma, etc.
+    const cases: [number, number, boolean][] = [
+      [storedTuning.ma.raised, 3, true],   // tivra ma stays tivra ma
+      [storedTuning.ma.lowered, 3, false], // komal ma resolvable at all
+      [storedTuning.pa as number, 4, true],
+      [storedTuning.ni.raised, 6, true],
+      [1, 0, true],                        // sa
+    ];
+    for (const [ratio, swara, raised] of cases) {
+      const p = raga.pitchFromLogFreq(Math.log2(ratio * fundamental));
+      expect([p.swara, p.raised]).toEqual([swara, raised]);
+      expect(p.frequency).toBeCloseTo(ratio * fundamental, 6);
+    }
+    // octaves + logOffset still behave
+    const up = raga.pitchFromLogFreq(Math.log2(2 * fundamental) + 0.01);
+    expect(up.swara).toBe(0);
+    expect(up.oct).toBe(1);
+    expect(up.logOffset).toBeCloseTo(0.01, 8);
+  });
 });
