@@ -14,7 +14,7 @@ import path from 'path';
  *   - IDTAP_PYTHON_PATH unset -> the previous hardcoded interpreter
  *   - IDTAP_UPLOAD_TMP unset  -> '/tmp/'
  *
- * On the new box, set IDTAP_MEDIA_ROOT=/data/hai-res/shared/idtap/media (etc.)
+ * On the new box, set IDTAP_MEDIA_ROOT=/data/hai-res/idtap/media (etc.)
  * and keep the process WorkingDirectory pointed at the Python scripts dir so the
  * bare-name / ./visualization_scripts script spawns still resolve.
  */
