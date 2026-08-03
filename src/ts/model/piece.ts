@@ -411,7 +411,7 @@ class Piece {
           if (phrase.trajectoryGrid[1].length === 0 || !hasNonSilentContent) {
             // Clear any existing silent trajectories first
             phrase.trajectoryGrid[1] = [];
-            
+
             // Create single silent trajectory matching phrase duration
             const silentTraj = new Trajectory({
               id: 12,
@@ -420,9 +420,45 @@ class Piece {
               startTime: 0
             });
             phrase.trajectoryGrid[1].push(silentTraj);
-            
+
             // CRITICAL: Reset phrase to update indices
             phrase.reset();
+          } else {
+            // Reconcile a drifted second string with the phrase duration
+            // (the main string is authoritative). Historic phrase divisions
+            // could leave string-2 trajectories spanning the pre-division
+            // range, stretching the piece timeline against the audio.
+            const eps = 1e-6;
+            const target = phrase.durTot ?? 0;
+            const stringTrajs = phrase.trajectoryGrid[1];
+            let sum = stringTrajs.reduce((a, t) => a + t.durTot, 0);
+            if (sum > target + eps) {
+              // Trim trailing silence; never cut sounding trajectories
+              for (let i = stringTrajs.length - 1; i >= 0; i--) {
+                if (sum <= target + eps || stringTrajs[i].id !== 12) break;
+                const cut = Math.min(sum - target, stringTrajs[i].durTot);
+                stringTrajs[i].durTot -= cut;
+                sum -= cut;
+                if (stringTrajs[i].durTot < eps) stringTrajs.splice(i, 1);
+              }
+              if (sum > target + eps) {
+                console.warn(
+                  `ensureStringSynchronization: track ${trackIdx}, phrase ` +
+                  `${phrase.pieceIdx}: second-string trajectories span ` +
+                  `${sum}s but the phrase is ${target}s; sounding content ` +
+                  `extends past the phrase and was left untouched.`
+                );
+              }
+              phrase.reset();
+            } else if (sum < target - eps) {
+              stringTrajs.push(new Trajectory({
+                id: 12,
+                durTot: target - sum,
+                fundID12: this.raga.fundamental,
+                startTime: sum
+              }));
+              phrase.reset();
+            }
           }
         });
       }

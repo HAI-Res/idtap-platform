@@ -223,12 +223,21 @@ class Phrase {
   }
 
   durTotFromTrajectories() {
-    // For polyphonic instruments, calculate total duration for each string
-    // and use the maximum duration across all strings
-    let maxStringDuration = 0;
+    // The main string (trajectoryGrid[0]) is the phrase's timing authority;
+    // Piece.ensureStringSynchronization keeps secondary strings matched to it.
+    // Deriving durTot from a secondary string lets corrupt second-string data
+    // stretch the whole piece's timeline relative to the audio/spectrogram.
+    const mainTrajs = this.trajectoryGrid[0];
+    if (mainTrajs && mainTrajs.length > 0) {
+      this.durTot = mainTrajs
+        .map(t => t.durTot)
+        .reduce((a, b) => a + b, 0);
+      return;
+    }
 
-    // Check all strings in trajectoryGrid
-    this.trajectoryGrid.forEach((stringTrajs, stringIdx) => {
+    // No main-string trajectories: fall back to the longest secondary string
+    let maxStringDuration = 0;
+    this.trajectoryGrid.forEach(stringTrajs => {
       if (stringTrajs && stringTrajs.length > 0) {
         const stringDuration = stringTrajs
           .map(t => t.durTot)
@@ -236,14 +245,6 @@ class Phrase {
         maxStringDuration = Math.max(maxStringDuration, stringDuration);
       }
     });
-
-    // Fallback to traditional method if no trajectoryGrid data
-    if (maxStringDuration === 0 && this.trajectories.length > 0) {
-      maxStringDuration = this.trajectories
-        .map(t => t.durTot)
-        .reduce((a, b) => a + b, 0);
-    }
-
     this.durTot = maxStringDuration;
   }
 
