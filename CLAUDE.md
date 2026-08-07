@@ -16,25 +16,24 @@ IDTAP (Interactive Digital Transcription and Analysis Platform) is a sophisticat
 
 **⚠️ NEVER RESTART THE PRODUCTION SERVER WITHOUT EXPLICIT PERMISSION ⚠️**
 
-The production Node.js server runs in a **tmux session** with **nodemon** for automatic reloading:
+Production runs on the CSAIL box (`idtap.csail.mit.edu` / `128.52.132.248`, SSH alias `idtap-csail`) as the **`idtap` systemd service**, deployed from `/opt/idtap/app`:
 - **NEVER** manually restart, kill, or interfere with the server process
-- **NEVER** run commands like `pm2 restart`, `pkill node`, or similar
-- **Nodemon handles restarts automatically** when files are deployed
-- If the server needs restarting, the user will handle it manually via tmux
+- **NEVER** run commands like `sudo systemctl restart idtap`, `pkill node`, or similar
+- Deploys restart the service automatically via the GitHub Actions workflow
+- If the service needs restarting outside a deploy, the user will handle it
 
 **Deployment workflow:**
-1. Deploy code changes with `pnpm deployTSServer` (safe)
-2. Nodemon detects file changes and restarts automatically
+1. Merge to `main` (via PR) — the self-hosted runner on the box builds and deploys automatically
+2. The workflow restarts the `idtap` service and health-checks it
 3. DO NOT attempt any manual server restart
 
 **If the server is down:**
 - Inform the user immediately
 - DO NOT attempt to start it yourself
-- The user will reconnect to the tmux session and restart manually
 
-**Checking tmux sessions (safe):**
+**Checking service status (safe, read-only):**
 ```bash
-ssh root@137.184.90.119 "tmux ls"  # List sessions only
+ssh idtap-csail "systemctl status idtap --no-pager"
 ```
 
 ## Technology Stack
@@ -52,7 +51,7 @@ ssh root@137.184.90.119 "tmux ls"  # List sessions only
 ### Backend  
 - **Node.js** with **TypeScript** - Modern server runtime (legacy CommonJS server being phased out)
 - **Express.js** - Web server framework
-- **MongoDB** (Atlas) - Primary database
+- **MongoDB** (self-hosted on the production box, `localhost:27017`, db `swara`) - Primary database
 - **Google OAuth 2.0** with **JWT** - Authentication (enhanced for Python API integration)
 - **Python 3** integration - Audio processing and visualization generation
 - **FFmpeg** - Audio format conversion
@@ -290,35 +289,26 @@ pnpm test            # Vitest test runner
 ### Deployment
 
 #### Automated Deployment (GitHub Actions)
-**Frontend deployment** is fully automated via GitHub Actions:
-- **Triggers**: Push to `main` branch (ignoring Python-only changes)
-- **Build**: `pnpm install` → `pnpm build` (Vite production build)
-- **Deploy**: Rsync to `root@137.184.90.119:/var/www/html/`
+**All deployment (frontend + server)** is automated via `.github/workflows/update-changelog.yml`:
+- **Triggers**: Push to `main` branch (or manual `workflow_dispatch` re-deploy)
+- **Runner**: Self-hosted GitHub Actions runner installed ON the CSAIL box (label `idtap-csail`) — the CSAIL border firewall blocks inbound SSH, so the runner sidesteps it with outbound-only connections
+- **Build**: `pnpm install` → `pnpm build` (Vite frontend) → `pnpm buildServer` (esbuild server bundle)
+- **Deploy**: Sync `dist/` and `server.js` into `/opt/idtap/app`, then restart the `idtap` systemd service with a health check
 - **Changelog**: Automatically generated from conventional commits (`feat:`, `fix:`, etc.)
 
-#### Manual Deployment (Server Components)
-```bash
-pnpm deployTSServer     # TypeScript server deployment (manual)
-pnpm deployShared       # Deploy shared TypeScript types (manual)
-# Python scripts deployed separately via individual deploy commands
-```
-
-#### Current Hybrid Workflow
-1. **Frontend changes**: Commit to main → **automatic build & deployment**
-2. **Backend changes**: Manual `pnpm deployTSServer` → commit to main
-3. **Full-stack changes**: Deploy backend manually first, then push frontend for auto-deployment
+There are **no manual deploy scripts** anymore — the old `pnpm deploy*` rsync commands targeted the retired DigitalOcean server and have been removed. Do not re-add rsync deploys to `137.184.90.119` (account closed) or `root@swara.studio`.
 
 #### Build Process for Server
-- **esbuild** compiles `extract.ts` → `extract.js` for data processing
-- **TypeScript compilation** with ES2020/CommonJS output
+- **esbuild** bundles `server/server.ts` → `server/build/server.js` (`pnpm buildServer`)
+- **esbuild** compiles `extract.ts` → `extract.js` for data processing (`pnpm buildExtract`)
 - **Modular server architecture**: `server.ts`, `apiRoutes.ts`, `oauthRoutes.ts`
-- **Legacy server.js** being phased out in favor of TypeScript version
 
 #### Deployment Infrastructure
-- **Primary server**: `137.184.90.119` - Main application server
-- **Production domain**: `swara.studio` - Python processing scripts
-- **CI/CD**: GitHub Actions with SSH key authentication
-- **Rsync-based deployment** for both automated and manual deployments
+- **Production server**: `idtap.csail.mit.edu` (`128.52.132.248`), SSH alias `idtap-csail` — MIT CSAIL OpenStack
+- **Production domain**: `swara.studio` — DNS hosted on Squarespace, A record → CSAIL box
+- **App dir**: `/opt/idtap/app`, run by the `idtap` systemd service (service user `jonmyers`, a CSAIL LDAP account)
+- **Storage**: CSAIL NFS export at `/data/hai-res/idtap` (media, backups, external recordings); NFS writes require `sudo -u '#29460'` (the `jonmyers` UID)
+- **CI/CD**: GitHub Actions with a self-hosted runner on the box
 
 ## Key Patterns and Conventions
 
@@ -396,75 +386,61 @@ pnpm deployShared       # Deploy shared TypeScript types (manual)
 ## Database Backup and Restoration
 
 ### Backup System
-IDTAP maintains daily MongoDB backups on the production server at `/root/backups/` with the following structure:
+Daily MongoDB backups live on the CSAIL NFS export at `/data/hai-res/idtap/backups/`:
 ```
-/root/backups/
-├── YYYY-M-D/           # Daily backup directories (e.g., 2023-9-15)
-│   └── swara/          # Database backup files
-│       ├── transcriptions.bson
-│       ├── transcriptions.metadata.json
-│       ├── audioFiles.bson
-│       ├── users.bson
-│       └── [other collections...]
-└── backup_mongo.py     # Automated backup script
+/data/hai-res/idtap/backups/
+├── mongo/                            # Gzipped mongodump archives
+│   └── swara-YYYYMMDD-HHMMSS.archive.gz
+├── do-archive/                       # Historical DigitalOcean-era backups (2022-12 → 2026-07)
+│   └── YYYY-M-D/swara/*.bson         # Old per-collection mongodump format
+├── backup_mongo.sh                   # Daily dump script (runs as jonmyers)
+├── prune_backups.py                  # GFS retention: daily 14d / weekly 12w / monthly 24m / yearly forever
+└── systemd/                          # idtap-mongo-backup.service + .timer (daily 04:30 ET)
 ```
 
-**Backup Script**: `/root/backups/backup_mongo.py` runs daily to create MongoDB dumps using `mongodump`.
+The `idtap-mongo-backup.timer` systemd timer runs `backup_mongo.sh` daily at 04:30 ET: it dumps the local `swara` DB (`mongodump --gzip --archive`) to NFS, then applies GFS retention via `prune_backups.py`. NFS writes require the `jonmyers` UID (`sudo -u '#29460'`).
 
 ### Restoration Process
 
 #### 1. **Exploring Backups**
 ```bash
-# SSH into production server
-ssh root@137.184.90.119
-
-# List available backup dates
-ls /root/backups/ | grep YYYY
-
-# Check backup contents
-ls -la /root/backups/2023-9-15/swara/
-
-# Examine BSON files (search for specific documents)
-bsondump /root/backups/2023-9-15/swara/transcriptions.bson | grep "search_term"
+ssh idtap-csail
+ls /data/hai-res/idtap/backups/mongo/                 # current archives
+ls /data/hai-res/idtap/backups/do-archive/            # historical daily dumps
 ```
 
 #### 2. **Full Database Restoration**
 ```bash
-# Restore entire backup to a test database (RECOMMENDED)
-mongorestore --uri 'mongodb+srv://export_robot:PASSWORD@swara.f5cuf.mongodb.net/test_restore_YYYY_MM_DD' \
-             --drop /root/backups/YYYY-M-D/swara/
+# Restore an archive to a test database (RECOMMENDED)
+mongorestore --host=127.0.0.1 --nsFrom='swara.*' --nsTo='test_restore_YYYY_MM_DD.*' \
+             --gzip --archive=/data/hai-res/idtap/backups/mongo/swara-YYYYMMDD-HHMMSS.archive.gz
 
 # Restore to production database (USE WITH CAUTION)
-mongorestore --uri 'mongodb+srv://export_robot:PASSWORD@swara.f5cuf.mongodb.net/swara' \
-             --drop /root/backups/YYYY-M-D/swara/
+mongorestore --host=127.0.0.1 --drop \
+             --gzip --archive=/data/hai-res/idtap/backups/mongo/swara-YYYYMMDD-HHMMSS.archive.gz
+
+# Historical DO-era backups use the directory format instead:
+mongorestore --host=127.0.0.1 --nsFrom='swara.*' --nsTo='test_restore_YYYY_MM_DD.*' \
+             /data/hai-res/idtap/backups/do-archive/YYYY-M-D/swara/
 ```
 
 #### 3. **Single Document Recovery**
 ```bash
-# Export specific document from backup
-mongoexport --uri 'mongodb+srv://export_robot:PASSWORD@swara.f5cuf.mongodb.net/test_restore_DB' \
-            --collection transcriptions \
-            --query '{"_id": {"$oid": "DOCUMENT_ID"}}' \
-            --out /root/specific_document.json
+# Export a specific document from a restored test database
+mongoexport --host=127.0.0.1 --db=test_restore_DB --collection=transcriptions \
+            --query='{"_id": {"$oid": "DOCUMENT_ID"}}' --out=/tmp/specific_document.json
 
 # Import to live database
-mongoimport --uri 'mongodb+srv://export_robot:PASSWORD@swara.f5cuf.mongodb.net/swara' \
-            --collection transcriptions \
-            --file /root/specific_document.json \
-            --upsert
+mongoimport --host=127.0.0.1 --db=swara --collection=transcriptions \
+            --file=/tmp/specific_document.json --upsert
 ```
 
 #### 4. **Finding Lost Data**
-**Search for documents across multiple backup dates:**
 ```bash
-# Search for document ID across multiple backups
-for backup in /root/backups/2023-*/swara/; do
-    echo "Checking $backup"
-    bsondump "$backup/transcriptions.bson" 2>/dev/null | grep "DOCUMENT_ID" && echo "Found in $backup"
+# Search historical DO-era per-collection dumps by document ID or content
+for backup in /data/hai-res/idtap/backups/do-archive/2023-*/swara/; do
+    bsondump "$backup/transcriptions.bson" 2>/dev/null | grep -q "DOCUMENT_ID" && echo "Found in $backup"
 done
-
-# Search by content (e.g., title, creator)
-bsondump /root/backups/2023-9-15/swara/transcriptions.bson | grep -E '"title".*"search_term"|"createdBy".*"Name"'
 ```
 
 #### 5. **Permission Field Evolution**
@@ -490,15 +466,15 @@ When restoring older transcriptions, you may need to migrate permissions:
 
 ### Best Practices
 1. **Always test with a separate database first**: Use `test_restore_YYYY_MM_DD` naming
-2. **Verify data in MongoDB Atlas web interface** before applying to production
+2. **Verify restored data** (e.g. `mongosh` queries against the test database) before applying to production
 3. **Document the restoration**: Note which backup date was used and why
 4. **Check for schema changes**: Newer fields like `explicitPermissions` may not exist in older backups
 5. **Coordinate with team**: Ensure no one is actively editing during restoration
 
 ### Backup Retention
-- **Daily backups**: Maintained automatically going back several years
-- **Storage**: Local server storage at `/root/backups/`
-- **Format**: MongoDB BSON dumps with metadata JSON files
-- **Collections**: All database collections backed up daily
+- **Current backups**: Daily gzipped archives with GFS retention (daily 14d → weekly 12w → monthly 24m → yearly forever)
+- **Historical archive**: `do-archive/` holds the DigitalOcean-era daily dumps (2022-12-10 → 2026-07) in per-collection BSON format
+- **Storage**: CSAIL NFS export at `/data/hai-res/idtap/backups/` (itself backed up by CSAIL infrastructure)
+- **Collections**: All `swara` database collections backed up daily
 
 This backup system ensures data recovery capabilities and supports research workflows requiring access to historical transcription data.
