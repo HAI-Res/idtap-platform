@@ -873,8 +873,8 @@
       </p>
       <ul>
         <li><strong>Email</strong>: JBMYERS [at] UCSC [dot] EDU</li>
-        <li><strong>GitHub Issues</strong>: <a href="https://github.com/UCSC-IDTAP/idtap/issues">Report bugs and feature requests</a></li>
-        <li><strong>Documentation</strong>: <a href="https://github.com/UCSC-IDTAP/idtap">Visit the project repository</a> for additional resources</li>
+        <li><strong>GitHub Issues</strong>: <a href="https://github.com/HAI-Res/idtap-platform/issues">Report bugs and feature requests</a></li>
+        <li><strong>Documentation</strong>: <a href="https://github.com/HAI-Res/idtap-platform">Visit the project repository</a> for additional resources</li>
         <li><strong>ISMIR Paper</strong>: <a href="/papers/ismir-paper.pdf" target="_blank">Read our research paper</a></li>
         <li><strong>NEH Whitepaper</strong>: <a href="/papers/neh-whitepaper.pdf" target="_blank">Read our NEH whitepaper</a></li>
       </ul>

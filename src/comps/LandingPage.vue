@@ -48,10 +48,10 @@
           <div class='support'>
             <div class='supportTitle'>Support</div>
             <div class='supportRow'>
-              <a href='https://github.com/jon-myers/idtp'>Github</a>
+              <a href='https://github.com/HAI-Res/idtap-platform'>Github</a>
             </div>
             <div class='supportRow'>
-              <a href='https://github.com/jon-myers/idtp/issues'>
+              <a href='https://github.com/HAI-Res/idtap-platform/issues'>
                 Github Issues
               </a>
             </div>
