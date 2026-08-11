@@ -27,6 +27,35 @@ interface AuthDeps {
 }
 
 const b64url = (buf: Buffer) => buf.toString('base64url');
+const sha256b64url = (s: string) => b64url(crypto.createHash('sha256').update(s).digest());
+
+// --- desktop (Electron) login: one-time authorization codes ---
+//
+// The desktop app can't receive the httpOnly sid cookie (the OAuth dance happens in
+// the user's system browser, per Google's embedded-webview ban). Instead, after the
+// normal Google verification, /auth/callback redirects the browser to the app's
+// 127.0.0.1 loopback with a short-lived single-use code; the app then exchanges
+// code + PKCE verifier at /session/desktop/exchange for a session JWT it stores
+// itself. Codes are held in memory: single-process server, 60 s TTL, so a restart
+// only aborts logins that are mid-flight.
+const DESKTOP_CODE_TTL_MS = 60 * 1000;
+interface PendingDesktopCode {
+  session: { sub: string; uid: string; email?: string; name?: string };
+  challenge: string;
+  expiresAt: number;
+}
+const pendingDesktopCodes = new Map<string, PendingDesktopCode>();
+const pruneDesktopCodes = () => {
+  const now = Date.now();
+  for (const [k, v] of pendingDesktopCodes) if (v.expiresAt < now) pendingDesktopCodes.delete(k);
+};
+
+const B64URL_RE = /^[A-Za-z0-9_-]+$/;
+const validDesktopState = (s: unknown): s is string =>
+  typeof s === 'string' && s.length >= 16 && s.length <= 128 && B64URL_RE.test(s);
+// S256 challenge: base64url(sha256(...)) is always 43 chars
+const validDesktopChallenge = (s: unknown): s is string =>
+  typeof s === 'string' && s.length === 43 && B64URL_RE.test(s);
 
 // Absolute origin the browser is using, so the OAuth redirect_uri matches exactly what
 // is registered. PUBLIC_BASE_URL wins (reliable behind the nginx TLS proxy); otherwise
@@ -54,6 +83,38 @@ export default function authRoutes(deps: AuthDeps): Router {
     if (!returnTo.startsWith('/') || returnTo.startsWith('//')) returnTo = '/';
 
     res.cookie(AUTH_TX_COOKIE, signAuthTx({ state, codeVerifier, returnTo }), authTxCookieOptions());
+
+    const params = new URLSearchParams({
+      client_id: googleClientId,
+      redirect_uri: redirectUriFor(req),
+      response_type: 'code',
+      scope: 'openid email profile',
+      state,
+      code_challenge: codeChallenge,
+      code_challenge_method: 'S256',
+      access_type: 'online',
+    });
+    res.redirect(`${GOOGLE_AUTH_URL}?${params.toString()}`);
+  });
+
+  // Begin desktop login: same Google leg as /auth/login, but the transaction carries the
+  // app's loopback port + its own state/PKCE challenge so the callback can hand back a
+  // one-time code instead of setting the web session cookie.
+  router.get('/auth/desktop', (req, res) => {
+    const port = Number(req.query.port);
+    if (!Number.isInteger(port) || port < 1024 || port > 65535
+        || !validDesktopState(req.query.state) || !validDesktopChallenge(req.query.challenge)) {
+      return res.status(400).send('Invalid desktop login request.');
+    }
+
+    const state = b64url(crypto.randomBytes(24));
+    const codeVerifier = b64url(crypto.randomBytes(32));
+    const codeChallenge = b64url(crypto.createHash('sha256').update(codeVerifier).digest());
+
+    res.cookie(AUTH_TX_COOKIE, signAuthTx({
+      state, codeVerifier, returnTo: '/',
+      desktop: { port, state: req.query.state, challenge: req.query.challenge },
+    }), authTxCookieOptions());
 
     const params = new URLSearchParams({
       client_id: googleClientId,
@@ -107,6 +168,20 @@ export default function authRoutes(deps: AuthDeps): Router {
       const user = result?.value ?? result; // tolerate driver result shape
       const uid = (user._id as ObjectId).toString();
 
+      if (tx.desktop) {
+        // Desktop flow: hand a one-time code back to the app's loopback listener.
+        // No web session cookie — the browser tab was only a vehicle for the login.
+        pruneDesktopCodes();
+        const code = b64url(crypto.randomBytes(32));
+        pendingDesktopCodes.set(sha256b64url(code), {
+          session: { sub: payload.sub, uid, email: payload.email, name: payload.name },
+          challenge: tx.desktop.challenge,
+          expiresAt: Date.now() + DESKTOP_CODE_TTL_MS,
+        });
+        const q = new URLSearchParams({ code, state: tx.desktop.state });
+        return res.redirect(`http://127.0.0.1:${tx.desktop.port}/callback?${q.toString()}`);
+      }
+
       res.cookie(SESSION_COOKIE, signSession({ sub: payload.sub, uid, email: payload.email, name: payload.name }), sessionCookieOptions());
       return res.redirect(tx.returnTo || '/');
     } catch (err) {
@@ -132,6 +207,28 @@ export default function authRoutes(deps: AuthDeps): Router {
   router.post('/session/logout', (_req, res) => {
     res.clearCookie(SESSION_COOKIE, clearSessionCookieOptions());
     res.json({ ok: true });
+  });
+
+  // Desktop app exchanges its one-time code + PKCE verifier for a session JWT.
+  // The code is consumed on first lookup regardless of outcome, so a stolen code
+  // can't be retried against the verifier.
+  router.post('/session/desktop/exchange', (req, res) => {
+    const { code, code_verifier: codeVerifier } = req.body ?? {};
+    if (typeof code !== 'string' || !B64URL_RE.test(code)
+        || typeof codeVerifier !== 'string' || !B64URL_RE.test(codeVerifier)) {
+      return res.status(400).json({ error: 'invalid_request' });
+    }
+    const entry = pendingDesktopCodes.get(sha256b64url(code));
+    pendingDesktopCodes.delete(sha256b64url(code));
+    if (!entry || entry.expiresAt < Date.now()) {
+      return res.status(401).json({ error: 'invalid_grant' });
+    }
+    const expected = Buffer.from(entry.challenge);
+    const actual = Buffer.from(sha256b64url(codeVerifier));
+    if (expected.length !== actual.length || !crypto.timingSafeEqual(expected, actual)) {
+      return res.status(401).json({ error: 'invalid_grant' });
+    }
+    return res.json({ token: signSession(entry.session), user: entry.session });
   });
 
   return router;

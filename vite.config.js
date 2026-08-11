@@ -31,6 +31,8 @@ export default defineConfig(({ command }) => {
       },
     },
     test: {
+      // desktop/ tests are plain node:test files run via `pnpm --dir desktop test`
+      exclude: ['**/node_modules/**', '**/dist/**', 'desktop/**'],
       alias: {
         // server/ code resolves this from server/node_modules when that's
         // installed locally, but CI installs only the root workspace. Pin
