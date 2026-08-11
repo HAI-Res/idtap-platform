@@ -3,7 +3,7 @@
 ## Overview
 This directory contains server-side Python scripts for the IDTAP (Interactive Digital Transcription and Analysis Platform), including audio processing, visualization generation, and database management utilities.
 
-**Note:** The Python client API (`idtap_api`) has been moved to a separate repository: https://github.com/UCSC-IDTAP/Python-API
+**Note:** The Python client API (`idtap_api`) has been moved to a separate repository: https://github.com/HAI-Res/idtap-client
 
 ## Server Components
 
