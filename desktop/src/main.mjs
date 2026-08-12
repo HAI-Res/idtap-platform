@@ -19,6 +19,23 @@ const DIST_DIR = process.env.IDTAP_DIST || path.resolve(__dirname, '..', '..', '
 
 let win = null;
 let sessionToken = null;
+let appOrigin = null;
+
+// A desktop app holds unsaved transcription edits in the renderer; a stray throw in
+// the main process (a bad request to the local server, a socket error) must not be
+// allowed to end the session. Log and keep running.
+process.on('uncaughtException', (err) => console.error('uncaught exception:', err));
+process.on('unhandledRejection', (err) => console.error('unhandled rejection:', err));
+
+function reportLoginFailure(err) {
+  console.error('desktop login failed:', err?.message || err);
+  dialog.showErrorBox(
+    'Sign-in failed',
+    `${err?.message || err}\n\nClose the browser tab and try signing in again.`,
+  );
+  // the renderer is parked on the "signing in…" page; put it back in the app
+  if (win && appOrigin) win.loadURL(`${appOrigin}/`);
+}
 
 function createWindow(origin) {
   win = new BrowserWindow({
@@ -59,11 +76,12 @@ app.whenReady().then(async () => {
         upstream: UPSTREAM,
         openExternal: (url) => shell.openExternal(url),
         onSuccess: (token) => { sessionToken = token; saveToken(token); },
-        onFailure: (err) => console.error('desktop login failed:', err.message),
-      });
+        onFailure: reportLoginFailure,
+      }).catch(reportLoginFailure); // e.g. the loopback listener can't bind
     },
   });
 
+  appOrigin = origin;
   createWindow(origin);
   app.on('activate', () => { if (!win) createWindow(origin); });
 });

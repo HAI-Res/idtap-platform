@@ -65,19 +65,31 @@ test('full loopback flow: open browser → callback → exchange → token store
   assert.equal(result.u.uid, 'u1');
 });
 
-test('state mismatch is rejected without touching the exchange endpoint', async () => {
+test('a mismatched state is refused without cancelling the real sign-in', async () => {
   let openedUrl = null;
   let failed = null;
+  let result = null;
   await startLoginFlow({
     upstream: upstreamOrigin,
     openExternal: (url) => { openedUrl = url; },
-    onSuccess: () => { throw new Error('should not succeed'); },
+    onSuccess: (t) => { result = t; },
     onFailure: (e) => { failed = e; },
   });
-  const port = new URL(openedUrl).searchParams.get('port');
+  const u = new URL(openedUrl);
+  const port = u.searchParams.get('port');
   issued = null; // exchange would 401 if reached — but it must not be reached
+
   const cb = await fetch(`http://127.0.0.1:${port}/callback?code=x&state=WRONG`);
   assert.equal(cb.status, 400);
   assert.match(await cb.text(), /State mismatch/);
-  assert.equal(failed, null); // state mismatch closes the flow page-side only
+  assert.equal(failed, null);
+  assert.equal(result, null);
+
+  // a stray probe must not close the listener out from under the genuine callback
+  issued = { code: b64url(crypto.randomBytes(32)), challenge: u.searchParams.get('challenge') };
+  const real = await fetch(
+    `http://127.0.0.1:${port}/callback?code=${issued.code}&state=${u.searchParams.get('state')}`,
+  );
+  assert.equal(real.status, 200);
+  assert.equal(result, 'session-jwt');
 });

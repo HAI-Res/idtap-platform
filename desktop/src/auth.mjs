@@ -49,8 +49,12 @@ export async function startLoginFlow(opts) {
       cleanup();
     };
 
+    // Anything on the machine (or a page port-scanning loopback) can hit this
+    // listener. A mismatched state is somebody else's request, not a failed login:
+    // answer it and keep waiting, or a stray probe would cancel the real sign-in.
     if (url.searchParams.get('state') !== state) {
-      return finish(400, donePage('Sign-in failed', 'State mismatch — please try signing in again from the app.'));
+      res.writeHead(400, { 'content-type': 'text/html; charset=utf-8' });
+      return res.end(donePage('Sign-in failed', 'State mismatch — please try signing in again from the app.'));
     }
     const code = url.searchParams.get('code');
     if (!code) {

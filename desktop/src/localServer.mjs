@@ -8,6 +8,12 @@
 //     session JWT as the `sid` cookie and capturing sliding-renewal re-issues
 //   - intercepts GET /auth/login to hand control to the system-browser login flow
 //
+// Because the proxy attaches the session itself, authority here is ambient: whoever
+// reaches the port acts as the signed-in user. The upstream's own CSRF defenses do
+// not apply (they assume the *browser* attaches the cookie, and the server sends
+// `Access-Control-Allow-Origin: *`), so this server does its own caller check —
+// see `sameOriginOnly`.
+//
 // Electron-free on purpose: testable under plain `node --test`.
 
 import http from 'node:http';
@@ -69,6 +75,22 @@ export function startLocalServer(opts) {
   const { distDir, upstream, getSessionToken, setSessionToken, onLoginRequest } = opts;
   const upstreamUrl = new URL(upstream);
   const transport = upstreamUrl.protocol === 'https:' ? https : http;
+  let localPort = 0; // known once we're listening; used by the caller check
+
+  // Any page in the user's ordinary browser can reach 127.0.0.1 and enumerate ports,
+  // and every request we accept carries the user's session. Browsers always label
+  // such requests — `Origin` on cross-origin fetches, `Sec-Fetch-Site` on essentially
+  // everything — so refusing anything not from our own origin shuts out web-borne
+  // callers entirely. (A hostile *local process* can forge these; nothing short of a
+  // shared secret the stock frontend can't send would stop that.)
+  const sameOriginOnly = (req) => {
+    const origin = req.headers.origin;
+    if (origin && origin !== `http://127.0.0.1:${localPort}`
+        && origin !== `http://localhost:${localPort}`) return false;
+    const site = req.headers['sec-fetch-site'];
+    if (site && site !== 'same-origin' && site !== 'none') return false;
+    return true;
+  };
 
   const serveFile = (res, filePath) => {
     const ext = path.extname(filePath).toLowerCase();
@@ -105,6 +127,12 @@ export function startLocalServer(opts) {
 
       const outHeaders = { ...upRes.headers };
       delete outHeaders['set-cookie']; // session never enters the renderer cookie jar
+      // The upstream answers every request with `Access-Control-Allow-Origin: *`,
+      // which would let a cross-origin caller *read* our proxied replies. Belt and
+      // braces with sameOriginOnly: don't relay any CORS grant.
+      for (const h of Object.keys(outHeaders)) {
+        if (h.startsWith('access-control-')) delete outHeaders[h];
+      }
       res.writeHead(upRes.statusCode || 502, outHeaders);
       upRes.pipe(res);
     });
@@ -116,7 +144,21 @@ export function startLocalServer(opts) {
   };
 
   const handler = (req, res) => {
-    const pathname = decodeURIComponent(new URL(req.url, 'http://local').pathname);
+    if (!sameOriginOnly(req)) {
+      res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8' });
+      return res.end('forbidden');
+    }
+
+    // A malformed escape (or a non-path target like OPTIONS *) throws here, and an
+    // exception out of this listener would take the whole Electron main process —
+    // and any unsaved transcription in the renderer — with it.
+    let pathname;
+    try {
+      pathname = decodeURIComponent(new URL(req.url, 'http://local').pathname);
+    } catch {
+      res.writeHead(400, { 'content-type': 'text/plain; charset=utf-8' });
+      return res.end('bad request');
+    }
 
     if (pathname === '/auth/login' && (req.method === 'GET' || req.method === 'HEAD')) {
       onLoginRequest();
@@ -144,6 +186,7 @@ export function startLocalServer(opts) {
     server.on('error', reject);
     server.listen(0, '127.0.0.1', () => {
       const { port } = server.address();
+      localPort = port;
       resolve({ server, port, origin: `http://127.0.0.1:${port}` });
     });
   });

@@ -18,6 +18,18 @@ its `sid` cookie, and stores it encrypted via the OS keychain (Electron
 fresh from the server's sliding-renewal re-issues. No Google Cloud Console
 configuration is involved.
 
+## Why the local server checks its callers
+
+The proxy attaches the session itself, so authority is ambient: whoever reaches the
+loopback port acts as the signed-in user, and the upstream's CSRF header check
+can't help (it assumes the browser attaches the cookie, and the server answers with
+`Access-Control-Allow-Origin: *`). Any page in the user's ordinary browser can
+enumerate 127.0.0.1 ports, so the server refuses requests that a browser marks as
+foreign — a cross-origin `Origin`, or a `Sec-Fetch-Site` other than `same-origin`/
+`none` — and never relays the upstream's CORS grants. That closes web-borne access;
+a hostile process already running on the machine could forge those headers, which
+no header check can prevent.
+
 ## Running (development)
 
 ```bash

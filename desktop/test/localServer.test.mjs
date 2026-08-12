@@ -28,7 +28,8 @@ before(async () => {
         res.writeHead(200, { 'content-type': 'application/json' });
         return res.end('{"ok":true}');
       }
-      res.writeHead(200, { 'content-type': 'application/json' });
+      // the real server runs cors({ origin: '*' }), so every reply carries this
+      res.writeHead(200, { 'content-type': 'application/json', 'access-control-allow-origin': '*' });
       res.end(JSON.stringify({ echo: req.url }));
     });
   });
@@ -111,4 +112,40 @@ test('GET /auth/login is intercepted, not proxied', async () => {
 test('path traversal outside dist is rejected', async () => {
   const r = await fetch(`${local.origin}/..%2f..%2fetc%2fpasswd`);
   assert.equal(r.status, 400);
+});
+
+// The proxy attaches the session to whatever reaches the port, so a web page that
+// finds it must not be able to act as the user (upstream's CSRF header check can't
+// help: its own CORS config would wave the preflight through).
+test('cross-origin callers are refused before anything is proxied', async () => {
+  const beforeCount = seenUpstream.length;
+  for (const headers of [
+    { origin: 'https://evil.example' },
+    { 'sec-fetch-site': 'cross-site' },
+    { 'sec-fetch-site': 'same-site' }, // another server on 127.0.0.1, different port
+  ]) {
+    const r = await get('/getAllTranscriptions', headers);
+    assert.equal(r.status, 403, JSON.stringify(headers));
+  }
+  assert.equal(seenUpstream.length, beforeCount); // never reached the upstream
+});
+
+test('the renderer\'s own requests pass the caller check', async () => {
+  const r = await get('/session/me', {
+    origin: local.origin,
+    'sec-fetch-site': 'same-origin',
+  });
+  assert.equal(r.status, 200);
+});
+
+test('CORS grants from the upstream are not relayed', async () => {
+  const r = await get('/session/me');
+  assert.equal(r.headers.get('access-control-allow-origin'), null);
+});
+
+test('a malformed escape sequence is a 400, not a crash', async () => {
+  const r = await get('/%zz');
+  assert.equal(r.status, 400);
+  const still = await get('/');
+  assert.equal(still.status, 200); // server (and, in Electron, the app) still alive
 });
