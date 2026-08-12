@@ -49,15 +49,22 @@ const MIME = {
   '.pdf': 'application/pdf',
 };
 
-const LOGIN_WAIT_PAGE = `<!doctype html><meta charset="utf-8"><title>Signing in…</title>
+// The web flow hands `returnTo` to the server and lands back on the page the user
+// left (NavBar sends $route.fullPath). We intercept that navigation, so honour the
+// same parameter here — anything but a plain local path falls back to '/'.
+const safeReturnTo = (raw) =>
+  typeof raw === 'string' && /^\/[^/][^\s<>"'`]*$/.test(raw) ? raw : '/';
+
+const loginWaitPage = (returnTo) => `<!doctype html><meta charset="utf-8"><title>Signing in…</title>
 <style>body{font-family:system-ui;display:grid;place-items:center;height:100vh;margin:0;color:#333}</style>
 <div><h2>Finish signing in with your browser</h2>
 <p>A Google sign-in page has opened in your default browser.<br>This window will continue automatically once you're signed in.</p></div>
 <script>
+  const target = ${JSON.stringify(safeReturnTo(returnTo))};
   const poll = setInterval(async () => {
     try {
       const r = await fetch('/session/me', { cache: 'no-store' });
-      if (r.ok) { clearInterval(poll); location.assign('/'); }
+      if (r.ok) { clearInterval(poll); location.assign(target); }
     } catch {}
   }, 1500);
 </script>`;
@@ -152,9 +159,11 @@ export function startLocalServer(opts) {
     // A malformed escape (or a non-path target like OPTIONS *) throws here, and an
     // exception out of this listener would take the whole Electron main process —
     // and any unsaved transcription in the renderer — with it.
-    let pathname;
+    let pathname, query;
     try {
-      pathname = decodeURIComponent(new URL(req.url, 'http://local').pathname);
+      const parsed = new URL(req.url, 'http://local');
+      pathname = decodeURIComponent(parsed.pathname);
+      query = parsed.searchParams;
     } catch {
       res.writeHead(400, { 'content-type': 'text/plain; charset=utf-8' });
       return res.end('bad request');
@@ -163,7 +172,7 @@ export function startLocalServer(opts) {
     if (pathname === '/auth/login' && (req.method === 'GET' || req.method === 'HEAD')) {
       onLoginRequest();
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
-      return res.end(LOGIN_WAIT_PAGE);
+      return res.end(loginWaitPage(query.get('returnTo')));
     }
 
     if (req.method === 'GET' || req.method === 'HEAD') {

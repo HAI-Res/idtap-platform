@@ -109,6 +109,20 @@ test('GET /auth/login is intercepted, not proxied', async () => {
   assert.equal(seenUpstream.length, beforeCount);
 });
 
+test('the wait page returns to where the user left off', async () => {
+  const target = async (q) => {
+    const html = await (await get(`/auth/login${q}`)).text();
+    return /const target = (".*?");/.exec(html)[1];
+  };
+  assert.equal(await target('?returnTo=%2FlogIn'), '"/logIn"');
+  assert.equal(await target('?returnTo=%2Feditor%3Fid%3Dabc'), '"/editor?id=abc"');
+  assert.equal(await target(''), '"/"');
+  // only plain local paths: no other origins, no breaking out of the script tag
+  assert.equal(await target('?returnTo=%2F%2Fevil.example'), '"/"');
+  assert.equal(await target('?returnTo=https%3A%2F%2Fevil.example'), '"/"');
+  assert.equal(await target('?returnTo=%2Fx%3C%2Fscript%3E'), '"/"');
+});
+
 test('path traversal outside dist is rejected', async () => {
   const r = await fetch(`${local.origin}/..%2f..%2fetc%2fpasswd`);
   assert.equal(r.status, 400);
