@@ -66,6 +66,10 @@ export interface AuthTx {
   state: string;
   codeVerifier: string;
   returnTo: string;
+  /** present when the login was initiated by the desktop app (authRoutes /auth/desktop):
+   *  the loopback port to redirect back to, plus the app's own state + PKCE challenge
+   *  for the one-time-code exchange leg. */
+  desktop?: { port: number; state: string; challenge: string };
 }
 
 export function signAuthTx(tx: AuthTx): string {
@@ -76,7 +80,12 @@ export function verifyAuthTx(token: string): AuthTx | null {
   try {
     const p = jwt.verify(token, SESSION_SECRET as string) as jwt.JwtPayload;
     if (!p || typeof p.state !== 'string' || typeof p.codeVerifier !== 'string') return null;
-    return { state: p.state, codeVerifier: p.codeVerifier, returnTo: p.returnTo || '/' };
+    const tx: AuthTx = { state: p.state, codeVerifier: p.codeVerifier, returnTo: p.returnTo || '/' };
+    const d = p.desktop;
+    if (d && Number.isInteger(d.port) && typeof d.state === 'string' && typeof d.challenge === 'string') {
+      tx.desktop = { port: d.port, state: d.state, challenge: d.challenge };
+    }
+    return tx;
   } catch {
     return null;
   }

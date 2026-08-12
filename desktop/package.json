@@ -1,0 +1,15 @@
+{
+  "name": "idtap-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "IDTAP desktop shell: serves the built web app locally and proxies to swara.studio, with system-browser Google sign-in",
+  "type": "module",
+  "main": "src/main.mjs",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test test/*.test.mjs"
+  },
+  "devDependencies": {
+    "electron": "^43.0.0"
+  }
+}
