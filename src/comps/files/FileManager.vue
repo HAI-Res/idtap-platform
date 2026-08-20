@@ -360,10 +360,13 @@ export default defineComponent({
       this.fileContainerHeight = window.innerHeight - this.navHeight;
     });
     try {
-      const userID = this.$store.state.userID!;
+      const userID = this.userID!;
       this.viewedTranscriptions = await getUsersLastViewedTranscriptions(userID);
-      const ft = this.$refs.filterableTable as InstanceType<typeof FilterableTable>;
-      ft.toggleSort(7, true);
+      // The table only exists once allPieces has loaded, which may still be in
+      // flight here — don't let a missing ref abort the rest of the setup below.
+      const ft = this.$refs.filterableTable as
+        InstanceType<typeof FilterableTable> | undefined;
+      ft?.toggleSort(7, true);
       this.allUsers = await getAllUsers();
       if (this.allUsers !== undefined) {
         this.allNames = this.allUsers.map(user => {
@@ -709,7 +712,6 @@ export default defineComponent({
     },
 
     editableSorter(a: TransMetadataType, b: TransMetadataType) {
-      const id = this.$store.state.userID!;
       const aEdit = this.permissionToEdit(a);
       const bEdit = this.permissionToEdit(b);
       if (aEdit && !bEdit) {
@@ -769,7 +771,7 @@ export default defineComponent({
         el.classList.remove('selected');
       });
       try {
-        const userID = this.$store.state.userID!;
+        const userID = this.userID!;
         this.editableCols = await getEditableCollections(userID);
       } catch (err) {
         console.log(err)
@@ -979,14 +981,14 @@ export default defineComponent({
       if (this.selectedPiece === undefined) {
         throw new Error('selectedPiece is undefined')
       }
-      const isUser = this.$store.state.userID === this.selectedPiece.userID;
+      const isUser = this.userID === this.selectedPiece.userID;
       if (isUser) {
         // const dropDown = this.$refs.dropDown as HTMLElement;
         // dropDown.classList.add('closed');
         this.closeDropDown()
         const res = await deletePiece(this.selectedPiece);
         if (res.deletedCount === 1) {
-          const id = this.$store.state.userID!;
+          const id = this.userID!;
           const sortKey = 'title';
           const sortDir = '1';
           this.allPieces = await getAllPieces(id, sortKey, sortDir, true);
@@ -1087,18 +1089,22 @@ export default defineComponent({
       }
     },
 
-    permissionToView(transcription: TransMetadataType) {
+    // `userID` is passed by FilterableTable; fall back to this.userID (resolved in
+    // created() from the store or the cookie). Reading $store.state.userID directly
+    // is wrong here: it is still undefined until NavBar's session lookup resolves,
+    // which made every owned/private transcription look unviewable and uneditable.
+    permissionToView(transcription: TransMetadataType, userID?: string) {
       const ep = transcription.explicitPermissions;
-      const id = this.$store.state.userID!;
+      const id = userID ?? this.userID!;
       return ep.publicView || 
         transcription.userID === id ||
         ep.edit.includes(id) ||
         ep.view.includes(id);
     },
 
-    permissionToEdit(transcription: TransMetadataType) {
+    permissionToEdit(transcription: TransMetadataType, userID?: string) {
       const ep = transcription.explicitPermissions;
-      const id = this.$store.state.userID!;
+      const id = userID ?? this.userID!;
       return transcription.userID === id || ep.edit.includes(id);
     },
 

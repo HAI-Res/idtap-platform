@@ -61,10 +61,10 @@
       >
       <div
         v-for='(row, rIdx) in highlightedData'
-        :class='`dataRow ${viewable[rIdx] ? "" : "disabled"}`'
+        :class='`dataRow ${rowViewable(rIdx) ? "" : "disabled"}`'
         :id='`row${rIdx}`'
-        @dblclick='viewable[rIdx] ? 
-          $emit("rowdblclick", items[rIdx]) : 
+        @dblclick='rowViewable(rIdx) ? 
+          $emit("rowdblclick", rowItem(rIdx)) : 
           null'
         >
         <div
@@ -109,8 +109,6 @@ type FilterableTableDataType = {
   labelRowHeight: number,
   displayableData: (string | number)[][],
   filteredData: (string | number)[][],
-  viewable: boolean[],
-  editable: boolean[],
   searchBarHeight: number,
   searchQuery: string,
   itemIdxMapping: number[],
@@ -129,8 +127,6 @@ export default defineComponent({
       searchBarHeight: 40,
       displayableData: [],
       filteredData: [],
-      viewable: [],
-      editable: [],
       searchQuery: '',
       itemIdxMapping: [],
     }
@@ -147,9 +143,6 @@ export default defineComponent({
       return this.labels.map(label => label.getDisplay(item));
     })
     this.filteredData = this.displayableData;
-    
-    this.viewable = this.items.map(item => this.canView(item, this.userID));
-    this.editable = this.items.map(item => this.canEdit(item, this.userID));
     this.$el.style.setProperty('--height-offset', `${this.heightOffset}px`);
     this.$el.style.setProperty('--nav-height', `${this.navHeight}px`);
     this.$el.style.setProperty('--label-row-height', `${this.labelRowHeight}px`);
@@ -198,6 +191,16 @@ export default defineComponent({
   },
 
   computed: {
+    // Derived, not snapshotted: `items` is re-sorted in place by toggleSort(),
+    // so a one-shot array would keep pointing at the pre-sort row order.
+    viewable(): boolean[] {
+      return this.items.map(item => this.canView(item, this.userID));
+    },
+
+    editable(): boolean[] {
+      return this.items.map(item => this.canEdit(item, this.userID));
+    },
+
     highlightedData() {
       const query = this.searchQuery.toLowerCase();
       return this.filteredData.map(row => {
@@ -218,12 +221,25 @@ export default defineComponent({
   watch: {
     items() {
       this.toggleSort(this.selectedSortIdx, true);
-      this.viewable = this.items.map(item => this.canView(item, this.userID));
-      this.editable = this.items.map(item => this.canEdit(item, this.userID));
     }
   },
 
   methods: {
+
+    // Rows are rendered from filteredData (sorted + search-filtered), so a display
+    // index has to be mapped back through itemIdxMapping before indexing `items`.
+    itemIdxFromRowIdx(rIdx: number): number {
+      const mapped = this.itemIdxMapping[rIdx];
+      return mapped === undefined ? rIdx : mapped;
+    },
+
+    rowItem(rIdx: number) {
+      return this.items[this.itemIdxFromRowIdx(rIdx)];
+    },
+
+    rowViewable(rIdx: number): boolean {
+      return this.viewable[this.itemIdxFromRowIdx(rIdx)];
+    },
 
     escapeRegExp(string: string): string {
       return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); // $& means the whole matched string
