@@ -174,3 +174,15 @@ test('valueAtX throws when x before first value', () => {
   });
   expect(() => auto.valueAtX(0.1)).toThrow(SyntaxError);
 });
+
+test('generateValueCurve handles durations shorter than one sample', () => {
+  // A duration under half of valueDur used to round to zero intervals, making
+  // every normTime 0/0 and throwing out of valueAtX with `invalid x ... NaN`.
+  const a = new Automation();
+  a.addValue(1, 0);
+  const curve = a.generateValueCurve(0.02, 0.005);
+  expect(curve.length).toBe(2);
+  expect(curve.every(v => Number.isFinite(v))).toBe(true);
+  expect(curve[0]).toBeCloseTo(1);
+  expect(curve[1]).toBeCloseTo(0);
+});
