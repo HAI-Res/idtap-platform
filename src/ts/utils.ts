@@ -108,6 +108,15 @@ const  findClosestStartTime = (startTimes: number[], timepoint: number) => {
   return closestIndex;
 }
 
+// Number of points to sample a trajectory at for `setValueCurveAtTime`.
+// The curve is evaluated at `i / (count - 1)`, so a count of one is 0/0 (NaN,
+// which the AudioParam rejects) and a count of zero yields an empty curve.
+// Rounding `durTot / valueDur` hits both cases for trajectories under ~30ms,
+// so floor the count at the two points `setValueCurveAtTime` requires.
+const valueCurveSampleCount = (duration: number, valueDur: number) => {
+  return Math.max(Math.round(duration / valueDur), 2);
+}
+
 
 export { 
   getContrastingTextColor, 
@@ -124,5 +133,6 @@ export {
   isObject,
   getStarts,
   getEnds,
-  pitchNumberToChroma
+  pitchNumberToChroma,
+  valueCurveSampleCount
 };
