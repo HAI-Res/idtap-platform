@@ -1345,6 +1345,11 @@ export default defineComponent({
         handleEscape()
       }
     });
+    // Trajectory/chikari highlighting during playback does DOM queries per
+    // track; the audio clock fires this watcher every frame, and a 10 Hz
+    // update is indistinguishable for a highlight that changes per note.
+    const HIGHLIGHT_INTERVAL_MS = 100;
+    let lastHighlightUpdate = -Infinity;
     watch(() => props.currentTime, t => {
       if (props.playing) {
         if (t > props.displayRange[1]) {
@@ -1364,7 +1369,9 @@ export default defineComponent({
         }
         // DottedLine animation handles position updates through its own loop
         // No need to update playhead position here
-        if (props.highlightTrajs) {
+        const now = performance.now();
+        if (props.highlightTrajs && now - lastHighlightUpdate >= HIGHLIGHT_INTERVAL_MS) {
+          lastHighlightUpdate = now;
           // here is where to use curTraj= props.piece.trajFromTime
           // within instTracks if instTrack is currently "displaying"
           // then swap to its selColor if its currently playing, 
@@ -1425,8 +1432,9 @@ export default defineComponent({
                   litTrajs.value[idx] = undefined;
                 }
               };
-              // chikari
-              const cs = props.piece.allDisplayChikaris(idx).filter(c => {
+              // chikari (only ids and times are used, so read the raw model:
+              // through the reactive proxy this pass is ~10x slower)
+              const cs = toRaw(props.piece).allDisplayChikaris(idx).filter(c => {
                 const diff = t - c.time;
                 return diff < 0.2 && diff > 0;
               });
