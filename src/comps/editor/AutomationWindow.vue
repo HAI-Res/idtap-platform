@@ -238,7 +238,7 @@ export default defineComponent({
           .attr('fill', 'black')
         
         const first = (i: number) => i === 0;
-        const last = (i: number) => i === this.trajectories.values.length - 1;
+        const last = (i: number) => i === this.automation!.values.length - 1;
 
         this.svg.selectAll('circle.invisible')
           .data(this.automation.values)

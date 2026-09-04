@@ -377,6 +377,7 @@ import {
 } from '@/js/serverCalls.ts';
 import { Meter, Pulse } from '@/js/meter.ts';
 import { suppressMotion } from '@/js/motionPrefs.ts';
+import { DEFAULT_TRANSCRIPTION_ID } from '@/config';
 import { prefetchSpectrogramData } from '@/ts/workers/workerManager.ts';
 import EditorAudioPlayer from '@/comps/editor/audioPlayer/EditorAudioPlayer.vue';
 import TrajSelectPanel from '@/comps/editor/TrajSelectPanel.vue';
@@ -586,19 +587,12 @@ type EditorDataType = {
   zoom: d3.ZoomBehavior<Element, unknown>,
   curWidth: number,
   oldRectHeight: number,
-  scrollX: Selection<SVGSVGElement, undefined, null, undefined>,
-  scrollY: Selection<SVGSVGElement, undefined, null, undefined>,
   regionG?: Selection<SVGGElement, undefined, null, undefined>,
   desiredWidth: number,
   desiredHeight: number,
   xScale: number,
   yScale: number,
   unscaledWidth: number,
-  loadedImgs: number,
-  numSpecs: number,
-  totNaturalWidth: number,
-  cumulativeWidths: number[],
-  imgs: HTMLImageElement[],
   specBox: Selection<SVGGElement, undefined, null, undefined>,
   browser: BrowserInfo,
   dragIdx: string,
@@ -756,19 +750,12 @@ export default defineComponent({
       curWidth: 0,
       oldRectHeight: 0,
       specBox: d3Create('g'),
-      scrollX: d3Create('svg'),
-      scrollY: d3Create('svg'),
       regionG: undefined,
       desiredWidth: 0,
       desiredHeight: 0,
       xScale: 1,
       yScale: 1,
       unscaledWidth: 0,
-      loadedImgs: 0,
-      numSpecs: 0,
-      totNaturalWidth: 0,
-      cumulativeWidths: [],
-      imgs: [],
       browser: detect() as BrowserInfo,
       dragIdx: '',
       IPLims: [0, 0],
@@ -915,7 +902,7 @@ export default defineComponent({
         let id = this.$store.state._id;
         piece = await getPiece(id);
         if (!piece) {
-          id = '63445d13dc8b9023a09747a6';
+          id = DEFAULT_TRANSCRIPTION_ID;
           piece = await getPiece(id);
         }
         this.router.push({
@@ -2439,16 +2426,6 @@ export default defineComponent({
       this.unsavedChanges = false;
     },
 
-    handleKeyup(e: KeyboardEvent) {
-      if (e.key === 'Shift') this.shifted = false;
-      if (e.key === 'Meta' && this.browser.os!.includes('Mac OS')) {
-        this.metad = false
-      }
-      if (e.key === 'Control' && this.browser.os!.includes('Windows')) {
-        this.metad = false
-      }
-    },
-
     handleKeydown(e: KeyboardEvent) {
       if (this.selectedMode === EditorMode.Trajectory || this.selectedTraj) {
         const tsp = this.$refs.trajSelectPanel as TSPType;
@@ -2488,17 +2465,6 @@ export default defineComponent({
           }
         })
       })
-    },
-
-    resize() {
-      console.log('resized')
-      const diff = Math.abs(this.oldHeight! - window.innerHeight);
-      if (diff > 53) {
-        console.log('changed real height')
-        this.resizeHeight();
-      }
-      this.oldHeight = window.innerHeight;
-      this.fullWidth = window.innerWidth;
     },
 
     phraseIdxFromTime(time: number, rounded=false) {
@@ -2724,78 +2690,6 @@ export default defineComponent({
   width: calc(100% - v-bind(controlBoxWidth + 'px'));
   height: 100%;
   position: relative;
-}
-
-.scrollYContainer {
-  width: v-bind(scrollYWidth+'px');
-  background-color: white;
-  border-right: 1px solid black;
-  border-bottom: 1px solid black;
-  height: calc(100% - 1px);
-  display: flex;
-  flex-direction: column;
-}
-
-.topNotch {
-  width: v-bind(scrollYWidth+'px');
-  min-width: v-bind(scrollYWidth+'px');
-  height: v-bind(xAxHeight - 0.5 +'px');
-  min-height: v-bind(xAxHeight - 0.5 +'px');
-  border-bottom: 1px solid black;
-  background-color: grey;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-}
-
-.topNotchZoomer {
-  width: v-bind(scrollYWidth+'px');
-  min-width: v-bind(scrollYWidth+'px');
-  height: v-bind((xAxHeight - 1.5)/2 +'px');
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  justify-content: center;
-  background-color: v-bind(scrollDragColor)
-}
-
-.topNotchZoomer:hover {
-  background-color: v-bind(scrollDragColorHover);
-  cursor: pointer;
-}
-
-.topNotchZoomer.top {
-  border-bottom: 1px solid black;
-}
-
-.scrollY {
-  width: 100%;
-  height: v-bind(scrollYHeight-1.5 + 'px');
-}
-
-.bottomNotch {
-  width: 100%;
-  height: v-bind(scrollXHeight - 1 + 'px');
-  min-height: v-bind(scrollXHeight - 1 + 'px');
-  border-top: 1px solid black;
-  background-color: grey;
-}
-
-.scrollXContainer {
-  height: v-bind(scrollXHeight - 1 + 'px');
-  min-height: v-bind(scrollXHeight - 1 + 'px');
-  width: calc(100% - 1px);
-  border-bottom: 1px solid black;
-  border-right: 1px solid black;
-  background-color: white;
-  display: flex;
-  flex-direction: row;
-}
-
-.scrollX {
-  width: 100%;
-  height: 100%;
 }
 
 .controlBox {

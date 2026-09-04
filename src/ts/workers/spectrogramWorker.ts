@@ -6,6 +6,7 @@ import ndarray, { NdArray } from 'ndarray';
 import ops from 'ndarray-ops';
 import pako from  'pako';
 import { ProcessMessage, WorkerMessage } from '@shared/types';
+import { SPECTROGRAM_TILE_WIDTH } from '@shared/spectrogram';
 
 let extData: Uint8Array | undefined = undefined;
 let extDataShape: [number, number] | undefined = undefined;
@@ -23,7 +24,7 @@ let cmapLUT: RGBColor[] | undefined = undefined;
 let initLogMin = Math.log2(75);
 let initLogMax = Math.log2(2400);
 let maxVal = 255;
-const maxCanvasWidth = 1000; // this needs to align with maxCanvasWidth in
+const maxCanvasWidth = SPECTROGRAM_TILE_WIDTH;
 let power = 1;
 let cmap: CMap = CMap.Viridis;
 
