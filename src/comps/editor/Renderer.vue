@@ -43,36 +43,6 @@
       </div>
     </div>
     <div class='wrapper'>
-      <div class='xAxisContainer' ref='xAxisContainer'>
-        <XAxis
-          v-if='xScale !== null'
-          :scaledWidth='scaledWidth'
-          :height='xAxHeight'
-          :scale='xScale'
-          :axisColor='axisColor'
-          :piece='piece'
-          :instIdx='editingInstIdx'
-          :showPhrases='showPhrases'
-          :showVibhagLabels='showVibhagLabels'
-          :instTracks='instTracks'
-          :timingDisplay='timingDisplay'
-          :excerptRange='piece.excerptRange'
-          @update:region='updateRegion'
-          ref='xAxis'/>
-      </div>
-      <div class='yAxisContainer' ref='yAxisContainer'>
-        <YAxis
-          v-if='yScale !== null'
-          :scaledHeight='scaledHeight'
-          :width='yAxWidth'
-          :scale='yScale'
-          :raga='piece.raga'
-          :highOctOffset='highOctOffset'
-          :lowOctOffset='lowOctOffset'
-          :axisColor='axisColor'
-          :scaleSystem='scaleSystem'
-          ref='yAxis'/>
-      </div>
       <div class='verticalZoomControls'>
         <div @click='zoomInY' class='zoomIn'>+</div>
         <div @click='zoomOutY' class='zoomOut'>-</div>
@@ -81,12 +51,51 @@
         <div @click='zoomOutX' class='zoomOut'>-</div>
         <div @click='zoomInX' class='zoomIn'>+</div>
       </div>
-      <div 
-        class='scrollingContainer' 
+      <!--
+        The axes live INSIDE the scroll container as sticky grid items, so they
+        are positioned by the same scroll as the layers. They used to sit outside
+        it and be re-aligned from a throttled JS scroll handler, which put them a
+        frame or two behind the content while scrolling: the time/phrase labels
+        visibly sheared against the transcription.
+      -->
+      <div
+        class='scrollingContainer'
         ref='scrollingContainer'
         @wheel='onWheel'
         @touchmove='onTouchMove'
         >
+        <div class='scrollContent'>
+        <div class='axisCorner'></div>
+        <div class='xAxisContainer' ref='xAxisContainer'>
+          <XAxis
+            v-if='xScale !== null'
+            :scaledWidth='scaledWidth'
+            :height='xAxHeight'
+            :scale='xScale'
+            :axisColor='axisColor'
+            :piece='piece'
+            :instIdx='editingInstIdx'
+            :showPhrases='showPhrases'
+            :showVibhagLabels='showVibhagLabels'
+            :instTracks='instTracks'
+            :timingDisplay='timingDisplay'
+            :excerptRange='piece.excerptRange'
+            @update:region='updateRegion'
+            ref='xAxis'/>
+        </div>
+        <div class='yAxisContainer' ref='yAxisContainer'>
+          <YAxis
+            v-if='yScale !== null'
+            :scaledHeight='scaledHeight'
+            :width='yAxWidth'
+            :scale='yScale'
+            :raga='piece.raga'
+            :highOctOffset='highOctOffset'
+            :lowOctOffset='lowOctOffset'
+            :axisColor='axisColor'
+            :scaleSystem='scaleSystem'
+            ref='yAxis'/>
+        </div>
         <div class='layersContainer' ref='layersContainer'>
           <div class='backgroundLayer'></div>
           <SpectrogramLayer
@@ -94,7 +103,6 @@
             :width='scaledWidth'
             :height='scaledHeight'
             :showSpectrogram='showSpectrogram'
-            :scrollX='scrollX'
             ref='spectrogramLayer'
             />
           <MelographLayer
@@ -127,7 +135,6 @@
               :piece='piece'
               :sargamLineColor='sargamLineColor'
               :minDrawDur='minDrawDur'
-              :scrollX='scrollX'
               :clientWidth='clientWidth'
               :showSargam='showSargam'
               :showSargamLines='showSargamLines'
@@ -196,7 +203,7 @@
               @update:regionEndPxl='xAxis ? xAxis!.setRegionEndPxl($event) : null'
               @selectAssemblagePhrase='$emit("selectAssemblagePhrase", $event)'
             />
-          />
+        </div>
         </div>
       </div>
     </div>
@@ -553,12 +560,6 @@ export default defineComponent({
       entries = entries.filter(entry => entry[1] !== EditorMode.AssemblagePhrasePick)
       return Object.fromEntries(entries);
     })
-    const scrollX = computed(() => {
-      if (!scrollingContainer.value) return 0;
-      const scrollWidth = scrollingContainer.value.scrollWidth;
-      const scrollLeft = scrollingContainer.value.scrollLeft;
-      return scrollLeft / (scrollWidth - scrollingContainer.value.clientWidth);
-    });
     const instTracksEnum = computed(() => {
       const enumObj: Record<string, number> = {};
       const duplicateNames: Instrument[] = [];
@@ -658,21 +659,26 @@ export default defineComponent({
       '--modeSelectorHeight': `${modeSelectorHeight}px`
     }));
 
+    // The scroll container now also holds the sticky axes, so the part of its
+    // viewport that shows the layers is its client box minus the axis strips.
+    // scrollLeft/scrollTop still map 1:1 onto layer pixels (the layers start
+    // at the axis offsets, exactly where the container used to start).
+    const viewWidth = () => scrollingContainer.value!.clientWidth - props.yAxWidth;
+    const viewHeight = () => scrollingContainer.value!.clientHeight - props.xAxHeight;
+
     const displayRange = computed(() => {
       const idx = scrollUpdateIdx.value;
       const scrollLeft = scrollingContainer.value!.scrollLeft;
-      const clientWidth = scrollingContainer.value!.clientWidth;
       const start = xScale.value!.invert(scrollLeft);
-      const end = xScale.value!.invert(scrollLeft + clientWidth);
+      const end = xScale.value!.invert(scrollLeft + viewWidth());
       return [start, end];
     });
 
     const verticalDisplayRange = computed(() => {
       const idx = verticalScrollUpdateIdx.value;
       const scrollTop = scrollingContainer.value!.scrollTop;
-      const clientHeight = scrollingContainer.value!.clientHeight;
       const start = yScale.value!.invert(scrollTop);
-      const end = yScale.value!.invert(scrollTop + clientHeight);
+      const end = yScale.value!.invert(scrollTop + viewHeight());
       return [start, end];
     });
     const zoomOutY = () => emit('zoomOutY');
@@ -734,10 +740,8 @@ export default defineComponent({
 
     const updateClientWidth = () => {
       if (scrollingContainer.value) {
-        clientWidth.value = scrollingContainer.value.clientWidth;
+        clientWidth.value = viewWidth();
       }
-      yAxisContainer.value!.scrollTop = scrollingContainer.value!.scrollTop;
-      xAxisContainer.value!.scrollLeft = scrollingContainer.value!.scrollLeft;
     };
 
     const resetYScroll = () => {
@@ -759,8 +763,7 @@ export default defineComponent({
       })
       const avg = (minLogFreq + maxLogFreq) / 2;
       const avgYCoord = yScale.value!(avg);
-      const containerHeight = scrollingContainer.value!.clientHeight;
-      const scrollTop = avgYCoord - containerHeight / 2;
+      const scrollTop = avgYCoord - viewHeight() / 2;
       scrollingContainer.value!.scrollTop = scrollTop;   
     }
 
@@ -785,11 +788,6 @@ export default defineComponent({
       const y = yScale.value!(newStart);
       scrollingContainer.value!.scrollTop = y;
     }
-
-    const updateAxesScroll = throttle(() => {
-      xAxisContainer.value!.scrollLeft = scrollingContainer.value!.scrollLeft;
-      yAxisContainer.value!.scrollTop = scrollingContainer.value!.scrollTop;
-    }, 16);
 
     const handleContextMenuClick = (e: MouseEvent) => {
       e.preventDefault();
@@ -846,8 +844,7 @@ export default defineComponent({
         const phPxlOnScreen = curPlayheadPxl();
         if (phPxlOnScreen < 0) {
           const playheadPxl = xScale.value!(props.currentTime);
-          const containerWidth = scrollingContainer.value!.clientWidth;
-          const quarterWidth = containerWidth / 4;
+          const quarterWidth = viewWidth() / 4;
           const desiredScrollLeft = playheadPxl - quarterWidth;
           scrollingContainer.value!.scrollLeft = desiredScrollLeft;
         }
@@ -867,7 +864,6 @@ export default defineComponent({
     }
 
     const handleScroll = throttle(() => {
-      updateAxesScroll();
       scrollUpdateIdx.value += 1;
       verticalScrollUpdateIdx.value += 1;
     }, 16);
@@ -885,11 +881,12 @@ export default defineComponent({
       }
     };
 
+    const closeContextMenu = () => {
+      contextMenuClosed.value = true;
+    };
     onMounted(async () => {
       window.addEventListener('keydown', handleKeydown);
-      window.addEventListener('click', () => {
-        contextMenuClosed.value = true;
-      })
+      window.addEventListener('click', closeContextMenu);
       emit('update:recomputeTrigger');
       updateClientWidth();
       scrollingContainer.value?.addEventListener('click', (e) => {
@@ -920,9 +917,7 @@ export default defineComponent({
     onBeforeUnmount(() => {
       window.removeEventListener('resize', updateClientWidth);
       window.removeEventListener('keydown', handleKeydown);
-      window.removeEventListener('click', () => {
-        contextMenuClosed.value = true;
-      })
+      window.removeEventListener('click', closeContextMenu);
       scrollingContainer.value?.removeEventListener('scroll', handleScroll);
     });
     return {
@@ -943,7 +938,6 @@ export default defineComponent({
       xAxis,
       reScaleY,
       minDrawDur,
-      scrollX,
       clientWidth,
       modeSelectorHeight,
       transcriptionLayer,
@@ -989,10 +983,10 @@ export default defineComponent({
 <style scoped>
 
 .scrollingContainer {
-  width: calc(100% - var(--yAxWidth));
-  height: calc(100% - var(--xAxHeight));
-  top: var(--xAxHeight);
-  left: var(--yAxWidth);
+  width: 100%;
+  height: 100%;
+  top: 0;
+  left: 0;
   overflow-x: scroll;
   overflow-y: scroll;
   position: absolute;
@@ -1017,11 +1011,60 @@ export default defineComponent({
   background-color: lightgrey;
 }
 
-.layersContainer {
-  position: absolute;
-  top: 0;
-  left: 0;;
+/* One grid: axis corner | x axis / y axis | layers. The axes span both rows /
+   columns with start alignment so `position: sticky` has room to move inside
+   their containing block (a sticky item can't move within a grid area that is
+   exactly its own size). */
+.scrollContent {
+  position: relative;
+  display: grid;
+  /* Size the grid to its tracks. A block-level grid would take the container's
+     width and let the tracks overflow it, and a sticky item is clamped to its
+     containing block, so the y axis would stop following after one viewport. */
+  width: max-content;
+  height: max-content;
+  grid-template-columns: var(--yAxWidth) var(--scaledWidth);
+  grid-template-rows: var(--xAxHeight) var(--scaledHeight);
+}
 
+.axisCorner {
+  grid-area: 1 / 1 / 3 / 3;
+  align-self: start;
+  justify-self: start;
+  position: sticky;
+  top: 0;
+  left: 0;
+  width: var(--yAxWidth);
+  height: var(--xAxHeight);
+  background-color: #f0f0f0;
+  z-index: 4;
+}
+
+.xAxisContainer {
+  grid-area: 1 / 2 / 3 / 3;
+  align-self: start;
+  position: sticky;
+  top: 0;
+  width: var(--scaledWidth);
+  height: var(--xAxHeight);
+  z-index: 3;
+}
+
+.yAxisContainer {
+  grid-area: 2 / 1 / 3 / 3;
+  justify-self: start;
+  position: sticky;
+  left: 0;
+  width: var(--yAxWidth);
+  height: var(--scaledHeight);
+  z-index: 3;
+}
+
+.layersContainer {
+  grid-area: 2 / 2 / 3 / 3;
+  position: relative;
+  width: var(--scaledWidth);
+  height: var(--scaledHeight);
 }
 
 .layersContainer > * {
@@ -1030,19 +1073,9 @@ export default defineComponent({
   left: 0;
 }
 
-.xAxisContainer {
-  position: sticky;
-  top: 0;
-  /* left: var(--yAxWidth); */
-  width: calc(100% - var(--yAxWidth) - var(--scrollBarWidth));
-  height: var(--xAxHeight);
-  overflow-x: hidden;
-  overflow-y: hidden;
-  margin-left: var(--yAxWidth);
-}
-
 .verticalZoomControls {
   position: absolute;
+  z-index: 5;
   top: 0;
   left: calc(100% - var(--scrollBarWidth));
   width: var(--scrollBarWidth);
@@ -1077,6 +1110,7 @@ export default defineComponent({
 
 .horizontalZoomControls {
   position: absolute;
+  z-index: 5;
   top: calc(100% - var(--scrollBarHeight));
   left: 0;
   width: var(--yAxWidth);
@@ -1105,22 +1139,6 @@ export default defineComponent({
   background-color: darkgray;
 }
 
-.yAxisContainer {
-  position: sticky;
-  left: 0;
-  top: var(--xAxHeight);
-  width: var(--yAxWidth);
-  height: calc(100% - var(--xAxHeight) - var(--scrollBarHeight));
-  overflow-y: hidden;
-}
-
-.yAxisContainer::-webkit-scrollbar {
-  width: 0;
-}
-
-.xAxisContainer::-webkit-scrollbar {
-  height: 0;
-}
 
 .wrapper {
   position: relative;

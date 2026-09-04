@@ -80,6 +80,7 @@ import {
   PropType,
   nextTick,
   reactive,
+  toRaw,
   toRef,
   getCurrentInstance
 } from 'vue';
@@ -177,10 +178,6 @@ export default defineComponent({
       required: true
     },
     minDrawDur: {
-      type: Number,
-      required: true
-    },
-    scrollX: {
       type: Number,
       required: true
     },
@@ -505,85 +502,56 @@ export default defineComponent({
         return false;
       }
       const dur = chunkDur.value;
+      // Display records (sargam, vowels, bols, phrase divs) are throwaway plain
+      // objects, so build them from the raw model: through Vue's reactive proxy
+      // the same pass costs ~10x more (measured 41 ms vs 3 ms for one sargam
+      // pass over a 3500-trajectory piece). Trajectories, chikaris and meters
+      // stay on the proxy because the renderers keep and edit those objects.
+      const raw = toRaw(props.piece);
       for (let inst = 0; inst < props.piece.instrumentation.length; inst++) {
         const instrument = props.piece.instrumentation[inst];
         const isPolyphonicInst = instrument === Instrument.Sitar || instrument === Instrument.Sarangi;
+        // Display elements from every string (both strings for polyphonic instruments)
+        const strings = isPolyphonicInst ? [0, 1] : [0];
 
-        // Always show display elements from all strings (for polyphonic instruments, show both)
-        if (isPolyphonicInst) {
-          // Show sargam from both strings for polyphonic instruments
-          props.piece.chunkedDisplaySargam(inst, dur, 0)[idx].forEach(s => {
+        strings.forEach(stringIdx => {
+          raw.displaySargamInChunk(inst, dur, stringIdx, idx).forEach(s => {
             renderSargam(s);
           });
-          props.piece.chunkedDisplaySargam(inst, dur, 1)[idx].forEach(s => {
-            renderSargam(s);
-          });
-        } else {
-          // Show sargam from main string for non-polyphonic instruments
-          props.piece.chunkedDisplaySargam(inst, dur, 0)[idx].forEach(s => {
-            renderSargam(s);
-          });
-        }
+        });
 
         const insts = [Instrument.Vocal_M, Instrument.Vocal_F];
         if (insts.includes(instrument as Instrument)) {
-          if (isPolyphonicInst) {
-            props.piece.chunkedDisplayVowels(inst, dur, 0)[idx].forEach(v => {
-              renderVowel(v);
-            });
-            props.piece.chunkedDisplayVowels(inst, dur, 1)[idx].forEach(v => {
-              renderVowel(v);
-            });
-            props.piece.chunkedDisplayConsonants(inst, dur, 0)[idx].forEach(c => {
+          raw.displayVowelsInChunk(inst, dur, idx).forEach(v => {
+            renderVowel(v);
+          });
+          strings.forEach(stringIdx => {
+            raw.displayConsonantsInChunk(inst, dur, stringIdx, idx).forEach(c => {
               renderEndingConsonant(c);
             });
-            props.piece.chunkedDisplayConsonants(inst, dur, 1)[idx].forEach(c => {
-              renderEndingConsonant(c);
-            });
-          } else {
-            props.piece.chunkedDisplayVowels(inst, dur, 0)[idx].forEach(v => {
-              renderVowel(v);
-            });
-            props.piece.chunkedDisplayConsonants(inst, dur, 0)[idx].forEach(c => {
-              renderEndingConsonant(c);
-            });
-          }
+          });
         } else if (instrument === Instrument.Sitar) {
-          props.piece.chunkedDisplayChikaris(inst, dur)[idx].forEach(cd => {
+          props.piece.displayChikarisInChunk(inst, dur, idx).forEach(cd => {
             renderChikari(cd);
           });
-          if (isPolyphonicInst) {
-            props.piece.chunkedDisplayBols(inst, dur, 0)[idx].forEach(b => {
+          strings.forEach(stringIdx => {
+            raw.displayBolsInChunk(inst, dur, stringIdx, idx).forEach(b => {
               renderBol(b);
             });
-            props.piece.chunkedDisplayBols(inst, dur, 1)[idx].forEach(b => {
-              renderBol(b);
-            });
-          } else {
-            props.piece.chunkedDisplayBols(inst, dur, 0)[idx].forEach(b => {
-              renderBol(b);
-            });
-          }
-        }
-        // Always render trajectories from all strings (visualization should show everything)
-
-        // Always show main string trajectories
-        props.piece.chunkedTrajs(inst, dur, 0)[idx].forEach(traj => {
-          if (traj.id !== 12) renderTraj(traj);
-        });
-
-        // Also show second string trajectories for polyphonic instruments
-        if (isPolyphonicInst) {
-          const secondStringTrajs = props.piece.chunkedTrajs(inst, dur, 1)[idx];
-          secondStringTrajs.forEach(traj => {
-            if (traj.id !== 12) renderTraj(traj);
           });
         }
-        props.piece.chunkedPhraseDivs(inst, dur)[idx].forEach(pd => {
+
+        // Trajectories from every string (visualization shows everything)
+        strings.forEach(stringIdx => {
+          props.piece.trajsInChunk(inst, dur, stringIdx, idx).forEach(traj => {
+            if (traj.id !== 12) renderTraj(traj);
+          });
+        });
+        raw.phraseDivsInChunk(inst, dur, idx).forEach(pd => {
           renderPhraseDiv(pd);
         });
       }
-      props.piece.chunkedMeters(dur)[idx].forEach(m => {
+      props.piece.metersInChunk(dur, idx).forEach(m => {
         renderMeter(m);
       })
 
@@ -602,9 +570,9 @@ export default defineComponent({
           // Track as intersecting
           intersectingChunks.value.add(idx);
 
-          // Load if not already loaded
+          // Load if not already loaded (one chunk per frame, see queueChunkLoad)
           if (!renderedChunks.value.has(idx)) {
-            manuallyLoadChunk(idx);
+            queueChunkLoad(idx);
           }
           // Keep observing to detect when it leaves viewport!
         } else {
@@ -689,83 +657,61 @@ export default defineComponent({
 
     const unloadChunk = (chunkIdx: number) => {
       const dur = chunkDur.value;
+      // Only ids are needed here, so read everything from the raw model (see
+      // manuallyLoadChunk for why).
+      const raw = toRaw(props.piece);
 
       for (let inst = 0; inst < props.piece.instrumentation.length; inst++) {
         const instrument = props.piece.instrumentation[inst];
         const isPolyphonic = instrument === Instrument.Sitar || instrument === Instrument.Sarangi;
+        const strings = isPolyphonic ? [0, 1] : [0];
 
         // Unload trajectories and update renderStatus
-        const unloadTrajs = (stringIdx: number) => {
-          props.piece.chunkedTrajs(inst, dur, stringIdx)[chunkIdx]?.forEach(traj => {
-            const renderObj = trajRenderStatus.value[inst]?.find(obj =>
-              obj.uniqueId === traj.uniqueId
-            );
+        const statusById = new Map(
+          (trajRenderStatus.value[inst] ?? []).map(obj => [obj.uniqueId, obj])
+        );
+        strings.forEach(stringIdx => {
+          raw.trajsInChunk(inst, dur, stringIdx, chunkIdx).forEach(traj => {
+            const renderObj = statusById.get(traj.uniqueId!);
             if (renderObj?.renderStatus && !renderObj.selectedStatus) {
               d3.selectAll(`.uId${traj.uniqueId}`).remove();
               renderObj.renderStatus = false;
             }
           });
-        };
-
-        unloadTrajs(0);
-        if (isPolyphonic) unloadTrajs(1);
+        });
 
         // Unload sargam
-        const unloadSargam = (stringIdx: number) => {
-          props.piece.chunkedDisplaySargam(inst, dur, stringIdx)[chunkIdx]?.forEach(s => {
+        strings.forEach(stringIdx => {
+          raw.displaySargamInChunk(inst, dur, stringIdx, chunkIdx).forEach(s => {
             d3.selectAll(`.uId${s.uId}`).remove();
           });
-        };
-
-        unloadSargam(0);
-        if (isPolyphonic) unloadSargam(1);
+        });
 
         // Unload vowels/consonants for vocals
         if (instrument === Instrument.Vocal_M || instrument === Instrument.Vocal_F) {
-          const unloadVowels = (stringIdx: number) => {
-            props.piece.chunkedDisplayVowels(inst, dur, stringIdx)[chunkIdx]?.forEach(v => {
-              d3.selectAll(`.uId${v.uId}`).remove();
-            });
-          };
-
-          const unloadConsonants = (stringIdx: number) => {
-            props.piece.chunkedDisplayConsonants(inst, dur, stringIdx)[chunkIdx]?.forEach(c => {
+          raw.displayVowelsInChunk(inst, dur, chunkIdx).forEach(v => {
+            d3.selectAll(`.uId${v.uId}`).remove();
+          });
+          strings.forEach(stringIdx => {
+            raw.displayConsonantsInChunk(inst, dur, stringIdx, chunkIdx).forEach(c => {
               d3.selectAll(`.uId${c.uId}`).remove();
             });
-          };
-
-          if (isPolyphonic) {
-            unloadVowels(0);
-            unloadVowels(1);
-            unloadConsonants(0);
-            unloadConsonants(1);
-          } else {
-            unloadVowels(0);
-            unloadConsonants(0);
-          }
+          });
         } else if (instrument === Instrument.Sitar) {
           // Unload chikaris
-          props.piece.chunkedDisplayChikaris(inst, dur)[chunkIdx]?.forEach(cd => {
+          raw.displayChikarisInChunk(inst, dur, chunkIdx).forEach(cd => {
             d3.selectAll(`.uId${cd.uId}`).remove();
           });
-
           // Unload bols
-          const unloadBols = (stringIdx: number) => {
-            props.piece.chunkedDisplayBols(inst, dur, stringIdx)[chunkIdx]?.forEach(b => {
+          strings.forEach(stringIdx => {
+            raw.displayBolsInChunk(inst, dur, stringIdx, chunkIdx).forEach(b => {
               d3.selectAll(`.uId${b.uId}`).remove();
             });
-          };
-
-          if (isPolyphonic) {
-            unloadBols(0);
-            unloadBols(1);
-          } else {
-            unloadBols(0);
-          }
+          });
         }
 
         // Unload phrase divs
-        props.piece.chunkedPhraseDivs(inst, dur)[chunkIdx]?.forEach(pd => {
+        raw.phraseDivsInChunk(inst, dur, chunkIdx).forEach(pd => {
           d3.selectAll(`.uId${pd.uId}`).remove();
         });
       }
@@ -838,6 +784,19 @@ export default defineComponent({
       };
 
       requestAnimationFrame(processChunk);
+    };
+
+    // A chunk that scrolled into view goes to the front of the preload queue
+    // and is rendered by the per-frame drain, instead of synchronously inside
+    // the IntersectionObserver callback: a burst of newly visible chunks
+    // (initial paint, a fast scroll) used to block the main thread and the
+    // scroll froze then jumped.
+    const queueChunkLoad = (idx: number) => {
+      if (renderedChunks.value.has(idx)) return;
+      const queued = preloadQueue.indexOf(idx);
+      if (queued !== -1) preloadQueue.splice(queued, 1);
+      preloadQueue.unshift(idx);
+      processPreloadQueue();
     };
 
     const checkForDistantChunks = throttle(() => {
@@ -1054,10 +1013,6 @@ export default defineComponent({
         resetTranscription();
       }
     });
-    // Bidirectional lazy loading: trigger cleanup on scroll
-    watch(() => props.scrollX, () => {
-      checkForDistantChunks();
-    });
     // Window resize: chunkDur follows clientWidth, so the sentinel divs and all
     // index-keyed chunk tracking must be rebuilt to the new chunking or the
     // observer loads/unloads the wrong chunks (visible content disappears
@@ -1086,7 +1041,7 @@ export default defineComponent({
         resetTranscription();
         updatePlayheadPosition(props.currentTime);
         const c = props.preZoomPlayheadPxl;
-        if (c > 0 && c < props.scrollingContainer.clientWidth) {
+        if (c > 0 && c < props.clientWidth) {
           nextTick(() => scrollToPlayhead())
         } else {
           scrollToOldMiddle();
@@ -1390,6 +1345,11 @@ export default defineComponent({
         handleEscape()
       }
     });
+    // Trajectory/chikari highlighting during playback does DOM queries per
+    // track; the audio clock fires this watcher every frame, and a 10 Hz
+    // update is indistinguishable for a highlight that changes per note.
+    const HIGHLIGHT_INTERVAL_MS = 100;
+    let lastHighlightUpdate = -Infinity;
     watch(() => props.currentTime, t => {
       if (props.playing) {
         if (t > props.displayRange[1]) {
@@ -1409,7 +1369,9 @@ export default defineComponent({
         }
         // DottedLine animation handles position updates through its own loop
         // No need to update playhead position here
-        if (props.highlightTrajs) {
+        const now = performance.now();
+        if (props.highlightTrajs && now - lastHighlightUpdate >= HIGHLIGHT_INTERVAL_MS) {
+          lastHighlightUpdate = now;
           // here is where to use curTraj= props.piece.trajFromTime
           // within instTracks if instTrack is currently "displaying"
           // then swap to its selColor if its currently playing, 
@@ -1470,8 +1432,9 @@ export default defineComponent({
                   litTrajs.value[idx] = undefined;
                 }
               };
-              // chikari
-              const cs = props.piece.allDisplayChikaris(idx).filter(c => {
+              // chikari (only ids and times are used, so read the raw model:
+              // through the reactive proxy this pass is ~10x slower)
+              const cs = toRaw(props.piece).allDisplayChikaris(idx).filter(c => {
                 const diff = t - c.time;
                 return diff < 0.2 && diff > 0;
               });
@@ -1950,9 +1913,12 @@ export default defineComponent({
       
       // Continue animation loop when playing, and also continue briefly when stopped to handle timing
       if (!props.playing) {
-        // Still update existing lines even when not playing to fade them out
+        // Keep fading out whatever is still visible, then stop: otherwise this
+        // loop ran at 60 fps forever after the first play.
         updateDottedLines();
-        dottedLineAnimationId.value = requestAnimationFrame(dottedLineAnimationLoop);
+        dottedLineAnimationId.value = dottedLines.value.length > 0
+          ? requestAnimationFrame(dottedLineAnimationLoop)
+          : undefined;
         return;
       }
       
@@ -1995,7 +1961,7 @@ export default defineComponent({
     };
     const curMiddleTime = () => {
       const leftTime = props.xScale.invert(props.scrollingContainer.scrollLeft);
-      const halfPxl = props.scrollingContainer.clientWidth / 2;
+      const halfPxl = props.clientWidth / 2;
       const halfTime = props.xScale.invert(halfPxl);
       return leftTime + halfTime;
      
@@ -5351,7 +5317,7 @@ export default defineComponent({
             if (idx !== undefined) {
               const dur = chunkDur.value;
               // Only render meters for already visible chunks
-              props.piece.chunkedMeters(dur)[idx].forEach(m => {
+              props.piece.metersInChunk(dur, idx).forEach(m => {
                 renderMeter(m);
               });
             }
@@ -7933,6 +7899,14 @@ export default defineComponent({
         cancelAnimationFrame(dottedLineAnimationId.value);
         dottedLineAnimationId.value = undefined;
       }
+      // Stop the Animated playhead loop and the chunk observer, which otherwise
+      // keep running against detached nodes after leaving the editor.
+      movingPlayhead = false;
+      if (animationFrameId !== null) {
+        cancelAnimationFrame(animationFrameId);
+        animationFrameId = null;
+      }
+      observer.disconnect();
     });
 
     return { 
@@ -8028,12 +8002,14 @@ export default defineComponent({
 })
 </script>
 
-<style scopred>
+<style scoped>
 .tranContainer {
   position: relative;
   display: flex;
   flex-direction: row;
-  overflow-x: auto;
+  /* Must not be a scroll container of its own: a nested scroller inside the
+     editor's scrollingContainer captures wheel deltas and moves independently. */
+  overflow: visible;
   width: var(--width);
   height: var(--height);
 }

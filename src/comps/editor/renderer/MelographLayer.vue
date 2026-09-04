@@ -176,7 +176,8 @@ export default defineComponent({
   opacity: var(--opacity);
   display: flex;
   flex-direction: row;
-  overflow-x: auto;
+  /* Not a scroll container: see .tranContainer in TranscriptionLayer. */
+  overflow: visible;
   width: var(--width);
   height: var(--height);
 }
