@@ -180,10 +180,6 @@ export default defineComponent({
       type: Number,
       required: true
     },
-    scrollX: {
-      type: Number,
-      required: true
-    },
     clientWidth: {
       type: Number,
       required: true
@@ -695,11 +691,12 @@ export default defineComponent({
         const isPolyphonic = instrument === Instrument.Sitar || instrument === Instrument.Sarangi;
 
         // Unload trajectories and update renderStatus
+        const statusById = new Map(
+          (trajRenderStatus.value[inst] ?? []).map(obj => [obj.uniqueId, obj])
+        );
         const unloadTrajs = (stringIdx: number) => {
           props.piece.chunkedTrajs(inst, dur, stringIdx)[chunkIdx]?.forEach(traj => {
-            const renderObj = trajRenderStatus.value[inst]?.find(obj =>
-              obj.uniqueId === traj.uniqueId
-            );
+            const renderObj = statusById.get(traj.uniqueId!);
             if (renderObj?.renderStatus && !renderObj.selectedStatus) {
               d3.selectAll(`.uId${traj.uniqueId}`).remove();
               renderObj.renderStatus = false;
@@ -1053,10 +1050,6 @@ export default defineComponent({
         updateSargamLineSpacing();
         resetTranscription();
       }
-    });
-    // Bidirectional lazy loading: trigger cleanup on scroll
-    watch(() => props.scrollX, () => {
-      checkForDistantChunks();
     });
     // Window resize: chunkDur follows clientWidth, so the sentinel divs and all
     // index-keyed chunk tracking must be rebuilt to the new chunking or the
@@ -1950,9 +1943,12 @@ export default defineComponent({
       
       // Continue animation loop when playing, and also continue briefly when stopped to handle timing
       if (!props.playing) {
-        // Still update existing lines even when not playing to fade them out
+        // Keep fading out whatever is still visible, then stop: otherwise this
+        // loop ran at 60 fps forever after the first play.
         updateDottedLines();
-        dottedLineAnimationId.value = requestAnimationFrame(dottedLineAnimationLoop);
+        dottedLineAnimationId.value = dottedLines.value.length > 0
+          ? requestAnimationFrame(dottedLineAnimationLoop)
+          : undefined;
         return;
       }
       
@@ -7933,6 +7929,14 @@ export default defineComponent({
         cancelAnimationFrame(dottedLineAnimationId.value);
         dottedLineAnimationId.value = undefined;
       }
+      // Stop the Animated playhead loop and the chunk observer, which otherwise
+      // keep running against detached nodes after leaving the editor.
+      movingPlayhead = false;
+      if (animationFrameId !== null) {
+        cancelAnimationFrame(animationFrameId);
+        animationFrameId = null;
+      }
+      observer.disconnect();
     });
 
     return { 
@@ -8028,12 +8032,14 @@ export default defineComponent({
 })
 </script>
 
-<style scopred>
+<style scoped>
 .tranContainer {
   position: relative;
   display: flex;
   flex-direction: row;
-  overflow-x: auto;
+  /* Must not be a scroll container of its own: a nested scroller inside the
+     editor's scrollingContainer captures wheel deltas and moves independently. */
+  overflow: visible;
   width: var(--width);
   height: var(--height);
 }

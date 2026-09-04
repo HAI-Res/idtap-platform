@@ -94,7 +94,6 @@
             :width='scaledWidth'
             :height='scaledHeight'
             :showSpectrogram='showSpectrogram'
-            :scrollX='scrollX'
             ref='spectrogramLayer'
             />
           <MelographLayer
@@ -127,7 +126,6 @@
               :piece='piece'
               :sargamLineColor='sargamLineColor'
               :minDrawDur='minDrawDur'
-              :scrollX='scrollX'
               :clientWidth='clientWidth'
               :showSargam='showSargam'
               :showSargamLines='showSargamLines'
@@ -553,12 +551,6 @@ export default defineComponent({
       entries = entries.filter(entry => entry[1] !== EditorMode.AssemblagePhrasePick)
       return Object.fromEntries(entries);
     })
-    const scrollX = computed(() => {
-      if (!scrollingContainer.value) return 0;
-      const scrollWidth = scrollingContainer.value.scrollWidth;
-      const scrollLeft = scrollingContainer.value.scrollLeft;
-      return scrollLeft / (scrollWidth - scrollingContainer.value.clientWidth);
-    });
     const instTracksEnum = computed(() => {
       const enumObj: Record<string, number> = {};
       const duplicateNames: Instrument[] = [];
@@ -885,11 +877,12 @@ export default defineComponent({
       }
     };
 
+    const closeContextMenu = () => {
+      contextMenuClosed.value = true;
+    };
     onMounted(async () => {
       window.addEventListener('keydown', handleKeydown);
-      window.addEventListener('click', () => {
-        contextMenuClosed.value = true;
-      })
+      window.addEventListener('click', closeContextMenu);
       emit('update:recomputeTrigger');
       updateClientWidth();
       scrollingContainer.value?.addEventListener('click', (e) => {
@@ -920,9 +913,7 @@ export default defineComponent({
     onBeforeUnmount(() => {
       window.removeEventListener('resize', updateClientWidth);
       window.removeEventListener('keydown', handleKeydown);
-      window.removeEventListener('click', () => {
-        contextMenuClosed.value = true;
-      })
+      window.removeEventListener('click', closeContextMenu);
       scrollingContainer.value?.removeEventListener('scroll', handleScroll);
     });
     return {
@@ -943,7 +934,6 @@ export default defineComponent({
       xAxis,
       reScaleY,
       minDrawDur,
-      scrollX,
       clientWidth,
       modeSelectorHeight,
       transcriptionLayer,
