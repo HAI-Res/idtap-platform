@@ -1,4 +1,5 @@
 import { createApp } from 'vue';
+import { DEFAULT_TRANSCRIPTION_ID } from '@/config';
 import App from '@/App.vue';
 import router from './router';
 import { createStore } from 'vuex';
@@ -9,7 +10,7 @@ import { Color } from '@shared/enums'
 const store = createStore({
   state() {
     return {
-      _id: '63445d13dc8b9023a09747a6',
+      _id: DEFAULT_TRANSCRIPTION_ID,
       userID: undefined,
       firstTime: false,
       returning: false,

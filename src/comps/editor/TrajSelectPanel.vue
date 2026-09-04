@@ -261,10 +261,10 @@
         v-if='!editable'
         type='range'
         class='slider'
-        v-model='periods'
+        v-model='extent'
         min='0'
-        max='0.5'
-        step='0.01'
+        max='0.2'
+        step='0.005'
         @input='updateVibObj'
         :disabled='true'
       />
@@ -285,7 +285,7 @@
         v-if='!editable'
         type='range'
         class='slider'
-        v-model='periods'
+        v-model='offset'
         min='-1.0'
         max='1.0'
         step='0.01'
@@ -724,6 +724,9 @@ export default defineComponent({
     }
   },
 
+  beforeUnmount() {
+    if (this.hoverTimeout !== undefined) clearTimeout(this.hoverTimeout);
+  },
   methods: {
 
     selectedTrajsConstituteAGroup() {
