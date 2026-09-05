@@ -66,10 +66,12 @@ export interface AuthTx {
   state: string;
   codeVerifier: string;
   returnTo: string;
-  /** present when the login was initiated by the desktop app (authRoutes /auth/desktop):
-   *  the loopback port to redirect back to, plus the app's own state + PKCE challenge
-   *  for the one-time-code exchange leg. */
-  desktop?: { port: number; state: string; challenge: string };
+  /** present when the login was initiated by a native app (authRoutes /auth/desktop):
+   *  where to hand the one-time code back — a loopback `port` (macOS/Electron) or an
+   *  allow-listed custom-scheme `redirect` (iOS, which has no loopback listener) —
+   *  plus the app's own state + PKCE challenge for the exchange leg. Exactly one of
+   *  `port` / `redirect` is set. */
+  desktop?: { port?: number; redirect?: string; state: string; challenge: string };
 }
 
 export function signAuthTx(tx: AuthTx): string {
@@ -82,8 +84,11 @@ export function verifyAuthTx(token: string): AuthTx | null {
     if (!p || typeof p.state !== 'string' || typeof p.codeVerifier !== 'string') return null;
     const tx: AuthTx = { state: p.state, codeVerifier: p.codeVerifier, returnTo: p.returnTo || '/' };
     const d = p.desktop;
-    if (d && Number.isInteger(d.port) && typeof d.state === 'string' && typeof d.challenge === 'string') {
-      tx.desktop = { port: d.port, state: d.state, challenge: d.challenge };
+    if (d && typeof d.state === 'string' && typeof d.challenge === 'string'
+        && (Number.isInteger(d.port) || typeof d.redirect === 'string')) {
+      tx.desktop = { state: d.state, challenge: d.challenge };
+      if (Number.isInteger(d.port)) tx.desktop.port = d.port;
+      if (typeof d.redirect === 'string') tx.desktop.redirect = d.redirect;
     }
     return tx;
   } catch {
