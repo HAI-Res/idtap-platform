@@ -220,18 +220,25 @@ describe('vibrato v2 (PROP-6)', () => {
     }
   });
 
-  test('fromJSON heals v1 (including string periods from the old slider)', () => {
+  test('fromJSON heals v1 (including the string fields the old sliders stored)', () => {
     const json = {
       id: 13,
       pitches: [{ swara: 0, raised: true, oct: 0, logOffset: 0 }],
       durTot: 0.5,
-      vibObj: { periods: '3', vertOffset: 0.01, initUp: false, extent: 0.08 },
+      // real stored shape (e.g. Babul Mora): every slider value is a string
+      vibObj: { periods: '3', vertOffset: '0.01', initUp: false, extent: '0.08' },
     };
     const t = Trajectory.fromJSON(json);
     expect(t.vibObj).toEqual({
       rate: 6, extentStart: 0.08, extentEnd: 0.08, vertOffset: 0.01, phase: 0,
     });
-    expect(typeof t.vibObj.rate).toBe('number');
+    Object.values(t.vibObj).forEach(v => expect(typeof v).toBe('number'));
+    // and the string-valued v1 renders exactly as the numeric v1 did
+    const v1num = { periods: 3, vertOffset: 0.01, initUp: false, extent: 0.08 };
+    pts201.forEach(x => {
+      const want = legacyId13(t, v1num, x);
+      expect(Math.abs(t.id13(x) - want)).toBeLessThanOrEqual(1e-12 * want);
+    });
     // v2 passes through untouched
     const v2 = { rate: 4.2, extentStart: 0.02, extentEnd: 0.07, vertOffset: 0.005, phase: 1.3 };
     expect(Trajectory.fromJSON({ ...json, vibObj: v2 }).vibObj).toEqual(v2);

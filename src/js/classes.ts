@@ -1655,11 +1655,15 @@ class Trajectory {
     durTot: number
   ): VibObjType {
     if (!('periods' in vibObj)) return vibObj;
+    // The old sliders had no .number modifier, so periods, extent and vertOffset
+    // are all strings in a large share of stored pieces (the v1 renderer coerced
+    // them arithmetically). Number() everything so v2 never carries a string.
+    const extent = Number(vibObj.extent);
     return {
       rate: Number(vibObj.periods) / durTot,
-      extentStart: vibObj.extent,
-      extentEnd: vibObj.extent,
-      vertOffset: vibObj.vertOffset,
+      extentStart: extent,
+      extentEnd: extent,
+      vertOffset: Number(vibObj.vertOffset),
       phase: vibObj.initUp ? Math.PI : 0,
     }
   }

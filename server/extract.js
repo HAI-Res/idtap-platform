@@ -70367,11 +70367,12 @@ var Trajectory = class _Trajectory {
   }
   static healVibObj(vibObj, durTot) {
     if (!("periods" in vibObj)) return vibObj;
+    const extent = Number(vibObj.extent);
     return {
       rate: Number(vibObj.periods) / durTot,
-      extentStart: vibObj.extent,
-      extentEnd: vibObj.extent,
-      vertOffset: vibObj.vertOffset,
+      extentStart: extent,
+      extentEnd: extent,
+      vertOffset: Number(vibObj.vertOffset),
       phase: vibObj.initUp ? Math.PI : 0
     };
   }

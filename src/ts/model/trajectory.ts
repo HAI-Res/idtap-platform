@@ -940,16 +940,19 @@ class Trajectory {
     vibObj: VibObjType | LegacyVibObjType,
     durTot: number
   ): VibObjType {
-    // PROP-6 lossless heal. v1 is detected by the presence of `periods` (which may
-    // arrive as a string from the old slider). rate = periods / durTot keeps the
-    // cycle count P = rate * durTot exactly; equal extents and phase in {0, pi}
-    // make the v2 curve term-for-term the v1 curve.
+    // PROP-6 lossless heal. v1 is detected by the presence of `periods`.
+    // rate = periods / durTot keeps the cycle count P = rate * durTot exactly;
+    // equal extents and phase in {0, pi} make the v2 curve term-for-term the v1 curve.
     if (!('periods' in vibObj)) return vibObj;
+    // The old sliders had no .number modifier, so periods, extent and vertOffset
+    // are all strings in a large share of stored pieces (the v1 renderer coerced
+    // them arithmetically). Number() everything so v2 never carries a string.
+    const extent = Number(vibObj.extent);
     return {
       rate: Number(vibObj.periods) / durTot,
-      extentStart: vibObj.extent,
-      extentEnd: vibObj.extent,
-      vertOffset: vibObj.vertOffset,
+      extentStart: extent,
+      extentEnd: extent,
+      vertOffset: Number(vibObj.vertOffset),
       phase: vibObj.initUp ? Math.PI : 0,
     }
   }

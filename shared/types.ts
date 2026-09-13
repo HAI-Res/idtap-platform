@@ -680,12 +680,13 @@ type VibObjType = {
 }
 
 // Vibrato v1 (pre PROP-6). Detected by the presence of `periods`; healed
-// losslessly to VibObjType on load and never written back.
+// losslessly to VibObjType on load and never written back. The old sliders
+// stored their values as strings, so every numeric field may be a string.
 type LegacyVibObjType = {
   periods: number | string;
-  vertOffset: number;
+  vertOffset: number | string;
   initUp: boolean;
-  extent: number;
+  extent: number | string;
 }
 
 type IdType = 'id0' | 'id1' | 'id2' | 'id3' | 'id4' | 'id5' | 'id6' | 'id7' |

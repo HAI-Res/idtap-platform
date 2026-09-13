@@ -44,9 +44,9 @@ const cases: Case[] = [
   { name: 'vib-v1-clamped-offset-heals', pitch: P(6, -1), durTot: 2.0,
     vibObj: { periods: 5, vertOffset: 0.9, initUp: true, extent: 0.04 },
     note: 'same inputs as idtap-swift id13-vibrato-clamped-offset' },
-  { name: 'vib-v1-string-periods-heals', pitch: P(2), durTot: 0.5,
-    vibObj: { periods: '3', vertOffset: 0.01, initUp: false, extent: 0.08 },
-    note: 'periods stored as a string by the old slider; Number() in the heal' },
+  { name: 'vib-v1-string-fields-heals', pitch: P(2), durTot: 0.474,
+    vibObj: { periods: '3.5', vertOffset: 0.0209, initUp: true, extent: '0.055' },
+    note: 'shape of a real stored vibrato (Babul Mora): the old sliders stored strings, periods non-integer; Number() in the heal' },
 ];
 
 const xs21 = Array.from({ length: 21 }, (_, i) => i / 20);
