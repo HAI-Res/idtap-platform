@@ -5,6 +5,7 @@ import {
   SecCatType,
   PhraseCatType,
   VibObjType,
+  LegacyVibObjType,
   IdType,
   TrajIdFunction,
   OutputType,
@@ -862,11 +863,12 @@ class Chikari {
   }
 }
 
-// type VibObjType = {
-//   periods: number;
-//   vertOffset: number;
-//   initUp: boolean;
-//   extent: number;
+// type VibObjType (PROP-6 v2) = {
+//   rate: number;        // Hz
+//   extentStart: number; // log2
+//   extentEnd: number;   // log2
+//   vertOffset: number;  // log2
+//   phase: number;       // radians
 // }
 
 // type IdType = 'id0' | 'id1' | 'id2' | 'id3' | 'id4' | 'id5' | 'id6' | 'id7' |
@@ -1192,14 +1194,12 @@ class Trajectory {
       throw new SyntaxError(`invalid slope type, must be number: ${slope}`)
     }
     if (vibObj === undefined) {
-      this.vibObj = {
-        periods: 8,
-        vertOffset: 0,
-        initUp: true,
-        extent: 0.05
-      }
+      this.vibObj = Trajectory.defaultVibObj();
     } else {
-      this.vibObj = vibObj
+      // classes.ts has no fromJSON: raw DB objects reach the constructor, so the
+      // PROP-6 v1 -> v2 heal lives here (mirror of Trajectory.healVibObj in
+      // src/ts/model/trajectory.ts, the reference implementation).
+      this.vibObj = Trajectory.healVibObj(vibObj, this.durTot);
     }
     if (articulations === undefined) {
       if (instrumentation === Instrument.Sitar) {
@@ -1609,32 +1609,58 @@ class Trajectory {
   }
 
   id13(x: number): number {
-    // vib object includes: periods, vertOffset, initUp, extent
-    
-    const periods = this.vibObj.periods;
-    let vertOffset = this.vibObj.vertOffset;
-    const initUp = this.vibObj.initUp;
-    const extent = this.vibObj.extent;
-    if (Math.abs(vertOffset) > extent / 2) {
-      vertOffset = Math.sign(vertOffset) * extent / 2;
-    }
-    let out = Math.cos(x * 2 * Math.PI * periods + Number(initUp) * Math.PI);
-    if (x < 1 / (2 * periods)) {
-      const start = this.logFreqs[0];
-      const end = Math.log2(this.id13(1 / (2 * periods)));
-      const middle = (end + start) / 2;
-      const ext = Math.abs(end - start) / 2;
-      out = out * ext + middle;
-      return 2 ** out
-    } else if (x > 1 - 1 / (2 * periods)) {
-      const start = Math.log2(this.id13(1 - 1 / (2 * periods)));
-      const end = this.logFreqs[0];
-      const middle = (end + start) / 2;
-      const ext = Math.abs(end - start) / 2;
-      out = out * ext + middle;
-      return 2 ** out
+    // Vibrato v2 (idtap-contract PROP-6). Mirror of the reference implementation
+    // in src/ts/model/trajectory.ts; keep the two in sync.
+    const { rate, extentStart, extentEnd, vertOffset, phase } = this.vibObj;
+    const lf0 = this.logFreqs[0];
+    let P = rate * this.durTot;
+    if (!(P >= 1)) P = 1;
+    const core = (xx: number): number => {
+      const A = (extentStart + (extentEnd - extentStart) * xx) / 2;
+      let vo = vertOffset;
+      if (Math.abs(vo) > A) vo = Math.sign(vo) * A;
+      return lf0 + vo + A * Math.cos(2 * Math.PI * P * xx + phase);
+    };
+    const ph = phase / Math.PI;
+    const k1 = Math.ceil(0.5 + ph);
+    const k2 = Math.floor(2 * P - 0.5 + ph);
+    const x1 = (k1 - ph) / (2 * P);
+    let x2 = (k2 - ph) / (2 * P);
+    if (x2 < x1) x2 = x1;
+    let y: number;
+    if (x <= x1) {
+      const end = core(x1);
+      y = lf0 + (end - lf0) * (1 - Math.cos(Math.PI * x / x1)) / 2;
+    } else if (x >= x2) {
+      const start = core(x2);
+      y = start + (lf0 - start) * (1 - Math.cos(Math.PI * (x - x2) / (1 - x2))) / 2;
     } else {
-      return 2 ** (out * extent / 2 + vertOffset + this.logFreqs[0])
+      y = core(x);
+    }
+    return 2 ** y
+  }
+
+  static defaultVibObj(): VibObjType {
+    return {
+      rate: 5.5,
+      extentStart: 0.05,
+      extentEnd: 0.05,
+      vertOffset: 0,
+      phase: Math.PI,
+    }
+  }
+
+  static healVibObj(
+    vibObj: VibObjType | LegacyVibObjType,
+    durTot: number
+  ): VibObjType {
+    if (!('periods' in vibObj)) return vibObj;
+    return {
+      rate: Number(vibObj.periods) / durTot,
+      extentStart: vibObj.extent,
+      extentEnd: vibObj.extent,
+      vertOffset: vibObj.vertOffset,
+      phase: vibObj.initUp ? Math.PI : 0,
     }
   }
 
@@ -1890,7 +1916,7 @@ class Trajectory {
       num: this.num,
       name: this.name,
       fundID12: this.fundID12,
-      vibObj: this.vibObj,
+      vibObj: this.id === 13 ? this.vibObj : undefined, // PROP-6b
       instrumentation: this.instrumentation,
       vowel: this.vowel,
       startConsonant: this.startConsonant,

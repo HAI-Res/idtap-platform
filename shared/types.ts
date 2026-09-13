@@ -668,8 +668,21 @@ type RulesType = {
   }
 }
 
+// Vibrato v2 (idtap-contract PROP-6). Units: rate in Hz (independent of durTot);
+// extentStart / extentEnd / vertOffset in log2 (1 log2 = 1200 cents); phase in
+// radians, [0, 2pi). Emitted on the wire only when the trajectory id is 13.
 type VibObjType = {
-  periods: number;
+  rate: number;
+  extentStart: number;
+  extentEnd: number;
+  vertOffset: number;
+  phase: number;
+}
+
+// Vibrato v1 (pre PROP-6). Detected by the presence of `periods`; healed
+// losslessly to VibObjType on load and never written back.
+type LegacyVibObjType = {
+  periods: number | string;
   vertOffset: number;
   initUp: boolean;
   extent: number;
@@ -1265,6 +1278,7 @@ export type {
   OnProgressType,
   RulesType,
   VibObjType,
+  LegacyVibObjType,
   IdType,
   TrajIdFunction,
   OutputType,

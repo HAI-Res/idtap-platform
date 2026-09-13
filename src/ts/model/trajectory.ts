@@ -4,6 +4,7 @@ import { Automation } from './automation';
 
 import { 
 	VibObjType,
+	LegacyVibObjType,
 	TrajIdFunction,
 	IdType,
 	NumObj,
@@ -174,12 +175,7 @@ class Trajectory {
       throw new SyntaxError(`invalid slope type, must be number: ${slope}`)
     }
     if (vibObj === undefined) {
-      this.vibObj = {
-        periods: 8,
-        vertOffset: 0,
-        initUp: true,
-        extent: 0.05
-      }
+      this.vibObj = Trajectory.defaultVibObj();
     } else {
       this.vibObj = vibObj
     }
@@ -590,33 +586,45 @@ class Trajectory {
   }
 
   id13(x: number): number {
-    // vib object includes: periods, vertOffset, initUp, extent
-    
-    const periods = this.vibObj.periods;
-    let vertOffset = this.vibObj.vertOffset;
-    const initUp = this.vibObj.initUp;
-    const extent = this.vibObj.extent;
-    if (Math.abs(vertOffset) > extent / 2) {
-      vertOffset = Math.sign(vertOffset) * extent / 2;
-    }
-    let out = Math.cos(x * 2 * Math.PI * periods + Number(initUp) * Math.PI);
-    if (x < 1 / (2 * periods)) {
-      const start = this.logFreqs[0];
-      const end = Math.log2(this.id13(1 / (2 * periods)));
-      const middle = (end + start) / 2;
-      const ext = Math.abs(end - start) / 2;
-      out = out * ext + middle;
-      return 2 ** out
-    } else if (x > 1 - 1 / (2 * periods)) {
-      const start = Math.log2(this.id13(1 - 1 / (2 * periods)));
-      const end = this.logFreqs[0];
-      const middle = (end + start) / 2;
-      const ext = Math.abs(end - start) / 2;
-      out = out * ext + middle;
-      return 2 ** out
+    // Vibrato v2 (idtap-contract PROP-6). This is the reference implementation:
+    // the Swift port regenerates its golden values from it.
+    //
+    //   P     = rate * durTot            cycles over the trajectory (>= 1)
+    //   A(x)  = (extentStart + (extentEnd - extentStart) * x) / 2
+    //   core  = logFreqs[0] + clamp(vertOffset, +-A(x)) + A(x) * cos(2 pi P x + phase)
+    //
+    // The curve always attaches at an extreme so the note starts and ends on its
+    // notated pitch: x1 is the first extreme of the cosine at least a quarter
+    // period in, x2 the last extreme at least a quarter period before the end. A
+    // raised cosine carries logFreqs[0] out to core(x1) and core(x2) back home.
+    const { rate, extentStart, extentEnd, vertOffset, phase } = this.vibObj;
+    const lf0 = this.logFreqs[0];
+    let P = rate * this.durTot;
+    if (!(P >= 1)) P = 1;
+    const core = (xx: number): number => {
+      const A = (extentStart + (extentEnd - extentStart) * xx) / 2;
+      let vo = vertOffset;
+      if (Math.abs(vo) > A) vo = Math.sign(vo) * A;
+      return lf0 + vo + A * Math.cos(2 * Math.PI * P * xx + phase);
+    };
+    // extremes of cos(2 pi P x + phase) sit at x = (k - phase / pi) / (2 P), k integer
+    const ph = phase / Math.PI;
+    const k1 = Math.ceil(0.5 + ph);
+    const k2 = Math.floor(2 * P - 0.5 + ph);
+    const x1 = (k1 - ph) / (2 * P);
+    let x2 = (k2 - ph) / (2 * P);
+    if (x2 < x1) x2 = x1;
+    let y: number;
+    if (x <= x1) {
+      const end = core(x1);
+      y = lf0 + (end - lf0) * (1 - Math.cos(Math.PI * x / x1)) / 2;
+    } else if (x >= x2) {
+      const start = core(x2);
+      y = start + (lf0 - start) * (1 - Math.cos(Math.PI * (x - x2) / (1 - x2))) / 2;
     } else {
-      return 2 ** (out * extent / 2 + vertOffset + this.logFreqs[0])
+      y = core(x);
     }
+    return 2 ** y
   }
 
   removeConsonant(start=true) {
@@ -871,7 +879,7 @@ class Trajectory {
       num: this.num,
       // name: removed — derived from id
       fundID12: this.fundID12,
-      vibObj: this.vibObj,
+      vibObj: this.id === 13 ? this.vibObj : undefined, // PROP-6b: only meaningful on id 13
       // instrumentation: removed — inherited from piece context
       vowel: this.vowel,
       startConsonant: this.startConsonant,
@@ -905,12 +913,45 @@ class Trajectory {
       });
     }
     const automation = obj.automation ? Automation.fromJSON(obj.automation) : undefined;
+    const vibObj = obj.vibObj === undefined || obj.vibObj === null
+      ? undefined
+      : Trajectory.healVibObj(obj.vibObj, obj.durTot ?? 1.0);
     return new Trajectory({
       ...obj,
       pitches,
       articulations,
       automation,
+      vibObj,
     });
+  }
+
+  static defaultVibObj(): VibObjType {
+    // 5.5 Hz, 60 cents peak-to-peak, centred, starting upward (phase pi)
+    return {
+      rate: 5.5,
+      extentStart: 0.05,
+      extentEnd: 0.05,
+      vertOffset: 0,
+      phase: Math.PI,
+    }
+  }
+
+  static healVibObj(
+    vibObj: VibObjType | LegacyVibObjType,
+    durTot: number
+  ): VibObjType {
+    // PROP-6 lossless heal. v1 is detected by the presence of `periods` (which may
+    // arrive as a string from the old slider). rate = periods / durTot keeps the
+    // cycle count P = rate * durTot exactly; equal extents and phase in {0, pi}
+    // make the v2 curve term-for-term the v1 curve.
+    if (!('periods' in vibObj)) return vibObj;
+    return {
+      rate: Number(vibObj.periods) / durTot,
+      extentStart: vibObj.extent,
+      extentEnd: vibObj.extent,
+      vertOffset: vibObj.vertOffset,
+      phase: vibObj.initUp ? Math.PI : 0,
+    }
   }
 
   static names() {

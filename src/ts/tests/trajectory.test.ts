@@ -36,7 +36,10 @@ test('defaultTrajectory', () => {
   expect(t.name).toBe('Fixed');
   expect(t.fundID12).toBeUndefined();
 
-  const defVibObj = { periods: 8, vertOffset: 0, initUp: true, extent: 0.05 };
+  // PROP-6 v2 default: 5.5 Hz, 60 c peak-to-peak, centred, starts upward
+  const defVibObj = {
+    rate: 5.5, extentStart: 0.05, extentEnd: 0.05, vertOffset: 0, phase: Math.PI,
+  };
   expect(t.vibObj).toEqual(defVibObj);
   expect(t.instrumentation).toBe('Sitar');
 
@@ -114,35 +117,185 @@ test('compute id7-id13', () => {
   const t12 = new Trajectory({ id: 12, fundID12: 220 });
   expect(t12.id12(0.5)).toBeCloseTo(220);
 
-  const vib = { periods: 2, vertOffset: 0, initUp: true, extent: 0.1 };
+  const vib = { rate: 2, extentStart: 0.1, extentEnd: 0.1, vertOffset: 0, phase: Math.PI };
   const t13 = new Trajectory({ id: 13, vibObj: vib });
 
-  /* helper that mirrors Trajectory.id13 */
+  /* helper that mirrors Trajectory.id13 (PROP-6 v2 curve) */
   const expected13 = (xVal: number): number => {
-    const { periods, vertOffset, initUp, extent } = vib;
-    let vo = vertOffset;
-    if (Math.abs(vo) > extent / 2) vo = Math.sign(vo) * extent / 2;
-
-    let out = Math.cos(xVal * 2 * Math.PI * periods + Number(initUp) * Math.PI);
-    const base = Math.log2(t13.freqs[0]);
-
-    if (xVal < 1 / (2 * periods)) {
-      const start = base;
-      const end = Math.log2(expected13(1 / (2 * periods)));
-      out = out * (Math.abs(end - start) / 2) + (start + end) / 2;
-      return 2 ** out;
-    } else if (xVal > 1 - 1 / (2 * periods)) {
-      const start = Math.log2(expected13(1 - 1 / (2 * periods)));
-      const end = base;
-      out = out * (Math.abs(end - start) / 2) + (start + end) / 2;
-      return 2 ** out;
-    } else {
-      return 2 ** (out * extent / 2 + vo + base);
+    const { rate, extentStart, extentEnd, vertOffset, phase } = vib;
+    const lf0 = Math.log2(t13.freqs[0]);
+    let P = rate * t13.durTot;
+    if (P < 1) P = 1;
+    const core = (xx: number) => {
+      const A = (extentStart + (extentEnd - extentStart) * xx) / 2;
+      const vo = Math.abs(vertOffset) > A ? Math.sign(vertOffset) * A : vertOffset;
+      return lf0 + vo + A * Math.cos(2 * Math.PI * P * xx + phase);
+    };
+    const ph = phase / Math.PI;
+    const x1 = (Math.ceil(0.5 + ph) - ph) / (2 * P);
+    let x2 = (Math.floor(2 * P - 0.5 + ph) - ph) / (2 * P);
+    if (x2 < x1) x2 = x1;
+    if (xVal <= x1) {
+      return 2 ** (lf0 + (core(x1) - lf0) * (1 - Math.cos(Math.PI * xVal / x1)) / 2);
+    } else if (xVal >= x2) {
+      const s0 = core(x2);
+      return 2 ** (s0 + (lf0 - s0) * (1 - Math.cos(Math.PI * (xVal - x2) / (1 - x2))) / 2);
     }
+    return 2 ** core(xVal);
   };
 
   pts.forEach(x => {
     expect(t13.id13(x)).toBeCloseTo(expected13(x));
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* PROP-6 vibrato v2                                                    */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The pre-PROP-6 (v1) id13 formula, kept verbatim as the reference for the
+ * lossless-heal proof. Do not "fix" it: it is what every stored vibrato was
+ * rendered with before the migration.
+ */
+const legacyId13 = (
+  t: Trajectory,
+  vib: { periods: number; vertOffset: number; initUp: boolean; extent: number },
+  x: number
+): number => {
+  const { periods, initUp, extent } = vib;
+  let vertOffset = vib.vertOffset;
+  if (Math.abs(vertOffset) > extent / 2) {
+    vertOffset = Math.sign(vertOffset) * extent / 2;
+  }
+  let out = Math.cos(x * 2 * Math.PI * periods + Number(initUp) * Math.PI);
+  if (x < 1 / (2 * periods)) {
+    const start = t.logFreqs[0];
+    const end = Math.log2(legacyId13(t, vib, 1 / (2 * periods)));
+    const middle = (end + start) / 2;
+    const ext = Math.abs(end - start) / 2;
+    out = out * ext + middle;
+    return 2 ** out;
+  } else if (x > 1 - 1 / (2 * periods)) {
+    const start = Math.log2(legacyId13(t, vib, 1 - 1 / (2 * periods)));
+    const end = t.logFreqs[0];
+    const middle = (end + start) / 2;
+    const ext = Math.abs(end - start) / 2;
+    out = out * ext + middle;
+    return 2 ** out;
+  } else {
+    return 2 ** (out * extent / 2 + vertOffset + t.logFreqs[0]);
+  }
+};
+
+const pts201 = Array.from({ length: 201 }, (_, i) => i / 200);
+
+describe('vibrato v2 (PROP-6)', () => {
+  const legacyCases = [
+    { periods: 8, vertOffset: 0, initUp: true, extent: 0.05 },   // old default
+    { periods: 2, vertOffset: 0, initUp: true, extent: 0.1 },
+    { periods: 3, vertOffset: 0.01, initUp: false, extent: 0.08 },
+    { periods: 5, vertOffset: 0.9, initUp: true, extent: 0.04 }, // clamped offset
+    { periods: 1, vertOffset: -0.02, initUp: false, extent: 0.06 }, // single cycle
+    { periods: 7, vertOffset: 0, initUp: false, extent: 0.0 },   // zero extent
+  ];
+
+  test.each(legacyCases)('healed v1 %o renders identically to the old id13', (v1) => {
+    for (const durTot of [1, 0.5, 2.25]) {
+      const t = new Trajectory({ id: 13, pitches: [new Pitch({ swara: 2 })], durTot });
+      const healed = Trajectory.healVibObj(v1, durTot);
+      expect(healed).toEqual({
+        rate: v1.periods / durTot,
+        extentStart: v1.extent,
+        extentEnd: v1.extent,
+        vertOffset: v1.vertOffset,
+        phase: v1.initUp ? Math.PI : 0,
+      });
+      t.vibObj = healed;
+      pts201.forEach(x => {
+        const want = legacyId13(t, v1, x);
+        const got = t.id13(x);
+        expect(Math.abs(got - want)).toBeLessThanOrEqual(1e-12 * Math.max(1, Math.abs(want)));
+      });
+    }
+  });
+
+  test('fromJSON heals v1 (including string periods from the old slider)', () => {
+    const json = {
+      id: 13,
+      pitches: [{ swara: 0, raised: true, oct: 0, logOffset: 0 }],
+      durTot: 0.5,
+      vibObj: { periods: '3', vertOffset: 0.01, initUp: false, extent: 0.08 },
+    };
+    const t = Trajectory.fromJSON(json);
+    expect(t.vibObj).toEqual({
+      rate: 6, extentStart: 0.08, extentEnd: 0.08, vertOffset: 0.01, phase: 0,
+    });
+    expect(typeof t.vibObj.rate).toBe('number');
+    // v2 passes through untouched
+    const v2 = { rate: 4.2, extentStart: 0.02, extentEnd: 0.07, vertOffset: 0.005, phase: 1.3 };
+    expect(Trajectory.fromJSON({ ...json, vibObj: v2 }).vibObj).toEqual(v2);
+    // v2 is written back (the v1 shape is never emitted)
+    const out = JSON.parse(JSON.stringify(t.toJSON()));
+    expect(out.vibObj).toEqual(t.vibObj);
+    expect('periods' in out.vibObj).toBe(false);
+  });
+
+  test('toJSON emits vibObj only for id 13 (PROP-6b)', () => {
+    const v2 = { rate: 4.2, extentStart: 0.02, extentEnd: 0.07, vertOffset: 0.005, phase: 1.3 };
+    for (let id = 0; id <= 13; id++) {
+      if (id === 11) continue;
+      const pitchCount = id >= 4 && id <= 10 ? 2 : 1;
+      const pitches = Array.from({ length: pitchCount }, (_, i) => new Pitch({ swara: i }));
+      const t = new Trajectory({ id, pitches, vibObj: v2 });
+      const out = JSON.parse(JSON.stringify(t.toJSON()));
+      if (id === 13) expect(out.vibObj).toEqual(v2);
+      else expect('vibObj' in out).toBe(false);
+    }
+    // a stray vibObj on another id is accepted on load and ignored on the wire
+    const loaded = Trajectory.fromJSON({ id: 0, pitches: [{ swara: 0 }], vibObj: { periods: 4, vertOffset: 0, initUp: true, extent: 0.1 } });
+    expect(loaded.id).toBe(0);
+    expect('vibObj' in JSON.parse(JSON.stringify(loaded.toJSON()))).toBe(false);
+  });
+
+  test('curve attaches at an extreme and returns to pitch for arbitrary phase', () => {
+    const base = new Pitch({ swara: 2 });
+    for (const phase of [0, 0.3, Math.PI / 2, 1.9, Math.PI, 4.1, 2 * Math.PI - 0.01]) {
+      for (const [rate, durTot] of [[5.5, 1], [3.7, 0.55], [1, 0.3], [12, 2.1]]) {
+        const t = new Trajectory({
+          id: 13, pitches: [base], durTot,
+          vibObj: { rate, extentStart: 0.03, extentEnd: 0.09, vertOffset: 0.01, phase },
+        });
+        expect(t.id13(0)).toBeCloseTo(base.frequency, 9);
+        expect(t.id13(1)).toBeCloseTo(base.frequency, 9);
+        // the curve is continuous: no jump larger than the extent between neighbours
+        let prev = Math.log2(t.id13(0));
+        for (let i = 1; i <= 400; i++) {
+          const cur = Math.log2(t.id13(i / 400));
+          expect(Math.abs(cur - prev)).toBeLessThan(0.09);
+          prev = cur;
+        }
+      }
+    }
+  });
+
+  test('ramp: extent grows linearly from extentStart to extentEnd', () => {
+    const base = new Pitch({ swara: 0 });
+    const t = new Trajectory({
+      id: 13, pitches: [base], durTot: 1,
+      vibObj: { rate: 4, extentStart: 0, extentEnd: 0.1, vertOffset: 0, phase: 0 },
+    });
+    const lf0 = Math.log2(base.frequency);
+    // crests of cos(8 pi x) sit at x = k/4; the middle section runs [1/8, 7/8]
+    for (const x of [0.25, 0.5, 0.75]) {
+      expect(Math.log2(t.id13(x)) - lf0).toBeCloseTo(0.1 * x / 2, 12);
+    }
+    // sub-cycle trajectories compute with P = 1 (rate 1 Hz over 0.3 s)
+    const short = new Trajectory({
+      id: 13, pitches: [base], durTot: 0.3,
+      vibObj: { rate: 1, extentStart: 0.05, extentEnd: 0.05, vertOffset: 0, phase: Math.PI },
+    });
+    expect(Math.log2(short.id13(0.5)) - lf0).toBeCloseTo(0.025, 12);
   });
 });
 
@@ -235,7 +388,7 @@ describe('compute delegation for all ids', () => {
     { id: 10, pitches: [new Pitch(), new Pitch({ swara: 1 }), new Pitch({ swara: 2 }), new Pitch({ swara: 3 }), new Pitch({ swara: 4 }), new Pitch({ swara: 5 })], durArray: [0.1, 0.2, 0.2, 0.2, 0.2, 0.1] },
     { id: 11, pitches: [new Pitch(), new Pitch({ swara: 1 })], durArray: [0.5, 0.5] },
     { id: 12, pitches: [new Pitch()], fundID12: 220 },
-    { id: 13, pitches: [new Pitch()], vibObj: { periods: 2, vertOffset: 0, initUp: true, extent: 0.1 } },
+    { id: 13, pitches: [new Pitch()], vibObj: { rate: 2, extentStart: 0.1, extentEnd: 0.1, vertOffset: 0, phase: Math.PI } },
   ];
 
   test.each(cases)('id %i delegation', (cfg) => {
@@ -675,6 +828,9 @@ test('round-trip preserves all trajectory types (id 0-13)', () => {
     expect(restored.id).toBe(id);
     expect(restored.durTot).toBe(1);
     expect(restored.pitches.length).toBe(pitchCount);
+    // PROP-6b: vibObj is on the wire only for id 13
+    expect('vibObj' in json).toBe(id === 13);
+    expect(restored.vibObj).toEqual(orig.vibObj);
     restored.pitches.forEach((p, i) => {
       expect(p.frequency).toBeCloseTo(orig.pitches[i].frequency);
     });

@@ -8,6 +8,7 @@
     "serve": "vite preview",
     "lint": "eslint --ext .js,.vue --ignore-path .gitignore --fix src",
     "buildExtract": "esbuild ./server/extract.ts --bundle --platform=node --target=node16 --outfile=./server/extract.js --alias:@shared=./shared",
+    "genVibratoGolden": "esbuild scripts/gen-vibrato-golden.ts --bundle --platform=node --format=cjs --log-level=warning --alias:@shared=./shared --alias:@=./src --alias:@model=./src/ts/model/index.ts --outfile=node_modules/.cache/gen-vibrato-golden.cjs && node node_modules/.cache/gen-vibrato-golden.cjs > src/ts/tests/fixtures/vibrato-v2-golden.json",
     "buildServer": "esbuild ./server/server.ts --bundle --platform=node --target=node20 --outfile=./server/build/server.js --alias:@shared=./shared --packages=external --format=cjs",
     "test": "vitest"
   },
