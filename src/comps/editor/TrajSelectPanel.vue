@@ -3,7 +3,8 @@
   <div 
     :class='`selectionPanel \
     ${["", "vocal"][Number(vocal)]} \
-    ${["", "vib"][Number(showVibObj)]}`'>
+    ${["", "vib"][Number(showVibObj)]} \
+    ${["", "ramp"][Number(showVibObj && ramp)]}`'>
     <div class='octShift' v-if='selectedTrajs.length > 0'>
       <button 
         class='octUp' 
@@ -182,19 +183,12 @@
       </div>
     </div>
     <div class='selectionRow checks' v-if='showVibObj'>
-      <label v-if='showVibObj' class='spaceLeft'>Phase</label>
+      <label class='spaceLeft' title='Starts upward (phase π) or downward (phase 0)'>Phase</label>
       <input
-        v-if='editable && showVibObj'
         type='checkbox'
         v-model='initUp'
-        @change='updateVibObj'
-      />
-      <input
-        v-if='!editable && showVibObj'
-        type='checkbox'
-        v-model='initUp'
-        @change='updateVibObj'
-        :disabled='true'
+        @change='setPhase'
+        :disabled='!editable'
       />
     </div>
     <div class='selectionRow slope' v-if='showSlope'>
@@ -222,75 +216,64 @@
           />
     </div>
     <div class='selectionRow' v-if='showVibObj'>
-      <label>Periods</label>
+      <label title='Vibrato rate in Hz, independent of the trajectory duration'>Rate</label>
       <input
-        v-if='editable'
         type='range'
         class='slider'
-        v-model='periods'
+        v-model.number='rate'
         min='1'
-        max='20'
-        step='0.5'
+        max='12'
+        step='0.1'
         @input='updateVibObj'
-      />
-      <input
-        v-if='!editable'
-        type='range'
-        class='slider'
-        v-model='periods'
-        min='1'
-        max='20'
-        step='0.5'
-        @input='updateVibObj'
-        :disabled='true'
+        :disabled='!editable'
       />
     </div>
     <div class='selectionRow' v-if='showVibObj'>
-      <label>Extent</label>
+      <label title='Peak-to-peak excursion in cents (at the start when ramping)'>Extent</label>
       <input
-        v-if='editable'
         type='range'
         class='slider'
-        v-model='extent'
+        v-model.number='extentCents'
         min='0'
-        max='0.2'
-        step='0.005'
+        max='200'
+        step='1'
         @input='updateVibObj'
+        :disabled='!editable'
       />
+    </div>
+    <div class='selectionRow checks' v-if='showVibObj'>
+      <label class='spaceLeft' title='Let the extent change linearly over the trajectory'>Ramp</label>
       <input
-        v-if='!editable'
+        type='checkbox'
+        v-model='ramp'
+        @change='updateVibObj'
+        :disabled='!editable'
+      />
+    </div>
+    <div class='selectionRow' v-if='showVibObj && ramp'>
+      <label title='Peak-to-peak excursion in cents at the end of the trajectory'>End</label>
+      <input
         type='range'
         class='slider'
-        v-model='periods'
+        v-model.number='extentEndCents'
         min='0'
-        max='0.5'
-        step='0.01'
+        max='200'
+        step='1'
         @input='updateVibObj'
-        :disabled='true'
+        :disabled='!editable'
       />
     </div>
     <div class='selectionRow' v-if='showVibObj'>
-      <label>Offset</label>
+      <label title='Centre offset as a fraction of the extent'>Offset</label>
       <input
-        v-if='editable'
         type='range'
         class='slider'
-        v-model='offset'
+        v-model.number='offset'
         min='-1.0'
         max='1.0'
         step='0.01'
         @input='updateVibObj'
-      />
-      <input
-        v-if='!editable'
-        type='range'
-        class='slider'
-        v-model='periods'
-        min='-1.0'
-        max='1.0'
-        step='0.01'
-        @input='updateVibObj'
-        :disabled='true'
+        :disabled='!editable'
       />
     </div>
   </div>
@@ -340,7 +323,8 @@ import { initSecCategorization, Piece, Trajectory } from '@model';
 import { 
   TrajSelectionStatus, 
   PhraseDivDisplayType,
-  TooltipData 
+  TooltipData,
+  VibObjType,
 } from '@shared/types';
 import { Instrument, EditorMode } from '@shared/enums';
 
@@ -354,10 +338,14 @@ type TrajSelectPanelDataType = {
   slope: number,
   showSlope: boolean,
   showVibObj: boolean,
-  periods: number,
+  // vibrato v2 (PROP-6) panel state; extents are shown in cents, wire is log2
+  rate: number,
+  extentCents: number,
+  extentEndCents: number,
+  ramp: boolean,
   offset: number,
   initUp: boolean,
-  extent: number,
+  phase: number,
   // dampen: boolean,
   // showPhraseRadio: boolean,
   phraseDivType?: 'phrase' | 'section',
@@ -404,10 +392,13 @@ export default defineComponent({
       slope: 1,
       showSlope: false,
       showVibObj: false,
-      periods: 8,
+      rate: 5.5,
+      extentCents: 60,
+      extentEndCents: 60,
+      ramp: false,
       offset: 0,
       initUp: true,
-      extent: 0.05,
+      phase: Math.PI,
       // dampen: false,
       // showPhraseRadio: false,
       phraseDivType: undefined,
@@ -687,10 +678,7 @@ export default defineComponent({
         this.parentSelected = true;
         this.slope = Math.log2(newVal.slope);
         if (newVal.vibObj) {
-          this.extent = newVal.vibObj.extent;
-          this.initUp = newVal.vibObj.initUp;
-          this.offset = newVal.vibObj.vertOffset;
-          this.periods = newVal.vibObj.periods;
+          this.readVibObj(newVal.vibObj);
         }
         this.vowel = newVal.vowel!;
         this.startConsonant = newVal.startConsonant;
@@ -699,10 +687,7 @@ export default defineComponent({
         this.selectedIdx = undefined;
         this.parentSelected = false;
         this.slope = 1;
-        this.extent = 0.05;
-        this.initUp = true;
-        this.offset = 0;
-        this.periods = 8;
+        this.readVibObj(Trajectory.defaultVibObj());
         // this.vowel = 'a';
       }
     },
@@ -1082,12 +1067,35 @@ export default defineComponent({
       }
     },
 
+    // Panel state <-> wire (PROP-6 v2). The offset slider is a fraction of the
+    // (larger) extent, so it reads back as vertOffset / extent, not vertOffset.
+    readVibObj(v: VibObjType) {
+      this.rate = v.rate;
+      this.extentCents = v.extentStart * 1200;
+      this.extentEndCents = v.extentEnd * 1200;
+      this.ramp = v.extentEnd !== v.extentStart;
+      const ref = Math.max(v.extentStart, v.extentEnd);
+      this.offset = ref > 0 ? v.vertOffset / ref : 0;
+      this.phase = v.phase;
+      const p = ((v.phase % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+      this.initUp = p > Math.PI / 2 && p < 3 * Math.PI / 2;
+    },
+
+    setPhase() {
+      this.phase = this.initUp ? Math.PI : 0;
+      this.updateVibObj();
+    },
+
     updateVibObj() {
-      const vibObj = {
-        periods: this.periods,
-        vertOffset: this.extent * this.offset,
-        initUp: this.initUp,
-        extent: this.extent,
+      const extentStart = this.extentCents / 1200;
+      const extentEnd = this.ramp ? this.extentEndCents / 1200 : extentStart;
+      const ref = Math.max(extentStart, extentEnd);
+      const vibObj: VibObjType = {
+        rate: this.rate,
+        extentStart,
+        extentEnd,
+        vertOffset: ref * this.offset,
+        phase: this.phase,
       };
       this.$emit('vibObj', vibObj);
     },
@@ -1113,11 +1121,19 @@ export default defineComponent({
 }
 
 .selectionPanel.vib {
-  height: v-bind(panelHeight + 50 + 'px');
+  height: v-bind(panelHeight + 100 + 'px');
+}
+
+.selectionPanel.vib.ramp {
+  height: v-bind(panelHeight + 125 + 'px');
 }
 
 .selectionPanel.vocal.vib {
-  height: v-bind(panelHeight + ctrlBoxWidth/2 + 'px');
+  height: v-bind(panelHeight + ctrlBoxWidth/2 + 50 + 'px');
+}
+
+.selectionPanel.vocal.vib.ramp {
+  height: v-bind(panelHeight + ctrlBoxWidth/2 + 75 + 'px');
 }
 
 .imgContainer {

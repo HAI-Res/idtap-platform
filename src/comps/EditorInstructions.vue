@@ -267,7 +267,7 @@
         <li><strong>Trajectory Parameters</strong> (appear based on trajectory type):
           <ul>
             <li><strong>Slope</strong>: Controls for bend trajectories</li>
-            <li><strong>Vibrato Settings</strong>: Periods, extent, offset, phase (appear for vibrato trajectories)</li>
+            <li><strong>Vibrato Settings</strong>: Rate, extent, ramp, offset, phase (appear for vibrato trajectories)</li>
           </ul>
         </li>
         <li><strong>Grouped Trajectory Toggle</strong>: Controls for grouped trajectory editing (when multiple trajectories selected)</li>
@@ -580,7 +580,7 @@
         <li><strong>Bend: Ladle <kbd>4</kbd></strong>: Combination of sloped start and simple bend (4 points)</li>
         <li><strong>Bend: Reverse Ladle <kbd>5</kbd></strong>: Combination of simple and sloped end (4 points)</li>
         <li><strong>Bend: Simple Multiple <kbd>6</kbd></strong>: Series of connected simple bends (unlimited points)</li>
-        <li><strong>Vibrato <kbd>E</kbd></strong>: Oscillating pitch with adjustable parameters (2 points)</li>
+        <li><strong>Vibrato <kbd>E</kbd></strong>: Oscillating pitch with adjustable rate (Hz), extent (cents, optionally ramping), offset and phase (2 points)</li>
       </ul>
 
       <p><strong>Sitar-Specific Trajectory Types:</strong></p>
@@ -645,7 +645,7 @@
         <li><strong>Parameter Sliders</strong>: Use right panel sliders for trajectory-specific parameters:
           <ul>
             <li><strong>Slope</strong>: For sloped trajectories (types 2, 3, 4, 5)</li>
-            <li><strong>Vibrato</strong>: Periods, Extent, Offset, Phase (for vibrato trajectories)</li>
+            <li><strong>Vibrato</strong>: Rate, Extent, Ramp, Offset, Phase (for vibrato trajectories)</li>
           </ul>
         </li>
       </ul>

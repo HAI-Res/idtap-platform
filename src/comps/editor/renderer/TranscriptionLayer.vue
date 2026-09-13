@@ -4045,6 +4045,29 @@ export default defineComponent({
 
     }
 
+    // The second half of a split trajectory. Built from toJSON() so every
+    // per-trajectory field survives (vibObj, vowel, consonants, slope, fundID12,
+    // ...) — the previous hand-written field lists silently dropped them. Only
+    // what the split changes is overridden; identity fields are regenerated.
+    const splitTrajCopy = (
+      traj: Trajectory,
+      over: { durTot: number, pitches: Pitch[], articulations?: { [key: string]: Articulation } }
+    ): Trajectory => {
+      const base = traj.toJSON();
+      return new Trajectory({
+        ...base,
+        instrumentation: traj.instrumentation,
+        vibObj: { ...traj.vibObj },
+        durArray: undefined,
+        uniqueId: undefined,
+        num: undefined,
+        groupId: undefined,
+        articulations: over.articulations ?? undefined,
+        durTot: over.durTot,
+        pitches: over.pitches,
+      });
+    };
+
     const insertFixedTrajLeft = (traj: Trajectory, track: number, dur = 0.1) => {
       if (traj.durTot < 0.2) dur = 0.1 * traj.durTot;
       const pIdx = traj.phraseIdx!;
@@ -4075,6 +4098,7 @@ export default defineComponent({
         startConsonantEngTrans: traj.startConsonantEngTrans,
         startConsonantHindi: traj.startConsonantHindi,
         startConsonantIpa: traj.startConsonantIpa,
+        vibObj: { ...traj.vibObj },
       });
       traj.startConsonant = undefined;
       traj.startConsonantEngTrans = undefined;
@@ -4134,6 +4158,7 @@ export default defineComponent({
         endConsonantEngTrans: traj.endConsonantEngTrans,
         endConsonantHindi: traj.endConsonantHindi,
         endConsonantIpa: traj.endConsonantIpa,
+        vibObj: { ...traj.vibObj },
       });
       traj.endConsonant = undefined;
       traj.endConsonantEngTrans = undefined;
@@ -5780,15 +5805,12 @@ export default defineComponent({
         traj.durTot = firstDur;
         nextPrev.push({ traj, absStart });
 
-        // Second part is a new trajectory
-        const secondPartObj = {
-          id: traj.id,
+        // Second part is a new trajectory carrying every per-trajectory field
+        // of the original (vibrato, vowel, slope, ...), not a hand-written subset
+        const secondPartTraj = splitTrajCopy(traj, {
           durTot: secondDur,
           pitches: originalPitches.slice(splitIdx),
-          instrumentation: traj.instrumentation,
-          automation: traj.automation
-        };
-        const secondPartTraj = new Trajectory(secondPartObj);
+        });
         // startTime will be set by phrase.reset(); we avoid setting here
         nextCurr.push({ traj: secondPartTraj, absStart: divisionTime });
       }
@@ -7309,15 +7331,11 @@ export default defineComponent({
 
               // Second part goes to new phrase
               const secondPartPitches = traj.pitches.slice(splitIdx);
-              const secondPartObj = {
-                id: traj.id,
+              const secondPartTraj = splitTrajCopy(traj, {
                 durTot: secondPartDur,
                 pitches: secondPartPitches,
-                instrumentation: traj.instrumentation,
                 articulations: secondPartArticulations,
-                automation: traj.automation
-              };
-              const secondPartTraj = new Trajectory(secondPartObj);
+              });
               trajsToMove.push(secondPartTraj);
             }
           });
@@ -7413,15 +7431,11 @@ export default defineComponent({
 
               // Create second part (new trajectory)
               const secondPartPitches = secondStringTraj.pitches.slice(splitIdx);
-              const secondPartObj = {
-                id: secondStringTraj.id,
+              const secondPartTraj = splitTrajCopy(secondStringTraj, {
                 durTot: secondPartDur,
                 pitches: secondPartPitches,
-                instrumentation: secondStringTraj.instrumentation,
                 articulations: secondPartArticulations,
-                automation: secondStringTraj.automation // Copy automation reference
-              };
-              const secondPartTraj = new Trajectory(secondPartObj);
+              });
               
               // Insert the second part right after the split point
               phrase.trajectoryGrid[1].splice(secondStringTIdx + 1, 0, secondPartTraj);
@@ -7876,6 +7890,9 @@ export default defineComponent({
       };
       const trajObj = selectedTraj.value.toJSON();
       trajObj.id = newIdx;
+      // toJSON() carries vibObj only for id 13 (PROP-6b); keep the in-memory
+      // settings across a retype so fixed <-> vibrato keeps a tuned vibrato
+      trajObj.vibObj = { ...selectedTraj.value.vibObj };
       const newTraj = new Trajectory(trajObj);
       const pIdx = selectedTraj.value.phraseIdx!;
       const track = props.piece.trackFromTraj(selectedTraj.value);
