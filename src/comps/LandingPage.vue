@@ -36,7 +36,14 @@
       </div>
       <div class='sponsorsRowOuter'>
         <div class='sponsorsRow'>
-          <div><img :src='logos.neh'></div>
+          <div><img :src='logos.csail' class='csailLogo' alt='MIT CSAIL'></div>
+          <div>
+            <img :src='logos.scc' alt='MIT Schwarzman College of Computing'>
+            <span class='sponsorCaption'>
+              Social and Ethical Responsibilities of Computing (SERC)
+            </span>
+          </div>
+          <div><img :src='logos.neh' alt='National Endowment for the Humanities'></div>
           <div><img :src='logos.or'></div>
           <div><img :src='logos.ari'></div>
           <div><img :src='logos.e'></div>
@@ -62,26 +69,10 @@
           </div>
           <div class='projectTeam'>
             <div class='projectTeamTitle'>Principal Investigators</div>
-            <div class='projectTeamRow'>
-              <a href='https://music.ucsc.edu/people/dard-neuman'>
-                Dard Neuman
-              </a>
-            </div>
-            <div class='projectTeamRow'>
-              <a href='https://music.ucsc.edu/people/jonathan-myers'>
-                Jon Myers
-              </a>
-            </div>
-            <div class='projectTeamTitle'>Graduate Researcher</div>
-            <div class='projectTeamRow'>
-              <a href='https://music.ucsc.edu/people/balakrishnan-raghavan'>
-                Balakrishnan Raghavan
-              </a>
-            </div>
-            <div class='projectTeamTitle'>Project Intern</div>
-            <div class='projectTeamRow'>
-              Shreyas Anand
-            </div>
+            <div class='projectTeamRow'>Dard Neuman</div>
+            <div class='projectTeamRow'>Jon Myers</div>
+            <div class='projectTeamTitle'>Undergraduate Researcher</div>
+            <div class='projectTeamRow'>Raymond Zhang</div>
           </div>
         </div>
       </div>
@@ -94,6 +85,8 @@ import ariURL from '@/assets/logos/ARI_logo.png';
 import orURL from '@/assets/logos/OR_logo.png';
 import eURL from '@/assets/logos/Endowment_logo.png';
 import chasmsURL from '@/assets/logos/chasms_logo.png';
+import csailURL from '@/assets/logos/CSAIL_logo.svg';
+import sccURL from '@/assets/logos/SCC_logo.png';
 
 export default {
   name: 'LandingPage',
@@ -104,7 +97,9 @@ export default {
         ari: ariURL,
         or: orURL,
         e: eURL,
-        chasms: chasmsURL
+        chasms: chasmsURL,
+        csail: csailURL,
+        scc: sccURL
       },
       layerColors: [
         '#50945c'
@@ -359,13 +354,29 @@ export default {
   width: 230px;
 }
 
+/* The CSAIL mark is near-square, so match it on height to the wordmarks
+   rather than on width, which would tower over the rest of the row. */
+.sponsorsRow > div > img.csailLogo {
+  width: auto;
+  height: 100px;
+}
+
 .sponsorsRow > div {
-  height: 150px;
+  min-height: 150px;
   width: 250px;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
+}
+
+.sponsorCaption {
+  max-width: 220px;
+  margin-top: 10px;
+  font-size: 11px;
+  line-height: 1.4;
+  text-align: center;
+  color: #242660;
 }
 
 .bottomRowInner {
@@ -421,8 +432,8 @@ export default {
 
 .projectTeam {
   color: white;
-  width: 250px;
-  height: 170px;
+  width: 290px;
+  min-height: 170px;
   display: flex;
   flex-direction: column;
   align-items: left;
