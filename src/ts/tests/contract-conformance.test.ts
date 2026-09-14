@@ -16,6 +16,11 @@ import { Pitch, Raga, Trajectory, Phrase, Piece } from '../model';
 const CONTRACT = process.env.IDTAP_CONTRACT_DIR
   || path.resolve(process.cwd(), '..', 'idtap-contract');
 
+// The contract version this model was built against. contract.json `version` must
+// match it exactly (idtap-contract README "Versioning"): a minor bump changes wire
+// semantics and needs the matching heal here before the assertion is moved.
+const CONTRACT_VERSION = '0.2.0';
+
 // The fixtures live in the (private) sibling idtap-contract repo. When it isn't
 // present — e.g. a plain `pnpm test` in CI without the contract checkout — degrade
 // gracefully to zero fixtures so this file doesn't error out the whole suite. A
@@ -79,6 +84,23 @@ describe('trajectory conformance', () => {
       expect(got.length).toBe(fx.expected.pitchFrequencies.length);
       got.forEach((g, i) => expect(rel(g, fx.expected.pitchFrequencies[i], r)).toBe(true));
       expect(t.id).toBe(fx.expected.id);
+      // PROP-6 vibrato blocks (contract 0.2.0), each asserted only when present.
+      // expected.attach / expected.v1Equivalent are informational and not checked.
+      if (fx.expected.vibObj !== undefined) {
+        const keys = ['rate', 'extentStart', 'extentEnd', 'vertOffset', 'phase'] as const;
+        expect(Object.keys(t.vibObj).sort()).toEqual([...keys].sort());
+        keys.forEach(k => expect(rel(t.vibObj[k], fx.expected.vibObj[k], r)).toBe(true));
+      }
+      if (fx.expected.curveX !== undefined) {
+        expect(fx.expected.curveFrequencies.length).toBe(fx.expected.curveX.length);
+        fx.expected.curveX.forEach((x: number, i: number) => {
+          expect(rel(t.compute(x), fx.expected.curveFrequencies[i], r)).toBe(true);
+        });
+      }
+      if (fx.expected.vibObjInCanonical !== undefined) {
+        const canonical = JSON.parse(JSON.stringify(t.toJSON()));
+        expect('vibObj' in canonical).toBe(fx.expected.vibObjInCanonical);
+      }
     });
   }
 });
@@ -120,4 +142,13 @@ describe('contract fixtures availability', () => {
     'idtap-contract fixtures are present (REQUIRE_CONTRACT=1)',
     () => { expect(HAVE_CONTRACT).toBe(true); },
   );
+});
+
+// Exact-match version assertion (README "Versioning"): runs whenever the checkout
+// is present, so a contract bump without the matching model change fails here.
+describe('contract version', () => {
+  it.runIf(HAVE_CONTRACT)(`contract.json version equals CONTRACT_VERSION (${CONTRACT_VERSION})`, () => {
+    const contract = JSON.parse(readFileSync(path.join(CONTRACT, 'contract.json'), 'utf8'));
+    expect(contract.version).toBe(CONTRACT_VERSION);
+  });
 });

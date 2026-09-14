@@ -172,7 +172,7 @@
         @mutateTraj='mutateTrajEmit'
         @pluckBool='pluckBoolEmit'
         @newTraj='newTrajEmit'
-        @vibObj='alterVibObj'
+        @vibObj='throttledAlterVibObj'
         @dampen='dampenEmit'
         @vowel='vowelEmit'
         @startConsonant='startConsonantEmit'
@@ -2003,10 +2003,7 @@ export default defineComponent({
         tsp.parentSelected = true;
         tsp.slope = Math.log2(tLayer.selectedTraj.slope);
         if (tLayer.selectedTraj.vibObj) {
-          tsp.extent = tLayer.selectedTraj.vibObj.extent;
-          tsp.initUp = tLayer.selectedTraj.vibObj.initUp;
-          tsp.periods = tLayer.selectedTraj.vibObj.periods;
-          tsp.offset = tLayer.selectedTraj.vibObj.vertOffset;
+          tsp.readVibObj(tLayer.selectedTraj.vibObj);
         }
         const selT = tLayer.selectedTraj;
         const c1 = tLayer.selectedTraj.articulations[0];

@@ -668,11 +668,25 @@ type RulesType = {
   }
 }
 
+// Vibrato v2 (idtap-contract PROP-6). Units: rate in Hz (independent of durTot);
+// extentStart / extentEnd / vertOffset in log2 (1 log2 = 1200 cents); phase in
+// radians, [0, 2pi). Emitted on the wire only when the trajectory id is 13.
 type VibObjType = {
-  periods: number;
+  rate: number;
+  extentStart: number;
+  extentEnd: number;
   vertOffset: number;
+  phase: number;
+}
+
+// Vibrato v1 (pre PROP-6). Detected by the presence of `periods`; healed
+// losslessly to VibObjType on load and never written back. The old sliders
+// stored their values as strings, so every numeric field may be a string.
+type LegacyVibObjType = {
+  periods: number | string;
+  vertOffset: number | string;
   initUp: boolean;
-  extent: number;
+  extent: number | string;
 }
 
 type IdType = 'id0' | 'id1' | 'id2' | 'id3' | 'id4' | 'id5' | 'id6' | 'id7' |
@@ -1265,6 +1279,7 @@ export type {
   OnProgressType,
   RulesType,
   VibObjType,
+  LegacyVibObjType,
   IdType,
   TrajIdFunction,
   OutputType,

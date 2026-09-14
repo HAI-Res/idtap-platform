@@ -194,6 +194,49 @@ test('Piece serialization from fixture', () => {
   expect(copy.toJSON()).toEqual(json);
 });
 
+// PROP-6: the same piece in its pre-migration form (v1 vibObj on every
+// trajectory). Loading it must heal to exactly the v2 canonical fixture.
+test('Piece legacy (v1 vibObj) fixture heals to the v2 canonical fixture', () => {
+  // Piece.fromJSON mutates its input (string-sync padding) and the shared
+  // `pieceData` above has already been through it, so read fresh copies here.
+  const clone = (o: any) => JSON.parse(JSON.stringify(o));
+  const pieceData = JSON.parse(readFileSync(join(__dirname, 'fixtures/serialization_test.json'), 'utf-8'));
+  const pieceDataV1 = JSON.parse(readFileSync(join(__dirname, 'fixtures/serialization_test_v1.json'), 'utf-8'));
+  const trajs = (p: Piece) => p.phraseGrid.flat().flatMap(ph => ph.trajectoryGrid.flat());
+  const v1Trajs = trajs(Piece.fromJSON(clone(pieceDataV1)));
+  const v2Trajs = trajs(Piece.fromJSON(clone(pieceData)));
+  expect(v1Trajs.length).toBe(v2Trajs.length);
+  expect(v1Trajs.length).toBeGreaterThanOrEqual(34);
+  expect(v1Trajs.filter(t => t.id === 13).length).toBe(1);
+  v1Trajs.forEach(t => {
+    expect('periods' in t.vibObj).toBe(false);
+    expect(t.vibObj.rate).toBeGreaterThan(0);
+  });
+  // Both files must serialize identically. The padding silents that
+  // Piece.fromJSON adds get a fresh uuid per load, so blank those before comparing.
+  const fixtureIds = new Set<string>(
+    pieceData.phraseGrid.flat().flatMap((ph: any) => ph.trajectoryGrid.flat())
+      .map((t: any) => t.uniqueId).filter((u: any) => typeof u === 'string')
+  );
+  const wireTrajsOf = (data: any) => clone(Piece.fromJSON(clone(data)).toJSON())
+    .phraseGrid.flat().flatMap((ph: any) => ph.trajectoryGrid.flat())
+    .map((t: any) => fixtureIds.has(t.uniqueId) ? t : { ...t, uniqueId: 'padding' });
+  const wireTrajs = wireTrajsOf(pieceDataV1);
+  const wireTrajsV2 = wireTrajsOf(pieceData);
+  expect(wireTrajs.length).toBe(v1Trajs.length);
+  expect(wireTrajs).toEqual(wireTrajsV2);
+  // v2 canonical form on the wire: vibObj only on id 13
+  wireTrajs.forEach((t: any) => expect('vibObj' in t).toBe(t.id === 13));
+  const vib = wireTrajs.find((t: any) => t.id === 13);
+  expect(vib.vibObj).toEqual({
+    rate: 8 / vib.durTot, extentStart: 0.05, extentEnd: 0.05, vertOffset: 0, phase: Math.PI,
+  });
+  // the healed vibrato renders identically to the stored v2 one
+  const a = v1Trajs.find(t => t.id === 13)!;
+  const b = v2Trajs.find(t => t.id === 13)!;
+  for (let i = 0; i <= 200; i++) expect(a.compute(i / 200)).toBe(b.compute(i / 200));
+});
+
 test('Piece method coverage', () => {
   const { piece, p1, p2, t1, t2, t3, group, meter } = buildSimplePieceFull();
 

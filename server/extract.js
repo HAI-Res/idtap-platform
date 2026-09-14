@@ -10472,13 +10472,13 @@ var require_lib2 = __commonJS({
           clearTimeout(reqTimeout);
           const headers = createHeadersLenient(res.headers);
           if (fetch2.isRedirect(res.statusCode)) {
-            const location = headers.get("Location");
+            const location2 = headers.get("Location");
             let locationURL = null;
             try {
-              locationURL = location === null ? null : new URL$1(location, request.url).toString();
+              locationURL = location2 === null ? null : new URL$1(location2, request.url).toString();
             } catch (err) {
               if (request.redirect !== "manual") {
-                reject(new FetchError(`uri requested responds with an invalid redirect URL: ${location}`, "invalid-redirect"));
+                reject(new FetchError(`uri requested responds with an invalid redirect URL: ${location2}`, "invalid-redirect"));
                 finalize();
                 return;
               }
@@ -14521,16 +14521,16 @@ var require_defined_names = __commonJS({
       }
       // add a name to a cell. locStr in the form SheetName!$col$row or SheetName!$c1$r1:$c2:$r2
       add(locStr, name) {
-        const location = colCache.decodeEx(locStr);
-        this.addEx(location, name);
+        const location2 = colCache.decodeEx(locStr);
+        this.addEx(location2, name);
       }
-      addEx(location, name) {
+      addEx(location2, name) {
         const matrix = this.getMatrix(name);
-        if (location.top) {
-          for (let col = location.left; col <= location.right; col++) {
-            for (let row = location.top; row <= location.bottom; row++) {
+        if (location2.top) {
+          for (let col = location2.left; col <= location2.right; col++) {
+            for (let row = location2.top; row <= location2.bottom; row++) {
               const address = {
-                sheetName: location.sheetName,
+                sheetName: location2.sheetName,
                 address: colCache.n2l(col) + row,
                 row,
                 col
@@ -14539,20 +14539,20 @@ var require_defined_names = __commonJS({
             }
           }
         } else {
-          matrix.addCellEx(location);
+          matrix.addCellEx(location2);
         }
       }
       remove(locStr, name) {
-        const location = colCache.decodeEx(locStr);
-        this.removeEx(location, name);
+        const location2 = colCache.decodeEx(locStr);
+        this.removeEx(location2, name);
       }
-      removeEx(location, name) {
+      removeEx(location2, name) {
         const matrix = this.getMatrix(name);
-        matrix.removeCellEx(location);
+        matrix.removeCellEx(location2);
       }
-      removeAllNames(location) {
+      removeAllNames(location2) {
         _2.each(this.matrixMap, (matrix) => {
-          matrix.removeCellEx(location);
+          matrix.removeCellEx(location2);
         });
       }
       forEach(callback) {
@@ -43403,7 +43403,7 @@ var require_src2 = __commonJS({
     } });
     exports2.parse = (args) => new CsvParserStream_1.CsvParserStream(new ParserOptions_1.ParserOptions(args));
     exports2.parseStream = (stream, options) => stream.pipe(new CsvParserStream_1.CsvParserStream(new ParserOptions_1.ParserOptions(options)));
-    exports2.parseFile = (location, options = {}) => fs.createReadStream(location).pipe(new CsvParserStream_1.CsvParserStream(new ParserOptions_1.ParserOptions(options)));
+    exports2.parseFile = (location2, options = {}) => fs.createReadStream(location2).pipe(new CsvParserStream_1.CsvParserStream(new ParserOptions_1.ParserOptions(options)));
     exports2.parseString = (string, options) => {
       const rs = new stream_1.Readable();
       rs.push(string);
@@ -44543,9 +44543,9 @@ var init_brace_expansion = __esm({
   }
 });
 
-// server/node_modules/.pnpm/minimatch@10.2.2/node_modules/minimatch/dist/commonjs/assert-valid-pattern.js
+// server/node_modules/.pnpm/minimatch@10.2.4/node_modules/minimatch/dist/commonjs/assert-valid-pattern.js
 var require_assert_valid_pattern = __commonJS({
-  "server/node_modules/.pnpm/minimatch@10.2.2/node_modules/minimatch/dist/commonjs/assert-valid-pattern.js"(exports2) {
+  "server/node_modules/.pnpm/minimatch@10.2.4/node_modules/minimatch/dist/commonjs/assert-valid-pattern.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.assertValidPattern = void 0;
@@ -44562,9 +44562,9 @@ var require_assert_valid_pattern = __commonJS({
   }
 });
 
-// server/node_modules/.pnpm/minimatch@10.2.2/node_modules/minimatch/dist/commonjs/brace-expressions.js
+// server/node_modules/.pnpm/minimatch@10.2.4/node_modules/minimatch/dist/commonjs/brace-expressions.js
 var require_brace_expressions = __commonJS({
-  "server/node_modules/.pnpm/minimatch@10.2.2/node_modules/minimatch/dist/commonjs/brace-expressions.js"(exports2) {
+  "server/node_modules/.pnpm/minimatch@10.2.4/node_modules/minimatch/dist/commonjs/brace-expressions.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.parseClass = void 0;
@@ -44679,9 +44679,9 @@ var require_brace_expressions = __commonJS({
   }
 });
 
-// server/node_modules/.pnpm/minimatch@10.2.2/node_modules/minimatch/dist/commonjs/unescape.js
+// server/node_modules/.pnpm/minimatch@10.2.4/node_modules/minimatch/dist/commonjs/unescape.js
 var require_unescape = __commonJS({
-  "server/node_modules/.pnpm/minimatch@10.2.2/node_modules/minimatch/dist/commonjs/unescape.js"(exports2) {
+  "server/node_modules/.pnpm/minimatch@10.2.4/node_modules/minimatch/dist/commonjs/unescape.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.unescape = void 0;
@@ -44695,16 +44695,64 @@ var require_unescape = __commonJS({
   }
 });
 
-// server/node_modules/.pnpm/minimatch@10.2.2/node_modules/minimatch/dist/commonjs/ast.js
+// server/node_modules/.pnpm/minimatch@10.2.4/node_modules/minimatch/dist/commonjs/ast.js
 var require_ast = __commonJS({
-  "server/node_modules/.pnpm/minimatch@10.2.2/node_modules/minimatch/dist/commonjs/ast.js"(exports2) {
+  "server/node_modules/.pnpm/minimatch@10.2.4/node_modules/minimatch/dist/commonjs/ast.js"(exports2) {
     "use strict";
+    var _a;
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.AST = void 0;
     var brace_expressions_js_1 = require_brace_expressions();
     var unescape_js_1 = require_unescape();
     var types = /* @__PURE__ */ new Set(["!", "?", "+", "*", "@"]);
     var isExtglobType = (c) => types.has(c);
+    var isExtglobAST = (c) => isExtglobType(c.type);
+    var adoptionMap = /* @__PURE__ */ new Map([
+      ["!", ["@"]],
+      ["?", ["?", "@"]],
+      ["@", ["@"]],
+      ["*", ["*", "+", "?", "@"]],
+      ["+", ["+", "@"]]
+    ]);
+    var adoptionWithSpaceMap = /* @__PURE__ */ new Map([
+      ["!", ["?"]],
+      ["@", ["?"]],
+      ["+", ["?", "*"]]
+    ]);
+    var adoptionAnyMap = /* @__PURE__ */ new Map([
+      ["!", ["?", "@"]],
+      ["?", ["?", "@"]],
+      ["@", ["?", "@"]],
+      ["*", ["*", "+", "?", "@"]],
+      ["+", ["+", "@", "?", "*"]]
+    ]);
+    var usurpMap = /* @__PURE__ */ new Map([
+      ["!", /* @__PURE__ */ new Map([["!", "@"]])],
+      [
+        "?",
+        /* @__PURE__ */ new Map([
+          ["*", "*"],
+          ["+", "*"]
+        ])
+      ],
+      [
+        "@",
+        /* @__PURE__ */ new Map([
+          ["!", "!"],
+          ["?", "?"],
+          ["@", "@"],
+          ["*", "*"],
+          ["+", "+"]
+        ])
+      ],
+      [
+        "+",
+        /* @__PURE__ */ new Map([
+          ["?", "*"],
+          ["*", "*"]
+        ])
+      ]
+    ]);
     var startNoTraversal = "(?!(?:^|/)\\.\\.?(?:$|/))";
     var startNoDot = "(?!\\.)";
     var addPatternStart = /* @__PURE__ */ new Set(["[", "."]);
@@ -44714,7 +44762,8 @@ var require_ast = __commonJS({
     var qmark = "[^/]";
     var star = qmark + "*?";
     var starNoEmpty = qmark + "+?";
-    var AST = class _AST {
+    var ID = 0;
+    var AST = class {
       type;
       #root;
       #hasMagic;
@@ -44729,6 +44778,24 @@ var require_ast = __commonJS({
       // set to true if it's an extglob with no children
       // (which really means one child of '')
       #emptyExt = false;
+      id = ++ID;
+      get depth() {
+        var _a2;
+        return (((_a2 = this.#parent) == null ? void 0 : _a2.depth) ?? -1) + 1;
+      }
+      [Symbol.for("nodejs.util.inspect.custom")]() {
+        var _a2;
+        return {
+          "@@type": "AST",
+          id: this.id,
+          type: this.type,
+          root: this.#root.id,
+          parent: (_a2 = this.#parent) == null ? void 0 : _a2.id,
+          depth: this.depth,
+          partsLength: this.#parts.length,
+          parts: this.#parts
+        };
+      }
       constructor(type, parent, options = {}) {
         this.type = type;
         if (type)
@@ -44794,44 +44861,44 @@ var require_ast = __commonJS({
         for (const p of parts) {
           if (p === "")
             continue;
-          if (typeof p !== "string" && !(p instanceof _AST && p.#parent === this)) {
+          if (typeof p !== "string" && !(p instanceof _a && p.#parent === this)) {
             throw new Error("invalid part: " + p);
           }
           this.#parts.push(p);
         }
       }
       toJSON() {
-        var _a;
+        var _a2;
         const ret2 = this.type === null ? this.#parts.slice().map((p) => typeof p === "string" ? p : p.toJSON()) : [this.type, ...this.#parts.map((p) => p.toJSON())];
         if (this.isStart() && !this.type)
           ret2.unshift([]);
-        if (this.isEnd() && (this === this.#root || this.#root.#filledNegs && ((_a = this.#parent) == null ? void 0 : _a.type) === "!")) {
+        if (this.isEnd() && (this === this.#root || this.#root.#filledNegs && ((_a2 = this.#parent) == null ? void 0 : _a2.type) === "!")) {
           ret2.push({});
         }
         return ret2;
       }
       isStart() {
-        var _a;
+        var _a2;
         if (this.#root === this)
           return true;
-        if (!((_a = this.#parent) == null ? void 0 : _a.isStart()))
+        if (!((_a2 = this.#parent) == null ? void 0 : _a2.isStart()))
           return false;
         if (this.#parentIndex === 0)
           return true;
         const p = this.#parent;
         for (let i = 0; i < this.#parentIndex; i++) {
           const pp = p.#parts[i];
-          if (!(pp instanceof _AST && pp.type === "!")) {
+          if (!(pp instanceof _a && pp.type === "!")) {
             return false;
           }
         }
         return true;
       }
       isEnd() {
-        var _a, _b, _c;
+        var _a2, _b, _c;
         if (this.#root === this)
           return true;
-        if (((_a = this.#parent) == null ? void 0 : _a.type) === "!")
+        if (((_a2 = this.#parent) == null ? void 0 : _a2.type) === "!")
           return true;
         if (!((_b = this.#parent) == null ? void 0 : _b.isEnd()))
           return false;
@@ -44847,13 +44914,14 @@ var require_ast = __commonJS({
           this.push(part.clone(this));
       }
       clone(parent) {
-        const c = new _AST(this.type, parent);
+        const c = new _a(this.type, parent);
         for (const p of this.#parts) {
           c.copyIn(p);
         }
         return c;
       }
-      static #parseAST(str, ast, pos, opt) {
+      static #parseAST(str, ast, pos, opt, extDepth) {
+        const maxDepth = opt.maxExtglobRecursion ?? 2;
         let escaping = false;
         let inBrace = false;
         let braceStart = -1;
@@ -44885,11 +44953,12 @@ var require_ast = __commonJS({
               acc2 += c;
               continue;
             }
-            if (!opt.noext && isExtglobType(c) && str.charAt(i2) === "(") {
+            const doRecurse = !opt.noext && isExtglobType(c) && str.charAt(i2) === "(" && extDepth <= maxDepth;
+            if (doRecurse) {
               ast.push(acc2);
               acc2 = "";
-              const ext = new _AST(c, ast);
-              i2 = _AST.#parseAST(str, ext, i2, opt);
+              const ext = new _a(c, ast);
+              i2 = _a.#parseAST(str, ext, i2, opt, extDepth + 1);
               ast.push(ext);
               continue;
             }
@@ -44899,7 +44968,7 @@ var require_ast = __commonJS({
           return i2;
         }
         let i = pos + 1;
-        let part = new _AST(null, ast);
+        let part = new _a(null, ast);
         const parts = [];
         let acc = "";
         while (i < str.length) {
@@ -44926,19 +44995,22 @@ var require_ast = __commonJS({
             acc += c;
             continue;
           }
-          if (isExtglobType(c) && str.charAt(i) === "(") {
+          const doRecurse = !opt.noext && isExtglobType(c) && str.charAt(i) === "(" && /* c8 ignore start - the maxDepth is sufficient here */
+          (extDepth <= maxDepth || ast && ast.#canAdoptType(c));
+          if (doRecurse) {
+            const depthAdd = ast && ast.#canAdoptType(c) ? 0 : 1;
             part.push(acc);
             acc = "";
-            const ext = new _AST(c, part);
+            const ext = new _a(c, part);
             part.push(ext);
-            i = _AST.#parseAST(str, ext, i, opt);
+            i = _a.#parseAST(str, ext, i, opt, extDepth + depthAdd);
             continue;
           }
           if (c === "|") {
             part.push(acc);
             acc = "";
             parts.push(part);
-            part = new _AST(null, ast);
+            part = new _a(null, ast);
             continue;
           }
           if (c === ")") {
@@ -44957,9 +45029,72 @@ var require_ast = __commonJS({
         ast.#parts = [str.substring(pos - 1)];
         return i;
       }
+      #canAdoptWithSpace(child) {
+        return this.#canAdopt(child, adoptionWithSpaceMap);
+      }
+      #canAdopt(child, map = adoptionMap) {
+        if (!child || typeof child !== "object" || child.type !== null || child.#parts.length !== 1 || this.type === null) {
+          return false;
+        }
+        const gc = child.#parts[0];
+        if (!gc || typeof gc !== "object" || gc.type === null) {
+          return false;
+        }
+        return this.#canAdoptType(gc.type, map);
+      }
+      #canAdoptType(c, map = adoptionAnyMap) {
+        var _a2;
+        return !!((_a2 = map.get(this.type)) == null ? void 0 : _a2.includes(c));
+      }
+      #adoptWithSpace(child, index) {
+        const gc = child.#parts[0];
+        const blank = new _a(null, gc, this.options);
+        blank.#parts.push("");
+        gc.push(blank);
+        this.#adopt(child, index);
+      }
+      #adopt(child, index) {
+        const gc = child.#parts[0];
+        this.#parts.splice(index, 1, ...gc.#parts);
+        for (const p of gc.#parts) {
+          if (typeof p === "object")
+            p.#parent = this;
+        }
+        this.#toString = void 0;
+      }
+      #canUsurpType(c) {
+        const m = usurpMap.get(this.type);
+        return !!(m == null ? void 0 : m.has(c));
+      }
+      #canUsurp(child) {
+        if (!child || typeof child !== "object" || child.type !== null || child.#parts.length !== 1 || this.type === null || this.#parts.length !== 1) {
+          return false;
+        }
+        const gc = child.#parts[0];
+        if (!gc || typeof gc !== "object" || gc.type === null) {
+          return false;
+        }
+        return this.#canUsurpType(gc.type);
+      }
+      #usurp(child) {
+        const m = usurpMap.get(this.type);
+        const gc = child.#parts[0];
+        const nt = m == null ? void 0 : m.get(gc.type);
+        if (!nt)
+          return false;
+        this.#parts = gc.#parts;
+        for (const p of this.#parts) {
+          if (typeof p === "object") {
+            p.#parent = this;
+          }
+        }
+        this.type = nt;
+        this.#toString = void 0;
+        this.#emptyExt = false;
+      }
       static fromGlob(pattern, options = {}) {
-        const ast = new _AST(null, void 0, options);
-        _AST.#parseAST(pattern, ast, 0, options);
+        const ast = new _a(null, void 0, options);
+        _a.#parseAST(pattern, ast, 0, options, 0);
         return ast;
       }
       // returns the regular expression if there's magic, or the unescaped
@@ -45052,14 +45187,16 @@ var require_ast = __commonJS({
       // is ^(?!\.), we can just prepend (?!\.) to the pattern (either root
       // or start or whatever) and prepend ^ or / at the Regexp construction.
       toRegExpSource(allowDot) {
-        var _a;
+        var _a2;
         const dot = allowDot ?? !!this.#options.dot;
-        if (this.#root === this)
+        if (this.#root === this) {
+          this.#flatten();
           this.#fillNegs();
-        if (!this.type) {
+        }
+        if (!isExtglobAST(this)) {
           const noEmpty = this.isStart() && this.isEnd() && !this.#parts.some((s) => typeof s !== "string");
           const src = this.#parts.map((p) => {
-            const [re, _2, hasMagic, uflag] = typeof p === "string" ? _AST.#parseGlob(p, this.#hasMagic, noEmpty) : p.toRegExpSource(allowDot);
+            const [re, _2, hasMagic, uflag] = typeof p === "string" ? _a.#parseGlob(p, this.#hasMagic, noEmpty) : p.toRegExpSource(allowDot);
             this.#hasMagic = this.#hasMagic || hasMagic;
             this.#uflag = this.#uflag || uflag;
             return re;
@@ -45082,7 +45219,7 @@ var require_ast = __commonJS({
             }
           }
           let end = "";
-          if (this.isEnd() && this.#root.#filledNegs && ((_a = this.#parent) == null ? void 0 : _a.type) === "!") {
+          if (this.isEnd() && this.#root.#filledNegs && ((_a2 = this.#parent) == null ? void 0 : _a2.type) === "!") {
             end = "(?:$|\\/)";
           }
           const final2 = start2 + src + end;
@@ -45098,9 +45235,10 @@ var require_ast = __commonJS({
         let body = this.#partsToRegExp(dot);
         if (this.isStart() && this.isEnd() && !body && this.type !== "!") {
           const s = this.toString();
-          this.#parts = [s];
-          this.type = null;
-          this.#hasMagic = void 0;
+          const me = this;
+          me.#parts = [s];
+          me.type = null;
+          me.#hasMagic = void 0;
           return [s, (0, unescape_js_1.unescape)(this.toString()), false, false];
         }
         let bodyDotAllowed = !repeated || allowDot || dot || !startNoDot ? "" : this.#partsToRegExp(true);
@@ -45126,6 +45264,38 @@ var require_ast = __commonJS({
           this.#hasMagic = !!this.#hasMagic,
           this.#uflag
         ];
+      }
+      #flatten() {
+        if (!isExtglobAST(this)) {
+          for (const p of this.#parts) {
+            if (typeof p === "object") {
+              p.#flatten();
+            }
+          }
+        } else {
+          let iterations = 0;
+          let done = false;
+          do {
+            done = true;
+            for (let i = 0; i < this.#parts.length; i++) {
+              const c = this.#parts[i];
+              if (typeof c === "object") {
+                c.#flatten();
+                if (this.#canAdopt(c)) {
+                  done = false;
+                  this.#adopt(c, i);
+                } else if (this.#canAdoptWithSpace(c)) {
+                  done = false;
+                  this.#adoptWithSpace(c, i);
+                } else if (this.#canUsurp(c)) {
+                  done = false;
+                  this.#usurp(c);
+                }
+              }
+            }
+          } while (!done && ++iterations < 10);
+        }
+        this.#toString = void 0;
       }
       #partsToRegExp(dot) {
         return this.#parts.map((p) => {
@@ -45188,12 +45358,13 @@ var require_ast = __commonJS({
       }
     };
     exports2.AST = AST;
+    _a = AST;
   }
 });
 
-// server/node_modules/.pnpm/minimatch@10.2.2/node_modules/minimatch/dist/commonjs/escape.js
+// server/node_modules/.pnpm/minimatch@10.2.4/node_modules/minimatch/dist/commonjs/escape.js
 var require_escape = __commonJS({
-  "server/node_modules/.pnpm/minimatch@10.2.2/node_modules/minimatch/dist/commonjs/escape.js"(exports2) {
+  "server/node_modules/.pnpm/minimatch@10.2.4/node_modules/minimatch/dist/commonjs/escape.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.escape = void 0;
@@ -45207,9 +45378,9 @@ var require_escape = __commonJS({
   }
 });
 
-// server/node_modules/.pnpm/minimatch@10.2.2/node_modules/minimatch/dist/commonjs/index.js
+// server/node_modules/.pnpm/minimatch@10.2.4/node_modules/minimatch/dist/commonjs/index.js
 var require_commonjs = __commonJS({
-  "server/node_modules/.pnpm/minimatch@10.2.2/node_modules/minimatch/dist/commonjs/index.js"(exports2) {
+  "server/node_modules/.pnpm/minimatch@10.2.4/node_modules/minimatch/dist/commonjs/index.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.unescape = exports2.escape = exports2.AST = exports2.Minimatch = exports2.match = exports2.makeRe = exports2.braceExpand = exports2.defaults = exports2.filter = exports2.GLOBSTAR = exports2.sep = exports2.minimatch = void 0;
@@ -45372,11 +45543,13 @@ var require_commonjs = __commonJS({
       isWindows;
       platform;
       windowsNoMagicRoot;
+      maxGlobstarRecursion;
       regexp;
       constructor(pattern, options = {}) {
         (0, assert_valid_pattern_js_1.assertValidPattern)(pattern);
         options = options || {};
         this.options = options;
+        this.maxGlobstarRecursion = options.maxGlobstarRecursion ?? 200;
         this.pattern = pattern;
         this.platform = options.platform || defaultPlatform;
         this.isWindows = this.platform === "win32";
@@ -45713,7 +45886,8 @@ var require_commonjs = __commonJS({
       // out of pattern, then that's fine, as long as all
       // the parts match.
       matchOne(file, pattern, partial = false) {
-        const options = this.options;
+        let fileStartIndex = 0;
+        let patternStartIndex = 0;
         if (this.isWindows) {
           const fileDrive = typeof file[0] === "string" && /^[a-z]:$/i.test(file[0]);
           const fileUNC = !fileDrive && file[0] === "" && file[1] === "" && file[2] === "?" && /^[a-z]:$/i.test(file[3]);
@@ -45728,11 +45902,8 @@ var require_commonjs = __commonJS({
             ];
             if (fd.toLowerCase() === pd.toLowerCase()) {
               pattern[pdi] = fd;
-              if (pdi > fdi) {
-                pattern = pattern.slice(pdi);
-              } else if (fdi > pdi) {
-                file = file.slice(fdi);
-              }
+              patternStartIndex = pdi;
+              fileStartIndex = fdi;
             }
           }
         }
@@ -45740,49 +45911,123 @@ var require_commonjs = __commonJS({
         if (optimizationLevel >= 2) {
           file = this.levelTwoFileOptimize(file);
         }
-        this.debug("matchOne", this, { file, pattern });
-        this.debug("matchOne", file.length, pattern.length);
-        for (var fi = 0, pi = 0, fl = file.length, pl = pattern.length; fi < fl && pi < pl; fi++, pi++) {
-          this.debug("matchOne loop");
-          var p = pattern[pi];
-          var f = file[fi];
-          this.debug(pattern, p, f);
-          if (p === false) {
+        if (pattern.includes(exports2.GLOBSTAR)) {
+          return this.#matchGlobstar(file, pattern, partial, fileStartIndex, patternStartIndex);
+        }
+        return this.#matchOne(file, pattern, partial, fileStartIndex, patternStartIndex);
+      }
+      #matchGlobstar(file, pattern, partial, fileIndex, patternIndex) {
+        const firstgs = pattern.indexOf(exports2.GLOBSTAR, patternIndex);
+        const lastgs = pattern.lastIndexOf(exports2.GLOBSTAR);
+        const [head, body, tail] = partial ? [
+          pattern.slice(patternIndex, firstgs),
+          pattern.slice(firstgs + 1),
+          []
+        ] : [
+          pattern.slice(patternIndex, firstgs),
+          pattern.slice(firstgs + 1, lastgs),
+          pattern.slice(lastgs + 1)
+        ];
+        if (head.length) {
+          const fileHead = file.slice(fileIndex, fileIndex + head.length);
+          if (!this.#matchOne(fileHead, head, partial, 0, 0)) {
             return false;
           }
-          if (p === exports2.GLOBSTAR) {
-            this.debug("GLOBSTAR", [pattern, p, f]);
-            var fr = fi;
-            var pr = pi + 1;
-            if (pr === pl) {
-              this.debug("** at the end");
-              for (; fi < fl; fi++) {
-                if (file[fi] === "." || file[fi] === ".." || !options.dot && file[fi].charAt(0) === ".")
-                  return false;
-              }
-              return true;
+          fileIndex += head.length;
+          patternIndex += head.length;
+        }
+        let fileTailMatch = 0;
+        if (tail.length) {
+          if (tail.length + fileIndex > file.length)
+            return false;
+          let tailStart = file.length - tail.length;
+          if (this.#matchOne(file, tail, partial, tailStart, 0)) {
+            fileTailMatch = tail.length;
+          } else {
+            if (file[file.length - 1] !== "" || fileIndex + tail.length === file.length) {
+              return false;
             }
-            while (fr < fl) {
-              var swallowee = file[fr];
-              this.debug("\nglobstar while", file, fr, pattern, pr, swallowee);
-              if (this.matchOne(file.slice(fr), pattern.slice(pr), partial)) {
-                this.debug("globstar found match!", fr, fl, swallowee);
-                return true;
-              } else {
-                if (swallowee === "." || swallowee === ".." || !options.dot && swallowee.charAt(0) === ".") {
-                  this.debug("dot detected!", file, fr, pattern, pr);
-                  break;
-                }
-                this.debug("globstar swallow a segment, and continue");
-                fr++;
-              }
+            tailStart--;
+            if (!this.#matchOne(file, tail, partial, tailStart, 0)) {
+              return false;
             }
-            if (partial) {
-              this.debug("\n>>> no match, partial?", file, fr, pattern, pr);
-              if (fr === fl) {
-                return true;
-              }
+            fileTailMatch = tail.length + 1;
+          }
+        }
+        if (!body.length) {
+          let sawSome = !!fileTailMatch;
+          for (let i2 = fileIndex; i2 < file.length - fileTailMatch; i2++) {
+            const f = String(file[i2]);
+            sawSome = true;
+            if (f === "." || f === ".." || !this.options.dot && f.startsWith(".")) {
+              return false;
             }
+          }
+          return partial || sawSome;
+        }
+        const bodySegments = [[[], 0]];
+        let currentBody = bodySegments[0];
+        let nonGsParts = 0;
+        const nonGsPartsSums = [0];
+        for (const b of body) {
+          if (b === exports2.GLOBSTAR) {
+            nonGsPartsSums.push(nonGsParts);
+            currentBody = [[], 0];
+            bodySegments.push(currentBody);
+          } else {
+            currentBody[0].push(b);
+            nonGsParts++;
+          }
+        }
+        let i = bodySegments.length - 1;
+        const fileLength = file.length - fileTailMatch;
+        for (const b of bodySegments) {
+          b[1] = fileLength - (nonGsPartsSums[i--] + b[0].length);
+        }
+        return !!this.#matchGlobStarBodySections(file, bodySegments, fileIndex, 0, partial, 0, !!fileTailMatch);
+      }
+      // return false for "nope, not matching"
+      // return null for "not matching, cannot keep trying"
+      #matchGlobStarBodySections(file, bodySegments, fileIndex, bodyIndex, partial, globStarDepth, sawTail) {
+        const bs = bodySegments[bodyIndex];
+        if (!bs) {
+          for (let i = fileIndex; i < file.length; i++) {
+            sawTail = true;
+            const f = file[i];
+            if (f === "." || f === ".." || !this.options.dot && f.startsWith(".")) {
+              return false;
+            }
+          }
+          return sawTail;
+        }
+        const [body, after] = bs;
+        while (fileIndex <= after) {
+          const m = this.#matchOne(file.slice(0, fileIndex + body.length), body, partial, fileIndex, 0);
+          if (m && globStarDepth < this.maxGlobstarRecursion) {
+            const sub = this.#matchGlobStarBodySections(file, bodySegments, fileIndex + body.length, bodyIndex + 1, partial, globStarDepth + 1, sawTail);
+            if (sub !== false) {
+              return sub;
+            }
+          }
+          const f = file[fileIndex];
+          if (f === "." || f === ".." || !this.options.dot && f.startsWith(".")) {
+            return false;
+          }
+          fileIndex++;
+        }
+        return partial || null;
+      }
+      #matchOne(file, pattern, partial, fileIndex, patternIndex) {
+        let fi;
+        let pi;
+        let pl;
+        let fl;
+        for (fi = fileIndex, pi = patternIndex, fl = file.length, pl = pattern.length; fi < fl && pi < pl; fi++, pi++) {
+          this.debug("matchOne loop");
+          let p = pattern[pi];
+          let f = file[fi];
+          this.debug(pattern, p, f);
+          if (p === false || p === exports2.GLOBSTAR) {
             return false;
           }
           let hit;
@@ -67927,7 +68172,6 @@ var getEnds = (durArray) => {
   const cumsum = /* @__PURE__ */ ((sum2) => (value) => sum2 += value)(0);
   return durArray.map(cumsum);
 };
-var isUpperCase = (str) => str === str.toUpperCase();
 
 // src/ts/model/automation.ts
 var Automation = class _Automation {
@@ -68811,19 +69055,21 @@ var Raga = class _Raga {
     this.ruleSet = ruleSet;
     this.fundamental = fundamental;
     this.tuning = tuning ? tuning : etTuning;
-    if (ratios === void 0 || ratios.length !== this.ruleSetNumPitches) {
+    if (ratios === void 0) {
       this.ratios = this.setRatios(this.ruleSet);
     } else {
       this.ratios = ratios;
     }
-    this.ratios.forEach((ratio, rIdx) => {
-      const tuningKeys = this.ratioIdxToTuningTuple(rIdx);
-      if (tuningKeys[0] === "sa" || tuningKeys[0] === "pa") {
-        this.tuning[tuningKeys[0]] = ratio;
-      } else {
-        this.tuning[tuningKeys[0]][tuningKeys[1]] = ratio;
-      }
-    });
+    if (this.ratios.length === this.ruleSetNumPitches) {
+      this.ratios.forEach((ratio, rIdx) => {
+        const tuningKeys = this.ratioIdxToTuningTuple(rIdx);
+        if (tuningKeys[0] === "sa" || tuningKeys[0] === "pa") {
+          this.tuning[tuningKeys[0]] = ratio;
+        } else {
+          this.tuning[tuningKeys[0]][tuningKeys[1]] = ratio;
+        }
+      });
+    }
   }
   get sargamLetters() {
     const initSargam = ["sa", "re", "ga", "ma", "pa", "dha", "ni"];
@@ -69016,11 +69262,12 @@ var Raga = class _Raga {
   get stratifiedRatios() {
     const sargam = ["sa", "re", "ga", "ma", "pa", "dha", "ni"];
     const ratios = [];
+    const aligned = this.ratios.length === this.ruleSetNumPitches;
     let ct = 0;
     sargam.forEach((s, sIdx) => {
       if (typeof this.ruleSet[s] === "boolean") {
         if (this.ruleSet[s]) {
-          ratios.push(this.ratios[ct]);
+          ratios.push(aligned ? this.ratios[ct] : this.tuning[s]);
           ct++;
         } else {
           ratios.push(this.tuning[s]);
@@ -69028,13 +69275,17 @@ var Raga = class _Raga {
       } else {
         ratios.push([]);
         if (this.ruleSet[s].lowered) {
-          ratios[sIdx].push(this.ratios[ct]);
+          ratios[sIdx].push(
+            aligned ? this.ratios[ct] : this.tuning[s].lowered
+          );
           ct++;
         } else {
           ratios[sIdx].push(this.tuning[s].lowered);
         }
         if (this.ruleSet[s].raised) {
-          ratios[sIdx].push(this.ratios[ct]);
+          ratios[sIdx].push(
+            aligned ? this.ratios[ct] : this.tuning[s].raised
+          );
           ct++;
         } else {
           ratios[sIdx].push(this.tuning[s].raised);
@@ -69072,18 +69323,7 @@ var Raga = class _Raga {
     low = 100,
     high = 800
   } = {}) {
-    const baseFreqs = this.ratios.map((r) => r * this.fundamental);
-    const freqs = [];
-    baseFreqs.forEach((f) => {
-      const lowExp = Math.ceil(Math.log2(low / f));
-      const highExp = Math.floor(Math.log2(high / f));
-      let range2 = [...Array(highExp - lowExp + 1).keys()].map((i) => i + lowExp);
-      const exps = range2.map((r) => 2 ** r);
-      const additionalFreqs = exps.map((exp) => f * exp);
-      freqs.push(...additionalFreqs);
-    });
-    freqs.sort((a, b) => a - b);
-    return freqs;
+    return this.getPitches({ low, high }).map((p) => p.frequency);
   }
   get sargamNames() {
     const names = [];
@@ -69132,27 +69372,18 @@ var Raga = class _Raga {
     return swaraObjs;
   }
   pitchFromLogFreq(logFreq) {
-    const epsilon = 1e-6;
-    const options = this.getFrequencies({ low: 75, high: 2400 }).map((f) => Math.log2(f));
+    const pitches = this.getPitches({ low: 75, high: 2400 });
+    const options = pitches.map((p) => Math.log2(p.frequency));
     const quantizedLogFreq = getClosest(options, logFreq);
     const logOffset = logFreq - quantizedLogFreq;
-    let logDiff = quantizedLogFreq - Math.log2(this.fundamental);
-    const roundedLogDiff = Math.round(logDiff);
-    if (Math.abs(logDiff - roundedLogDiff) < epsilon) {
-      logDiff = roundedLogDiff;
-    }
-    const octOffset = Math.floor(logDiff);
-    logDiff -= octOffset;
-    const rIdx = this.ratios.findIndex((r) => closeTo(r, 2 ** logDiff));
-    const swara = this.sargamLetters[rIdx];
-    const raised = isUpperCase(swara);
+    const chosen = pitches[options.indexOf(quantizedLogFreq)];
     return new Pitch({
-      swara,
-      oct: octOffset,
+      swara: chosen.swara,
+      oct: chosen.oct,
       fundamental: this.fundamental,
       ratios: this.stratifiedRatios,
       logOffset,
-      raised
+      raised: chosen.raised
     });
   }
   ratioIdxToTuningTuple(idx) {
@@ -69179,7 +69410,10 @@ var Raga = class _Raga {
       name: this.name,
       fundamental: this.fundamental,
       ratios: this.ratios,
-      tuning: this.tuning
+      tuning: this.tuning,
+      // PROP-1: serialize the ruleSet so the raga is self-contained (no
+      // load-time DB fetch to interpret the piece).
+      ruleSet: this.ruleSet
     };
   }
   static fromJSON(obj2) {
@@ -69324,12 +69558,7 @@ var Trajectory = class _Trajectory {
       throw new SyntaxError(`invalid slope type, must be number: ${slope}`);
     }
     if (vibObj === void 0) {
-      this.vibObj = {
-        periods: 8,
-        vertOffset: 0,
-        initUp: true,
-        extent: 0.05
-      };
+      this.vibObj = _Trajectory.defaultVibObj();
     } else {
       this.vibObj = vibObj;
     }
@@ -69818,31 +70047,33 @@ var Trajectory = class _Trajectory {
     return this.fundID12;
   }
   id13(x) {
-    const periods = this.vibObj.periods;
-    let vertOffset = this.vibObj.vertOffset;
-    const initUp = this.vibObj.initUp;
-    const extent = this.vibObj.extent;
-    if (Math.abs(vertOffset) > extent / 2) {
-      vertOffset = Math.sign(vertOffset) * extent / 2;
-    }
-    let out = Math.cos(x * 2 * Math.PI * periods + Number(initUp) * Math.PI);
-    if (x < 1 / (2 * periods)) {
-      const start = this.logFreqs[0];
-      const end = Math.log2(this.id13(1 / (2 * periods)));
-      const middle = (end + start) / 2;
-      const ext = Math.abs(end - start) / 2;
-      out = out * ext + middle;
-      return 2 ** out;
-    } else if (x > 1 - 1 / (2 * periods)) {
-      const start = Math.log2(this.id13(1 - 1 / (2 * periods)));
-      const end = this.logFreqs[0];
-      const middle = (end + start) / 2;
-      const ext = Math.abs(end - start) / 2;
-      out = out * ext + middle;
-      return 2 ** out;
+    const { rate, extentStart, extentEnd, vertOffset, phase } = this.vibObj;
+    const lf0 = this.logFreqs[0];
+    let P = rate * this.durTot;
+    if (!(P >= 1)) P = 1;
+    const core = (xx) => {
+      const A = (extentStart + (extentEnd - extentStart) * xx) / 2;
+      let vo = vertOffset;
+      if (Math.abs(vo) > A) vo = Math.sign(vo) * A;
+      return lf0 + vo + A * Math.cos(2 * Math.PI * P * xx + phase);
+    };
+    const ph = phase / Math.PI;
+    const k1 = Math.ceil(0.5 + ph);
+    const k2 = Math.floor(2 * P - 0.5 + ph);
+    const x1 = (k1 - ph) / (2 * P);
+    let x2 = (k2 - ph) / (2 * P);
+    if (x2 < x1) x2 = x1;
+    let y;
+    if (x <= x1) {
+      const end = core(x1);
+      y = lf0 + (end - lf0) * (1 - Math.cos(Math.PI * x / x1)) / 2;
+    } else if (x >= x2) {
+      const start = core(x2);
+      y = start + (lf0 - start) * (1 - Math.cos(Math.PI * (x - x2) / (1 - x2))) / 2;
     } else {
-      return 2 ** (out * extent / 2 + vertOffset + this.logFreqs[0]);
+      y = core(x);
     }
+    return 2 ** y;
   }
   removeConsonant(start = true) {
     if (start) {
@@ -70086,7 +70317,8 @@ var Trajectory = class _Trajectory {
       num: this.num,
       // name: removed — derived from id
       fundID12: this.fundID12,
-      vibObj: this.vibObj,
+      vibObj: this.id === 13 ? this.vibObj : void 0,
+      // PROP-6b: only meaningful on id 13
       // instrumentation: removed — inherited from piece context
       vowel: this.vowel,
       startConsonant: this.startConsonant,
@@ -70115,12 +70347,35 @@ var Trajectory = class _Trajectory {
       });
     }
     const automation = obj2.automation ? Automation.fromJSON(obj2.automation) : void 0;
+    const vibObj = obj2.vibObj === void 0 || obj2.vibObj === null ? void 0 : _Trajectory.healVibObj(obj2.vibObj, obj2.durTot ?? 1);
     return new _Trajectory({
       ...obj2,
       pitches,
       articulations,
-      automation
+      automation,
+      vibObj
     });
+  }
+  static defaultVibObj() {
+    return {
+      rate: 5.5,
+      extentStart: 0.05,
+      extentEnd: 0.05,
+      vertOffset: 0,
+      phase: Math.PI
+    };
+  }
+  static healVibObj(vibObj, durTot) {
+    if (!("periods" in vibObj)) return vibObj;
+    const extent = Number(vibObj.extent);
+    return {
+      rate: Number(vibObj.periods) / durTot,
+      extentStart: extent,
+      extentEnd: extent,
+      vertOffset: Number(vibObj.vertOffset ?? 0),
+      // defensive: absent on no known record
+      phase: vibObj.initUp ? Math.PI : 0
+    };
   }
   static names() {
     const traj = new _Trajectory();
@@ -70314,16 +70569,18 @@ var Phrase = class _Phrase {
     });
   }
   durTotFromTrajectories() {
+    const mainTrajs = this.trajectoryGrid[0];
+    if (mainTrajs && mainTrajs.length > 0) {
+      this.durTot = mainTrajs.map((t) => t.durTot).reduce((a, b) => a + b, 0);
+      return;
+    }
     let maxStringDuration = 0;
-    this.trajectoryGrid.forEach((stringTrajs, stringIdx) => {
+    this.trajectoryGrid.forEach((stringTrajs) => {
       if (stringTrajs && stringTrajs.length > 0) {
         const stringDuration = stringTrajs.map((t) => t.durTot).reduce((a, b) => a + b, 0);
         maxStringDuration = Math.max(maxStringDuration, stringDuration);
       }
     });
-    if (maxStringDuration === 0 && this.trajectories.length > 0) {
-      maxStringDuration = this.trajectories.map((t) => t.durTot).reduce((a, b) => a + b, 0);
-    }
     this.durTot = maxStringDuration;
   }
   durArrayFromTrajectories() {
@@ -73065,7 +73322,7 @@ var Piece = class _Piece {
     title = "untitled",
     dateCreated = /* @__PURE__ */ new Date(),
     dateModified = /* @__PURE__ */ new Date(),
-    location = "Santa Cruz",
+    location: location2 = "Santa Cruz",
     _id = void 0,
     audioID = void 0,
     audio_DB_ID = void 0,
@@ -73175,7 +73432,7 @@ var Piece = class _Piece {
     this.title = title;
     this.dateCreated = dateCreated;
     this.dateModified = dateModified;
-    this.location = location;
+    this.location = location2;
     this._id = _id;
     this.audioID = audioID;
     this.audio_DB_ID = audio_DB_ID;
@@ -73263,6 +73520,34 @@ var Piece = class _Piece {
             });
             phrase.trajectoryGrid[1].push(silentTraj);
             phrase.reset();
+          } else {
+            const eps = 1e-6;
+            const target = phrase.durTot ?? 0;
+            const stringTrajs = phrase.trajectoryGrid[1];
+            let sum2 = stringTrajs.reduce((a, t) => a + t.durTot, 0);
+            if (sum2 > target + eps) {
+              for (let i = stringTrajs.length - 1; i >= 0; i--) {
+                if (sum2 <= target + eps || stringTrajs[i].id !== 12) break;
+                const cut = Math.min(sum2 - target, stringTrajs[i].durTot);
+                stringTrajs[i].durTot -= cut;
+                sum2 -= cut;
+                if (stringTrajs[i].durTot < eps) stringTrajs.splice(i, 1);
+              }
+              if (sum2 > target + eps) {
+                console.warn(
+                  `ensureStringSynchronization: track ${trackIdx}, phrase ${phrase.pieceIdx}: second-string trajectories span ${sum2}s but the phrase is ${target}s; sounding content extends past the phrase and was left untouched.`
+                );
+              }
+              phrase.reset();
+            } else if (sum2 < target - eps) {
+              stringTrajs.push(new Trajectory({
+                id: 12,
+                durTot: target - sum2,
+                fundID12: this.raga.fundamental,
+                startTime: sum2
+              }));
+              phrase.reset();
+            }
           }
         });
       }
@@ -74103,6 +74388,9 @@ var Piece = class _Piece {
     const ratios = raga.stratifiedRatios;
     const fundamental = raga.fundamental;
     obj2.raga = raga;
+    const normDate = (d) => d instanceof Date ? d : d && typeof d === "object" && "$date" in d ? new Date(d.$date) : new Date(d);
+    if (obj2.dateCreated !== void 0) obj2.dateCreated = normDate(obj2.dateCreated);
+    if (obj2.dateModified !== void 0) obj2.dateModified = normDate(obj2.dateModified);
     if (obj2.phraseGrid === void 0 && obj2.phrases !== void 0) {
       obj2.phraseGrid = [obj2.phrases];
       while (obj2.phraseGrid.length < obj2.instrumentation.length) {
@@ -74232,15 +74520,22 @@ var etTuning2 = {
   }
 };
 
+// src/config.ts
+var import_meta = {};
+var _env = import_meta.env || {};
+var _origin = typeof location !== "undefined" ? location.origin + "/" : "https://swara.studio/";
+var SERVER_BASE = _env.VITE_API_URL || (_env.DEV ? "https://swara.studio/" : _origin);
+
 // src/js/serverCalls.ts
 var import_cross_fetch = __toESM(require_node_ponyfill(), 1);
-var url = "https://swara.studio/";
+var url = SERVER_BASE;
 var getPiece = async (id) => {
   let piece;
   const request = {
     method: "POST",
     headers: {
-      "Content-Type": "application/json"
+      "Content-Type": "application/json",
+      "X-IDTAP-Client": "web"
     },
     body: JSON.stringify({
       _id: id
@@ -74261,7 +74556,8 @@ var getRaagRule = async (name) => {
   const request = {
     method: "GET",
     headers: {
-      "Content-Type": "application/json"
+      "Content-Type": "application/json",
+      "X-IDTAP-Client": "web"
     }
   };
   const searchParams = new URLSearchParams({ name });
