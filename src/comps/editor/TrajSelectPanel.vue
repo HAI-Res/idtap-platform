@@ -264,7 +264,7 @@
       />
     </div>
     <div class='selectionRow' v-if='showVibObj'>
-      <label title='Centre offset as a fraction of the extent'>Offset</label>
+      <label title='Centre offset as a fraction of half the extent (+-1 = as far as the centre can move)'>Offset</label>
       <input
         type='range'
         class='slider'
@@ -1068,14 +1068,17 @@ export default defineComponent({
     },
 
     // Panel state <-> wire (PROP-6 v2). The offset slider is a fraction of the
-    // (larger) extent, so it reads back as vertOffset / extent, not vertOffset.
+    // largest HALF-extent, because id13 clamps vertOffset to +-A(x) = +-extent/2:
+    // offset = +-1 is the furthest the centre can move. (Scaling by the full
+    // extent, as v1 did, left the outer half of the slider a dead zone.) Stored
+    // offsets beyond the clamp read back as +-1.
     readVibObj(v: VibObjType) {
       this.rate = v.rate;
       this.extentCents = v.extentStart * 1200;
       this.extentEndCents = v.extentEnd * 1200;
       this.ramp = v.extentEnd !== v.extentStart;
-      const ref = Math.max(v.extentStart, v.extentEnd);
-      this.offset = ref > 0 ? v.vertOffset / ref : 0;
+      const ref = Math.max(v.extentStart, v.extentEnd) / 2;
+      this.offset = ref > 0 ? Math.max(-1, Math.min(1, v.vertOffset / ref)) : 0;
       this.phase = v.phase;
       const p = ((v.phase % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
       this.initUp = p > Math.PI / 2 && p < 3 * Math.PI / 2;
@@ -1089,7 +1092,7 @@ export default defineComponent({
     updateVibObj() {
       const extentStart = this.extentCents / 1200;
       const extentEnd = this.ramp ? this.extentEndCents / 1200 : extentStart;
-      const ref = Math.max(extentStart, extentEnd);
+      const ref = Math.max(extentStart, extentEnd) / 2;
       const vibObj: VibObjType = {
         rate: this.rate,
         extentStart,
