@@ -952,7 +952,7 @@ class Trajectory {
       rate: Number(vibObj.periods) / durTot,
       extentStart: extent,
       extentEnd: extent,
-      vertOffset: Number(vibObj.vertOffset),
+      vertOffset: Number(vibObj.vertOffset ?? 0), // defensive: absent on no known record
       phase: vibObj.initUp ? Math.PI : 0,
     }
   }
