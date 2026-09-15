@@ -51,7 +51,6 @@
       </div>
       <div class='bottomRow'>
         <div class='bottomRowInner'>
-          <div class='chasmsBox'><img :src='logos.chasms'></div>
           <div class='support'>
             <div class='supportTitle'>Support</div>
             <div class='supportRow'>
@@ -69,10 +68,19 @@
           </div>
           <div class='projectTeam'>
             <div class='projectTeamTitle'>Principal Investigators</div>
-            <div class='projectTeamRow'>Dard Neuman</div>
-            <div class='projectTeamRow'>Jon Myers</div>
+            <div class='projectTeamRow'>
+              Dard Neuman<span class='affiliation'>UCSC</span>
+            </div>
+            <div class='projectTeamRow'>
+              Jon Myers<span class='affiliation'>MIT</span>
+            </div>
+            <div class='projectTeamRow'>
+              Anna Huang<span class='affiliation'>MIT</span>
+            </div>
             <div class='projectTeamTitle'>Undergraduate Researcher</div>
-            <div class='projectTeamRow'>Raymond Zhang</div>
+            <div class='projectTeamRow'>
+              Raymond Zhang<span class='affiliation'>UCSC</span>
+            </div>
           </div>
         </div>
       </div>
@@ -84,7 +92,6 @@ import nehURL from '@/assets/logos/NEH_logo.jpg';
 import ariURL from '@/assets/logos/ARI_logo.png';
 import orURL from '@/assets/logos/OR_logo.png';
 import eURL from '@/assets/logos/Endowment_logo.png';
-import chasmsURL from '@/assets/logos/chasms_logo.png';
 import csailURL from '@/assets/logos/CSAIL_logo.svg';
 import sccURL from '@/assets/logos/SCC_logo.png';
 
@@ -97,7 +104,6 @@ export default {
         ari: ariURL,
         or: orURL,
         e: eURL,
-        chasms: chasmsURL,
         csail: csailURL,
         scc: sccURL
       },
@@ -223,6 +229,8 @@ export default {
   text-align: left;
   font-size: 30px;
   font-weight: bold;
+  /* Display sizes: the guide asks for tight leading, 85–100% of type size. */
+  line-height: 0.95;
 }
 
 .subtitle {
@@ -311,17 +319,24 @@ export default {
   font-size: 20px;
   font-weight: bold;
   text-align: left;
+  line-height: 1.05;
 }
 
 .infoItemText {
   font-size: 13px;
   width: 250px;
   max-height: 250px;
-  text-align: justify;
+  /* Ragged-right rather than justified: at this column width justification
+     opened up rivers of whitespace, against the guide's emphasis on
+     clarity and legibility. */
+  text-align: left;
 }
 
 .outer {
-  font: 15px/1.5 "Helvetica Neue", Helvetica, Arial, sans-serif;
+  /* MIT's brand typeface is Neue Haas Grotesk — a Helvetica revival — with
+     Arial as the sanctioned fallback, so this stack is already on-brand.
+     The guide asks for body leading of 100–125% of type size. */
+  font: 15px/1.25 "Helvetica Neue", Helvetica, Arial, sans-serif;
   width: 100%;
   height: 100%;
   display: flex;
@@ -376,7 +391,9 @@ export default {
   font-size: 11px;
   line-height: 1.4;
   text-align: center;
-  color: #242660;
+  /* MIT expanded-palette Dark Silver Gray: reads as a secondary annotation
+     to the wordmark above it, and clears AA on white at 5.5:1. */
+  color: #626a73;
 }
 
 .bottomRowInner {
@@ -398,18 +415,6 @@ export default {
   justify-content: center;
 }
 
-.chasmsBox > img {
-  width: 170px;
-  height: 170px;
-  margin-right: 40px;
-}
-
-.chasmsBox {
-  width: 250px;
-  height: 170px;
-
-}
-
 .support {
   width: 180px;
   height: 170px;
@@ -422,7 +427,9 @@ export default {
 
 .supportTitle {
   font-size: 22px;
+  line-height: 1;
   text-align: left;
+  margin-bottom: 4px;
 }
 
 .supportRow {
@@ -442,11 +449,26 @@ export default {
 
 .projectTeamTitle {
   font-size: 22px;
+  line-height: 1;
   text-align: left;
+  margin-bottom: 4px;
+}
+
+/* Second and later headings in the column need air above them. */
+.projectTeamRow + .projectTeamTitle {
+  margin-top: 14px;
 }
 
 .projectTeamRow {
   width: 100%;
   text-align: left;
+}
+
+.affiliation {
+  margin-left: 8px;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  vertical-align: 1px;
+  opacity: 0.75;
 }
 </style>
