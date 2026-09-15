@@ -2,9 +2,7 @@
 <div class='main'>
   <div 
     :class='`selectionPanel \
-    ${["", "vocal"][Number(vocal)]} \
-    ${["", "vib"][Number(showVibObj)]} \
-    ${["", "ramp"][Number(showVibObj && ramp)]}`'>
+    ${["", "vocal"][Number(vocal)]}`'>
     <div class='octShift' v-if='selectedTrajs.length > 0'>
       <button 
         class='octUp' 
@@ -182,99 +180,112 @@
         >
       </div>
     </div>
-    <div class='selectionRow checks' v-if='showVibObj'>
-      <label class='spaceLeft' title='Starts upward (phase π) or downward (phase 0)'>Phase</label>
-      <input
-        type='checkbox'
-        v-model='initUp'
-        @change='setPhase'
-        :disabled='!editable'
-      />
-    </div>
-    <div class='selectionRow slope' v-if='showSlope'>
-      <label>Slope</label>
-      <input 
-        v-if='editable'
-        type='range' 
-        class='slider'
-        v-model='slope'
-        min='0.0'
-        max='3.0'
-        step='0.01'
-        @input='updateSlope'
-        />
-        <input 
-          v-if='!editable'
-          type='range' 
+    <!--
+      Type-specific controls. The block always occupies the same height so the
+      panel and the thumbnails below it never move when the selected trajectory
+      type changes (no layout shift: vestibular-safe). Rows inside it appear in
+      place; nothing outside the block reflows.
+    -->
+    <div class='typeBlock'>
+      <template v-if='showSlope'>
+        <label class='ctlLabel' for='slopeSlider'>Slope</label>
+        <input
+          id='slopeSlider'
+          type='range'
           class='slider'
           v-model='slope'
           min='0.0'
           max='3.0'
           step='0.01'
           @input='updateSlope'
-          :disabled='true'
-          />
-    </div>
-    <div class='selectionRow' v-if='showVibObj'>
-      <label title='Vibrato rate in Hz, independent of the trajectory duration'>Rate</label>
-      <input
-        type='range'
-        class='slider'
-        v-model.number='rate'
-        min='1'
-        max='12'
-        step='0.1'
-        @input='updateVibObj'
-        :disabled='!editable'
-      />
-    </div>
-    <div class='selectionRow' v-if='showVibObj'>
-      <label title='Peak-to-peak excursion in cents (at the start when ramping)'>Extent</label>
-      <input
-        type='range'
-        class='slider'
-        v-model.number='extentCents'
-        min='0'
-        max='200'
-        step='1'
-        @input='updateVibObj'
-        :disabled='!editable'
-      />
-    </div>
-    <div class='selectionRow checks' v-if='showVibObj'>
-      <label class='spaceLeft' title='Let the extent change linearly over the trajectory'>Ramp</label>
-      <input
-        type='checkbox'
-        v-model='ramp'
-        @change='updateVibObj'
-        :disabled='!editable'
-      />
-    </div>
-    <div class='selectionRow' v-if='showVibObj && ramp'>
-      <label title='Peak-to-peak excursion in cents at the end of the trajectory'>End</label>
-      <input
-        type='range'
-        class='slider'
-        v-model.number='extentEndCents'
-        min='0'
-        max='200'
-        step='1'
-        @input='updateVibObj'
-        :disabled='!editable'
-      />
-    </div>
-    <div class='selectionRow' v-if='showVibObj'>
-      <label title='Centre offset as a fraction of half the extent (+-1 = as far as the centre can move)'>Offset</label>
-      <input
-        type='range'
-        class='slider'
-        v-model.number='offset'
-        min='-1.0'
-        max='1.0'
-        step='0.01'
-        @input='updateVibObj'
-        :disabled='!editable'
-      />
+          :disabled='!editable'
+        />
+        <span class='ctlValue'>{{ Number(slope).toFixed(2) }}</span>
+      </template>
+      <template v-if='showVibObj'>
+        <!-- what you set: rate, extent (start / end), offset -->
+        <label class='ctlLabel' for='vibRate' title='Vibrato rate in Hz, independent of the trajectory duration'>Rate</label>
+        <input
+          id='vibRate'
+          type='range'
+          class='slider'
+          v-model.number='rate'
+          min='1'
+          max='12'
+          step='0.1'
+          @input='updateVibObj'
+          :disabled='!editable'
+        />
+        <span class='ctlValue'>{{ rate.toFixed(1) }} Hz</span>
+
+        <label class='ctlLabel' for='vibExtent' title='Peak-to-peak excursion in cents (at the start when ramping)'>Extent</label>
+        <input
+          id='vibExtent'
+          type='range'
+          class='slider'
+          v-model.number='extentCents'
+          min='0'
+          max='200'
+          step='1'
+          @input='updateVibObj'
+          :disabled='!editable'
+        />
+        <span class='ctlValue'>{{ Math.round(extentCents) }} ¢</span>
+
+        <!-- End stays in place when Ramp is off: muted and normalled to Extent
+             (it tracks Extent, so the value shown is always the truth) -->
+        <label class='ctlLabel' :class='{ muted: !ramp }' for='vibExtentEnd' title='Peak-to-peak excursion in cents at the end of the trajectory (follows Extent unless Ramp is on)'>End</label>
+        <input
+          id='vibExtentEnd'
+          type='range'
+          class='slider'
+          :class='{ muted: !ramp }'
+          v-model.number='extentEndCents'
+          min='0'
+          max='200'
+          step='1'
+          @input='updateVibObj'
+          :disabled='!editable || !ramp'
+        />
+        <span class='ctlValue' :class='{ muted: !ramp }'>{{ Math.round(extentEndCents) }} ¢</span>
+
+        <label class='ctlLabel' for='vibOffset' title='Centre offset as a fraction of half the extent (±1 = as far as the centre can move)'>Offset</label>
+        <input
+          id='vibOffset'
+          type='range'
+          class='slider'
+          v-model.number='offset'
+          min='-1.0'
+          max='1.0'
+          step='0.01'
+          @input='updateVibObj'
+          :disabled='!editable'
+        />
+        <span class='ctlValue'>{{ (offset >= 0 ? '+' : '') + offset.toFixed(2) }}</span>
+
+        <!-- the two modifiers, stacked -->
+        <label class='ctlLabel' for='vibRamp' title='Let the extent change linearly from Extent to End over the trajectory'>Ramp</label>
+        <input
+          id='vibRamp'
+          class='ctlCheck'
+          type='checkbox'
+          v-model='ramp'
+          @change='updateVibObj'
+          :disabled='!editable'
+        />
+        <span class='ctlValue'></span>
+
+        <label class='ctlLabel' for='vibPhase' title='Starts upward (phase π) or downward (phase 0)'>Phase</label>
+        <input
+          id='vibPhase'
+          class='ctlCheck'
+          type='checkbox'
+          v-model='initUp'
+          @change='setPhase'
+          :disabled='!editable'
+        />
+        <span class='ctlValue ctlHint'>{{ initUp ? 'up' : 'down' }}</span>
+      </template>
     </div>
   </div>
   <div 
@@ -367,6 +378,7 @@ type TrajSelectPanelDataType = {
   endConsonant?: string,
   grouped: boolean,
   panelHeight: number,
+  typeBlockHeight: number,
   vib: boolean,
   octShiftTop: number,
   vowelList: string[],
@@ -419,6 +431,7 @@ export default defineComponent({
       endConsonant: undefined,
       grouped: false,
       panelHeight: 80,
+      typeBlockHeight: 140, // 6 rows × 22px + top padding; see .typeBlock
       vib: false,
       octShiftTop: 4,
       englishTrans: [],
@@ -526,8 +539,9 @@ export default defineComponent({
     } catch (e) {
       console.error(e);
     }
+    // the slope slider now lives in the reserved type block, so the octave
+    // buttons no longer move when a sloped bend is selected
     if (this.vocal) this.octShiftTop = 75;
-    if (this.vocal && this.showSlope) this.octShiftTop = 97
   },
   computed: {
     pluckBool: {
@@ -621,20 +635,8 @@ export default defineComponent({
       }
     },
 
-    showSlope(newVal) {
-      if (newVal) {
-        this.octShiftTop = this.vocal ? 97 : 4;
-      } else {
-        this.octShiftTop = this.vocal ? 75 : 4;
-      }
-    },
-
     vocal(newVal) {
-      if (newVal) {
-        this.octShiftTop = this.showSlope ? 97 : 75;
-      } else {
-        this.octShiftTop = 4;
-      }
+      this.octShiftTop = newVal ? 75 : 4;
     },
 
     trajIdxs(newVal) {
@@ -1075,8 +1077,9 @@ export default defineComponent({
     readVibObj(v: VibObjType) {
       this.rate = v.rate;
       this.extentCents = v.extentStart * 1200;
-      this.extentEndCents = v.extentEnd * 1200;
       this.ramp = v.extentEnd !== v.extentStart;
+      // normalled: with Ramp off, End follows Extent (they are equal on the wire)
+      this.extentEndCents = this.ramp ? v.extentEnd * 1200 : this.extentCents;
       const ref = Math.max(v.extentStart, v.extentEnd) / 2;
       this.offset = ref > 0 ? Math.max(-1, Math.min(1, v.vertOffset / ref)) : 0;
       this.phase = v.phase;
@@ -1090,8 +1093,11 @@ export default defineComponent({
     },
 
     updateVibObj() {
+      // normalled End: while Ramp is off the End slider tracks Extent, so turning
+      // Ramp on continues from the value already shown instead of jumping
+      if (!this.ramp) this.extentEndCents = this.extentCents;
       const extentStart = this.extentCents / 1200;
-      const extentEnd = this.ramp ? this.extentEndCents / 1200 : extentStart;
+      const extentEnd = this.extentEndCents / 1200;
       const ref = Math.max(extentStart, extentEnd) / 2;
       const vibObj: VibObjType = {
         rate: this.rate,
@@ -1110,7 +1116,8 @@ export default defineComponent({
 
 .selectionPanel {
   width: v-bind(ctrlBoxWidth + 'px');
-  height: v-bind(panelHeight + 'px');
+  /* base rows + the reserved type block: constant across trajectory types */
+  height: v-bind(panelHeight + typeBlockHeight + 'px');
   border-top: 1px solid black;
   display: flex;
   flex-direction: column;
@@ -1120,23 +1127,55 @@ export default defineComponent({
 }
 
 .selectionPanel.vocal {
-  height: v-bind(panelHeight + ctrlBoxWidth/4 + 'px');
+  height: v-bind(panelHeight + ctrlBoxWidth/4 + typeBlockHeight + 'px');
 }
 
-.selectionPanel.vib {
-  height: v-bind(panelHeight + 100 + 'px');
+/* Reserved, constant-height block for the type-specific controls (slope /
+   vibrato). Grid: label | control | value. Rows change in place only; nothing
+   animates. */
+.typeBlock {
+  width: 100%;
+  height: v-bind(typeBlockHeight + 'px');
+  margin-top: auto; /* pinned to the panel bottom, so rows appearing above it don't move it */
+  box-sizing: border-box;
+  padding: 4px 8px 0 0;
+  display: grid;
+  grid-template-columns: 52px 1fr 64px;
+  grid-auto-rows: 22px;
+  align-items: center;
+  column-gap: 6px;
+  justify-content: end;
 }
 
-.selectionPanel.vib.ramp {
-  height: v-bind(panelHeight + 125 + 'px');
+.typeBlock .ctlLabel {
+  width: auto;
+  text-align: right;
 }
 
-.selectionPanel.vocal.vib {
-  height: v-bind(panelHeight + ctrlBoxWidth/2 + 50 + 'px');
+.typeBlock .slider {
+  width: 100%;
+  margin: 0;
 }
 
-.selectionPanel.vocal.vib.ramp {
-  height: v-bind(panelHeight + ctrlBoxWidth/2 + 75 + 'px');
+.typeBlock .ctlCheck {
+  justify-self: start;
+  margin: 0 0 0 2px;
+}
+
+.typeBlock .ctlValue {
+  font-size: 12px;
+  text-align: left;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.typeBlock .ctlHint {
+  opacity: 0.7;
+}
+
+/* disabled-but-informative: muted in place, value still legible, no fade */
+.typeBlock .muted {
+  opacity: 0.45;
 }
 
 .imgContainer {
