@@ -446,11 +446,11 @@ export default {
   justify-content: flex-start;
 }
 
-/* The lab mark is dark type over a light ripple photograph — it is drawn for
-   a white ground, so it gets its own tile rather than sitting on the teal. */
+/* The lab lockup sets its wordmark in black, so it needs a light ground and
+   gets its own tile rather than sitting directly on the teal. */
 .labLink {
   display: block;
-  padding: 10px;
+  padding: 12px;
   background-color: white;
   border-radius: 3px;
   line-height: 0;
@@ -458,8 +458,8 @@ export default {
 
 .labLink > img {
   display: block;
-  height: 96px;
-  width: auto;
+  width: 200px;
+  height: auto;
 }
 
 .support {
