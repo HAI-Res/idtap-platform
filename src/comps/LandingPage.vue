@@ -36,7 +36,14 @@
       </div>
       <div class='sponsorsRowOuter'>
         <div class='sponsorsRow'>
-          <div><img :src='logos.neh'></div>
+          <div><img :src='logos.csail' class='csailLogo' alt='MIT CSAIL'></div>
+          <div>
+            <img :src='logos.scc' alt='MIT Schwarzman College of Computing'>
+            <span class='sponsorCaption'>
+              Social and Ethical Responsibilities of Computing (SERC)
+            </span>
+          </div>
+          <div><img :src='logos.neh' alt='National Endowment for the Humanities'></div>
           <div><img :src='logos.or'></div>
           <div><img :src='logos.ari'></div>
           <div><img :src='logos.e'></div>
@@ -44,7 +51,12 @@
       </div>
       <div class='bottomRow'>
         <div class='bottomRowInner'>
-          <div class='chasmsBox'><img :src='logos.chasms'></div>
+          <div class='lab'>
+            <a class='labLink' href='https://hai-res.org' target='_blank'
+              rel='noopener'>
+              <img :src='logos.haires' alt='Human-AI Resonance Lab'>
+            </a>
+          </div>
           <div class='support'>
             <div class='supportTitle'>Support</div>
             <div class='supportRow'>
@@ -55,7 +67,12 @@
                 Github Issues
               </a>
             </div>
-            <div class='supportRow'>FAQ</div>
+            <div class='supportRow'>
+              <a href='https://github.com/HAI-Res/idtap-client' target='_blank'
+                rel='noopener'>
+                Python Client
+              </a>
+            </div>
             <div class='supportRow'>
               <a href='/privacy-policy.html'>Privacy Policy</a>
             </div>
@@ -63,24 +80,17 @@
           <div class='projectTeam'>
             <div class='projectTeamTitle'>Principal Investigators</div>
             <div class='projectTeamRow'>
-              <a href='https://music.ucsc.edu/people/dard-neuman'>
-                Dard Neuman
-              </a>
+              Dard Neuman<span class='affiliation'>UCSC</span>
             </div>
             <div class='projectTeamRow'>
-              <a href='https://music.ucsc.edu/people/jonathan-myers'>
-                Jon Myers
-              </a>
+              Jon Myers<span class='affiliation'>MIT</span>
             </div>
-            <div class='projectTeamTitle'>Graduate Researcher</div>
             <div class='projectTeamRow'>
-              <a href='https://music.ucsc.edu/people/balakrishnan-raghavan'>
-                Balakrishnan Raghavan
-              </a>
+              Anna Huang<span class='affiliation'>MIT</span>
             </div>
-            <div class='projectTeamTitle'>Project Intern</div>
+            <div class='projectTeamTitle'>Undergraduate Researcher</div>
             <div class='projectTeamRow'>
-              Shreyas Anand
+              Raymond Zhang<span class='affiliation'>UCSC</span>
             </div>
           </div>
         </div>
@@ -93,7 +103,9 @@ import nehURL from '@/assets/logos/NEH_logo.jpg';
 import ariURL from '@/assets/logos/ARI_logo.png';
 import orURL from '@/assets/logos/OR_logo.png';
 import eURL from '@/assets/logos/Endowment_logo.png';
-import chasmsURL from '@/assets/logos/chasms_logo.png';
+import csailURL from '@/assets/logos/CSAIL_logo.svg';
+import sccURL from '@/assets/logos/SCC_logo.png';
+import hairesURL from '@/assets/logos/HAIRes_logo.png';
 
 export default {
   name: 'LandingPage',
@@ -104,10 +116,12 @@ export default {
         ari: ariURL,
         or: orURL,
         e: eURL,
-        chasms: chasmsURL
+        csail: csailURL,
+        scc: sccURL,
+        haires: hairesURL
       },
       layerColors: [
-        '#50945c'
+        '#478352'
       ],
       subtitleText: "An Interactive Digital Transcription and Analysis Platform (IDTAP) that \
         enables transcription, archiving, sharing, and analysis of audio \
@@ -180,7 +194,7 @@ export default {
   flex-direction: column;
   align-items: center;
   justify-content: top;
-  background-color: #10abb6;
+  background-color: #0c838c;
 
 }
 
@@ -206,7 +220,7 @@ export default {
 }
 
 .titleRow {
-  background-color: #50945c;
+  background-color: #478352;
   /* min-height: 250px; */
   /* max-height: 600px; */
   display: flex;
@@ -228,6 +242,8 @@ export default {
   text-align: left;
   font-size: 30px;
   font-weight: bold;
+  /* Display sizes: the guide asks for tight leading, 85–100% of type size. */
+  line-height: 0.95;
 }
 
 .subtitle {
@@ -243,11 +259,15 @@ export default {
 }
 .buttonRow {
   width: calc(100% - 160px);
-  height: 70px;
+  min-height: 70px;
   display: flex;
   flex-direction: row;
+  /* Let the buttons stack on narrow screens instead of running off-screen. */
+  flex-wrap: wrap;
+  gap: 10px;
   align-items: center;
   justify-content: left;
+  padding-block: 15px;
 }
 
 
@@ -258,13 +278,12 @@ export default {
   display: flex;
   align-items: center;
   justify-content: center;
-  background-color: #b58500;
+  background-color: #987000;
   color: white;
   font-weight: bold;
   cursor: pointer;
   transition: background-color 0.3s ease;
   transition: color 0.3s ease;
-  margin-right: 10px;
   padding: 0 12px;
   width: fit-content;
 }
@@ -316,17 +335,24 @@ export default {
   font-size: 20px;
   font-weight: bold;
   text-align: left;
+  line-height: 1.05;
 }
 
 .infoItemText {
   font-size: 13px;
   width: 250px;
   max-height: 250px;
-  text-align: justify;
+  /* Ragged-right rather than justified: at this column width justification
+     opened up rivers of whitespace, against the guide's emphasis on
+     clarity and legibility. */
+  text-align: left;
 }
 
 .outer {
-  font: 15px/1.5 "Helvetica Neue", Helvetica, Arial, sans-serif;
+  /* MIT's brand typeface is Neue Haas Grotesk — a Helvetica revival — with
+     Arial as the sanctioned fallback, so this stack is already on-brand.
+     The guide asks for body leading of 100–125% of type size. */
+  font: 15px/1.25 "Helvetica Neue", Helvetica, Arial, sans-serif;
   width: 100%;
   height: 100%;
   display: flex;
@@ -359,8 +385,15 @@ export default {
   width: 230px;
 }
 
+/* The CSAIL mark is near-square, so match it on height to the wordmarks
+   rather than on width, which would tower over the rest of the row. */
+.sponsorsRow > div > img.csailLogo {
+  width: auto;
+  height: 100px;
+}
+
 .sponsorsRow > div {
-  height: 150px;
+  min-height: 150px;
   width: 250px;
   display: flex;
   flex-direction: column;
@@ -368,18 +401,34 @@ export default {
   justify-content: center;
 }
 
+.sponsorCaption {
+  max-width: 220px;
+  margin-top: 10px;
+  font-size: 11px;
+  line-height: 1.4;
+  text-align: center;
+  /* MIT expanded-palette Dark Silver Gray: reads as a secondary annotation
+     to the wordmark above it, and clears AA on white at 5.5:1. */
+  color: #626a73;
+}
+
 .bottomRowInner {
-  background-color: #10abb6;
+  background-color: #0c838c;
   min-height: 260px;
   width: calc(100% - 160px);
   display: flex;
   flex-direction: row;
+  /* Without wrapping, the three fixed-width columns overflowed the content
+     well on narrow screens and collided with one another. */
+  flex-wrap: wrap;
+  gap: 26px 30px;
   align-items: center;
   justify-content: left;
+  padding-block: 26px;
 }
 
 .bottomRow {
-  background-color: #10abb6;
+  background-color: #0c838c;
   width: 100%;
   display: flex;
   flex-direction: row;
@@ -387,20 +436,35 @@ export default {
   justify-content: center;
 }
 
-.chasmsBox > img {
-  width: 170px;
-  height: 170px;
-  margin-right: 40px;
+.lab {
+  width: 250px;
+  max-width: 100%;
+  min-height: 170px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: flex-start;
 }
 
-.chasmsBox {
-  width: 250px;
-  height: 170px;
+/* The lab lockup sets its wordmark in black, so it needs a light ground and
+   gets its own tile rather than sitting directly on the teal. */
+.labLink {
+  display: block;
+  padding: 12px;
+  background-color: white;
+  border-radius: 3px;
+  line-height: 0;
+}
 
+.labLink > img {
+  display: block;
+  width: 200px;
+  height: auto;
 }
 
 .support {
   width: 180px;
+  max-width: 100%;
   height: 170px;
   display: flex;
   flex-direction: column;
@@ -411,7 +475,9 @@ export default {
 
 .supportTitle {
   font-size: 22px;
+  line-height: 1;
   text-align: left;
+  margin-bottom: 4px;
 }
 
 .supportRow {
@@ -421,8 +487,9 @@ export default {
 
 .projectTeam {
   color: white;
-  width: 250px;
-  height: 170px;
+  width: 290px;
+  max-width: 100%;
+  min-height: 170px;
   display: flex;
   flex-direction: column;
   align-items: left;
@@ -431,11 +498,27 @@ export default {
 
 .projectTeamTitle {
   font-size: 22px;
+  line-height: 1;
   text-align: left;
+  margin-bottom: 4px;
+}
+
+/* Second and later headings in the column need air above them. */
+.projectTeamRow + .projectTeamTitle {
+  margin-top: 14px;
 }
 
 .projectTeamRow {
   width: 100%;
   text-align: left;
+}
+
+/* Size and letter-spacing carry the hierarchy here rather than a dimmer
+   white: against the footer teal, no opacity below 1 clears AA. */
+.affiliation {
+  margin-left: 8px;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  vertical-align: 1px;
 }
 </style>
