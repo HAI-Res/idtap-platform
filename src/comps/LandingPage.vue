@@ -51,6 +51,12 @@
       </div>
       <div class='bottomRow'>
         <div class='bottomRowInner'>
+          <div class='lab'>
+            <a class='labLink' href='https://hai-res.org' target='_blank'
+              rel='noopener'>
+              <img :src='logos.haires' alt='Human-AI Resonance Lab'>
+            </a>
+          </div>
           <div class='support'>
             <div class='supportTitle'>Support</div>
             <div class='supportRow'>
@@ -61,7 +67,12 @@
                 Github Issues
               </a>
             </div>
-            <div class='supportRow'>FAQ</div>
+            <div class='supportRow'>
+              <a href='https://github.com/HAI-Res/idtap-client' target='_blank'
+                rel='noopener'>
+                Python Client
+              </a>
+            </div>
             <div class='supportRow'>
               <a href='/privacy-policy.html'>Privacy Policy</a>
             </div>
@@ -94,6 +105,7 @@ import orURL from '@/assets/logos/OR_logo.png';
 import eURL from '@/assets/logos/Endowment_logo.png';
 import csailURL from '@/assets/logos/CSAIL_logo.svg';
 import sccURL from '@/assets/logos/SCC_logo.png';
+import hairesURL from '@/assets/logos/HAIRes_logo.png';
 
 export default {
   name: 'LandingPage',
@@ -105,10 +117,11 @@ export default {
         or: orURL,
         e: eURL,
         csail: csailURL,
-        scc: sccURL
+        scc: sccURL,
+        haires: hairesURL
       },
       layerColors: [
-        '#50945c'
+        '#478352'
       ],
       subtitleText: "An Interactive Digital Transcription and Analysis Platform (IDTAP) that \
         enables transcription, archiving, sharing, and analysis of audio \
@@ -181,7 +194,7 @@ export default {
   flex-direction: column;
   align-items: center;
   justify-content: top;
-  background-color: #10abb6;
+  background-color: #0c838c;
 
 }
 
@@ -207,7 +220,7 @@ export default {
 }
 
 .titleRow {
-  background-color: #50945c;
+  background-color: #478352;
   /* min-height: 250px; */
   /* max-height: 600px; */
   display: flex;
@@ -246,11 +259,15 @@ export default {
 }
 .buttonRow {
   width: calc(100% - 160px);
-  height: 70px;
+  min-height: 70px;
   display: flex;
   flex-direction: row;
+  /* Let the buttons stack on narrow screens instead of running off-screen. */
+  flex-wrap: wrap;
+  gap: 10px;
   align-items: center;
   justify-content: left;
+  padding-block: 15px;
 }
 
 
@@ -261,13 +278,12 @@ export default {
   display: flex;
   align-items: center;
   justify-content: center;
-  background-color: #b58500;
+  background-color: #987000;
   color: white;
   font-weight: bold;
   cursor: pointer;
   transition: background-color 0.3s ease;
   transition: color 0.3s ease;
-  margin-right: 10px;
   padding: 0 12px;
   width: fit-content;
 }
@@ -397,17 +413,22 @@ export default {
 }
 
 .bottomRowInner {
-  background-color: #10abb6;
+  background-color: #0c838c;
   min-height: 260px;
   width: calc(100% - 160px);
   display: flex;
   flex-direction: row;
+  /* Without wrapping, the three fixed-width columns overflowed the content
+     well on narrow screens and collided with one another. */
+  flex-wrap: wrap;
+  gap: 26px 30px;
   align-items: center;
   justify-content: left;
+  padding-block: 26px;
 }
 
 .bottomRow {
-  background-color: #10abb6;
+  background-color: #0c838c;
   width: 100%;
   display: flex;
   flex-direction: row;
@@ -415,8 +436,35 @@ export default {
   justify-content: center;
 }
 
+.lab {
+  width: 250px;
+  max-width: 100%;
+  min-height: 170px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: flex-start;
+}
+
+/* The lab mark is dark type over a light ripple photograph — it is drawn for
+   a white ground, so it gets its own tile rather than sitting on the teal. */
+.labLink {
+  display: block;
+  padding: 10px;
+  background-color: white;
+  border-radius: 3px;
+  line-height: 0;
+}
+
+.labLink > img {
+  display: block;
+  height: 96px;
+  width: auto;
+}
+
 .support {
   width: 180px;
+  max-width: 100%;
   height: 170px;
   display: flex;
   flex-direction: column;
@@ -440,6 +488,7 @@ export default {
 .projectTeam {
   color: white;
   width: 290px;
+  max-width: 100%;
   min-height: 170px;
   display: flex;
   flex-direction: column;
@@ -464,11 +513,12 @@ export default {
   text-align: left;
 }
 
+/* Size and letter-spacing carry the hierarchy here rather than a dimmer
+   white: against the footer teal, no opacity below 1 clears AA. */
 .affiliation {
   margin-left: 8px;
   font-size: 11px;
   letter-spacing: 0.06em;
   vertical-align: 1px;
-  opacity: 0.75;
 }
 </style>
