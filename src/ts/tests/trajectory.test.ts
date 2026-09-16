@@ -876,3 +876,12 @@ test('fromJSON normalizes articulation key "0" to "0.00"', () => {
   expect(restored.articulations['0.00'].name).toBe('pluck');
   expect(restored.articulations['0']).toBeUndefined();
 });
+
+test('id 13 (Vibrato) defaults durArray to a single segment like Fixed', () => {
+  const vib = { rate: 2, extentStart: 0.1, extentEnd: 0.1, vertOffset: 0, phase: Math.PI };
+  expect(new Trajectory({ id: 13, vibObj: vib }).durArray).toEqual([1]);
+  // a `"durArray": null` from a Python-serialised piece must heal too
+  expect(Trajectory.fromJSON({ id: 13, pitches: [new Pitch().toJSON()], durTot: 1, durArray: null, vibObj: vib }).durArray).toEqual([1]);
+  // an explicit array (e.g. a trajectory retyped to Vibrato in the editor) is kept
+  expect(new Trajectory({ id: 13, vibObj: vib, durArray: [0.5, 0.5], pitches: [new Pitch(), new Pitch({ swara: 2 })] }).durArray).toEqual([0.5, 0.5]);
+});
