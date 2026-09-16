@@ -1383,3 +1383,16 @@ test('Piece multi-cycle round-trip: save → load → save → load preserves da
   // Verify serialized size stabilizes (doesn't grow or shrink across cycles)
   expect(JSON.stringify(json2).length).toBe(JSON.stringify(json3).length);
 });
+
+test('display sargam survives a Vibrato (id 13) trajectory built without durArray', () => {
+  const raga = new Raga();
+  const vib = { rate: 5.5, extentStart: 0.05, extentEnd: 0.05, vertOffset: 0, phase: Math.PI };
+  const t1 = new Trajectory({ id: 0, pitches: [new Pitch()], durTot: 1 });
+  const t2 = Trajectory.fromJSON({ id: 13, pitches: [new Pitch({ swara: 2 }).toJSON()], durTot: 1, durArray: null, vibObj: vib });
+  const t3 = new Trajectory({ id: 13, pitches: [new Pitch({ swara: 4 })], durTot: 1, vibObj: vib });
+  const p1 = new Phrase({ trajectories: [t1, t2, t3], durTot: 3, raga });
+  const piece = new Piece({ phrases: [p1], raga, instrumentation: [Instrument.Sitar] });
+  const sargam = piece.allDisplaySargam();
+  expect(sargam.map(s => s.time)).toEqual([0, 1, 2]);
+  expect(piece.chunkedDisplaySargam(0, 1).map(c => c.length)).toEqual([1, 1, 1]);
+});
