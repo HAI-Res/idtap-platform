@@ -458,8 +458,11 @@ export default {
 
 .labLink > img {
   display: block;
-  width: 200px;
-  height: auto;
+  /* The wordmark is stacked (HAI over Res) and close to square, so it is sized
+     by height; 200px of width would have made it twice as tall as the old
+     horizontal lockup and pushed it out of the bottom row. */
+  height: 120px;
+  width: auto;
 }
 
 .support {
