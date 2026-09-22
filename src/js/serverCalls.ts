@@ -1075,6 +1075,24 @@ const getVerifiedStatus = async (aeID: string, recIdx: string) => {
   }
 }
 
+type RagaUsage = { name: string; total: number; legacy: number };
+
+const getRagaUsage = async (name: string): Promise<RagaUsage | undefined> => {
+  const request = {
+    method: 'GET',
+    headers: {
+      'Content-Type': 'application/json', 'X-IDTAP-Client': 'web'
+    }
+  };
+  const searchParams = new URLSearchParams({ name });
+  try {
+    const res = await fetch(url + 'ragaUsage?' + searchParams, request);
+    if (res.ok) return await res.json();
+  } catch (err) {
+    console.error(err)
+  }
+};
+
 const saveRaagRules = async (
   name: string | undefined, 
   rules: object, 
@@ -2232,6 +2250,7 @@ export {
   updateSaEstimate,
   getVerifiedStatus,
   getRaagRule,
+  getRagaUsage,
   saveRaagRules,
   getAudioRecording,
   getNumberOfSpectrograms,

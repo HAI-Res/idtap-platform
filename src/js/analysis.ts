@@ -14,12 +14,12 @@ import {
 } from '@/ts/utils.ts';
 import { Meter } from '@/js/meter.ts';
 import { getPiece, getRaagRule } from './serverCalls.ts';
+import { healLegacyRuleSet } from './ruleSetHeal.ts';
 const testQueryId = '63445d13dc8b9023a09747a6';
 
 const instantiatePiece = async (queryId = testQueryId) => {
   let piece = await getPiece(queryId);
-  const rsRes = await getRaagRule(piece.raga.name);
-  piece.raga.ruleSet = rsRes.rules;
+  await healLegacyRuleSet(piece, getRaagRule);
   return Piece.fromJSON(piece);
 };
 

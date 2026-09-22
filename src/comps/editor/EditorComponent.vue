@@ -377,6 +377,7 @@ import {
   getEditableCollections,
   updateTranscriptionViewed
 } from '@/js/serverCalls.ts';
+import { healLegacyRuleSet } from '@/js/ruleSetHeal.ts';
 import { Meter, Pulse } from '@/js/meter.ts';
 import { suppressMotion } from '@/js/motionPrefs.ts';
 import EditorAudioPlayer from '@/comps/editor/audioPlayer/EditorAudioPlayer.vue';
@@ -2452,8 +2453,10 @@ export default defineComponent({
     },
 
     async getPieceFromJson(piece: Piece) {
-      const rsRes = await getRaagRule(piece.raga.name);
-      piece.raga.ruleSet = rsRes.rules;
+      // Legacy heal only: pieces saved before `ruleSet` was serialized get the
+      // DB rules for their raga name. A stored ruleSet is never overwritten —
+      // the piece's ratios are indexed against the rules it was saved with.
+      await healLegacyRuleSet(piece, getRaagRule);
       this.piece = Piece.fromJSON(piece);
       this.dateModified = new Date(this.piece.dateModified);
       this.fixTrajs();

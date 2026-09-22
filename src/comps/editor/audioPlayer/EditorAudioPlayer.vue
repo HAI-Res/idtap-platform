@@ -473,6 +473,7 @@ import {
  } from '@shared/enums';
 import { AudioWorklet } from '@/audio-worklet';
 import { excelData, jsonData } from '@/js/serverCalls.ts';
+import { playerTuningFreqs } from '@/js/tuningTable.ts';
 import { tuningData } from '@/ts/tuningData.ts';
 import { Meter } from '@/js/meter.ts';
 import { 
@@ -616,6 +617,7 @@ type EditorAudioPlayerData = {
   ETRatios: number[];
   initFreqs: number[];
   currentFreqs: number[];
+  tuningAligned: boolean;
   tuningMasterGainNode?: GainNode;
   tuningGainNodes: GainNode[];
   tuningSines: OscillatorNode[];
@@ -873,6 +875,7 @@ export default defineComponent({
       ETRatios: [],
       initFreqs: [],
       currentFreqs: [],
+      tuningAligned: true,
       tuningMasterGainNode: undefined,
       tuningGainNodes: [],
       tuningSines: [],
@@ -1629,6 +1632,7 @@ export default defineComponent({
       this.centDevs = this.centDevs.map(() => 0);
       const ratios = this.initFreqs.map(if_ => if_ / this.raga!.fundamental);
       this.raga!.ratios = ratios;
+      this.tuningAligned = true;
       this.raga!.ratios.forEach((ratio, rIdx) => {
         const tuningKeys = this.raga!.ratioIdxToTuningTuple(rIdx);
         if (tuningKeys[0] === 'sa' || tuningKeys[0] === 'pa') {
@@ -1665,7 +1669,9 @@ export default defineComponent({
       const initFreq = this.initFreqs[sIdx];
       const newFreq = initFreq * 2 ** (this.centDevs[sIdx] / 1200);
       const newRatio = newFreq / this.raga!.fundamental;
-      this.raga!.ratios[sIdx] = newRatio;
+      // ratios map onto the rule set positionally; only write through when
+      // they line up (otherwise index sIdx names a different pitch).
+      if (this.tuningAligned) this.raga!.ratios[sIdx] = newRatio;
       const tuningKeys = this.raga!.ratioIdxToTuningTuple(sIdx);
       if (tuningKeys[0] === 'sa' || tuningKeys[0] === 'pa') {
         this.raga!.tuning[tuningKeys[0]] = newRatio;
@@ -1724,7 +1730,11 @@ export default defineComponent({
         gainNode.connect(this.tuningMasterGainNode!);
         gainNode.gain.setValueAtTime(0, this.now());
         const osc = this.tuningSines[i];
-        osc.frequency.setValueAtTime(this.currentFreqs[i], this.now());
+        const freq = this.currentFreqs[i];
+        osc.frequency.setValueAtTime(
+          Number.isFinite(freq) ? freq : this.initFreqs[i],
+          this.now(),
+        );
         osc.connect(gainNode);
         osc.start();
       });
@@ -1898,10 +1908,14 @@ export default defineComponent({
       this.initFreqs = this.ETRatios.map(ratio => {
         return this.raga!.fundamental * ratio
       })
-      this.currentFreqs = this.raga.ratios.map(ratio => {
-        return this.raga!.fundamental * ratio
-      })
       this.sargam = this.raga.sargamLetters;
+      // One finite frequency per rule-set pitch. If the stored ratios don't
+      // line up with the rule set (piece saved against older rules for this
+      // raga name), this falls back to the raga's tuning table and warns
+      // instead of feeding `undefined` to the tuning oscillators.
+      const tuning = playerTuningFreqs(this.raga);
+      this.currentFreqs = tuning.freqs;
+      this.tuningAligned = tuning.aligned;
       this.solfege = this.raga.solfegeStrings;
       this.pitchClasses = this.raga.pcStrings;
       this.westernPitches = this.raga.westernPitchStrings;

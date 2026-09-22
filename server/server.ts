@@ -1792,11 +1792,42 @@ const runServer = async () => {
 	  }
 	})
 
+	// How many saved transcriptions name this raga, and how many of those are
+	// legacy (no embedded ruleSet → they load with the DB rules). Drives the
+	// overwrite warning in RaagEditor. Counts only; no document content leaks.
+	app.get('/ragaUsage', requireSession, async (req, res) => {
+	  try {
+		const name = String(req.query.name ?? '');
+		if (!name) {
+		  res.status(400).json({ error: 'name required' });
+		  return;
+		}
+		const total = await transcriptions.countDocuments({ 'raga.name': name });
+		const legacy = await transcriptions.countDocuments({
+		  'raga.name': name,
+		  $or: [
+			{ 'raga.ruleSet': { $exists: false } },
+			{ 'raga.ruleSet': null },
+		  ],
+		});
+		res.json({ name, total, legacy });
+	  } catch (err) {
+		console.error(err);
+		res.status(500).send(err);
+	  }
+	});
+
 	app.post('/saveRaagRules', requireSession, requireCsrfHeader, async (req, res) => {
 	  try {
       const query = { name: req.body.name };
       const update = {
-        $set: { rules: req.body.rules, updatedDate: req.body.date }
+        $set: {
+          rules: req.body.rules,
+          updatedDate: req.body.date,
+          // requireSession guarantees req.user.uid; record who changed the
+          // rules so a later "why does Yaman have 8 pitches" is answerable.
+          updatedBy: req.user!.uid,
+        }
       };
       const options = { upsert: true };
       const result = await ragas.updateOne(query, update, options);
