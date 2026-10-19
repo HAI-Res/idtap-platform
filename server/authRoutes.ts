@@ -51,6 +51,14 @@ const pruneDesktopCodes = () => {
 };
 
 const B64URL_RE = /^[A-Za-z0-9_-]+$/;
+// Custom-scheme redirects the native apps may ask for. iOS has no loopback listener
+// (ASWebAuthenticationSession hands the app a URL, not a socket), so the one-time code
+// has to come back through a registered URL scheme instead of 127.0.0.1. A constant
+// allow-list, never a client-supplied pattern: an open redirect here would hand any
+// site a valid authorization code.
+const ALLOWED_DESKTOP_REDIRECTS = ['idtap://auth/callback'];
+const validDesktopRedirect = (s: unknown): s is string =>
+  typeof s === 'string' && ALLOWED_DESKTOP_REDIRECTS.includes(s);
 const validDesktopState = (s: unknown): s is string =>
   typeof s === 'string' && s.length >= 16 && s.length <= 128 && B64URL_RE.test(s);
 // S256 challenge: base64url(sha256(...)) is always 43 chars
@@ -101,9 +109,14 @@ export default function authRoutes(deps: AuthDeps): Router {
   // app's loopback port + its own state/PKCE challenge so the callback can hand back a
   // one-time code instead of setting the web session cookie.
   router.get('/auth/desktop', (req, res) => {
+    // Two ways home: a loopback port (macOS/Electron) or an allow-listed custom scheme
+    // (iOS). Exactly one, so a request can't smuggle a redirect past the port check.
+    const hasRedirect = req.query.redirect !== undefined;
     const port = Number(req.query.port);
-    if (!Number.isInteger(port) || port < 1024 || port > 65535
-        || !validDesktopState(req.query.state) || !validDesktopChallenge(req.query.challenge)) {
+    const portOk = Number.isInteger(port) && port >= 1024 && port <= 65535;
+    if (!validDesktopState(req.query.state) || !validDesktopChallenge(req.query.challenge)
+        || (hasRedirect ? !validDesktopRedirect(req.query.redirect) || req.query.port !== undefined
+                        : !portOk)) {
       return res.status(400).send('Invalid desktop login request.');
     }
 
@@ -113,7 +126,9 @@ export default function authRoutes(deps: AuthDeps): Router {
 
     res.cookie(AUTH_TX_COOKIE, signAuthTx({
       state, codeVerifier, returnTo: '/',
-      desktop: { port, state: req.query.state, challenge: req.query.challenge },
+      desktop: hasRedirect
+        ? { redirect: req.query.redirect as string, state: req.query.state, challenge: req.query.challenge }
+        : { port, state: req.query.state, challenge: req.query.challenge },
     }), authTxCookieOptions());
 
     const params = new URLSearchParams({
@@ -179,6 +194,12 @@ export default function authRoutes(deps: AuthDeps): Router {
           expiresAt: Date.now() + DESKTOP_CODE_TTL_MS,
         });
         const q = new URLSearchParams({ code, state: tx.desktop.state });
+        // The redirect target was allow-listed when the flow started and travelled in the
+        // signed tx cookie, so it cannot have been swapped in between.
+        if (tx.desktop.redirect) {
+          if (!validDesktopRedirect(tx.desktop.redirect)) return res.status(400).send('Invalid redirect target.');
+          return res.redirect(`${tx.desktop.redirect}?${q.toString()}`);
+        }
         return res.redirect(`http://127.0.0.1:${tx.desktop.port}/callback?${q.toString()}`);
       }
 

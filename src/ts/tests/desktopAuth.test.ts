@@ -158,3 +158,99 @@ describe('desktop auth flow', () => {
     expect((cb.headers['set-cookie'] || []).join(';')).toMatch(/sid=/);
   });
 });
+
+// The iPad has no loopback listener to redirect to: ASWebAuthenticationSession hands the
+// app a URL, not a socket. So /auth/desktop also accepts an allow-listed custom-scheme
+// redirect. Everything after the redirect — the one-time code, its TTL, single use, the
+// PKCE check at /session/desktop/exchange — is the existing flow untouched.
+async function runNativeLogin(
+  app: express.Express,
+  redirect = 'idtap://auth/callback',
+  appState = b64url(crypto.randomBytes(24)),
+) {
+  const verifier = b64url(crypto.randomBytes(32));
+  const start = await request(app)
+    .get('/auth/desktop')
+    .query({ redirect, state: appState, challenge: s256(verifier) });
+  expect(start.status).toBe(302);
+  const googleUrl = new URL(start.headers.location);
+  const googleState = googleUrl.searchParams.get('state')!;
+  const txCookie = start.headers['set-cookie'][0].split(';')[0];
+
+  hoisted.getToken.mockResolvedValue({ tokens: { id_token: 'idt' } });
+  hoisted.verifyIdToken.mockResolvedValue({
+    getPayload: () => ({ sub: 'sub-1', email: 'x@y.z', name: 'Test User' }),
+  });
+
+  const cb = await request(app)
+    .get('/auth/callback')
+    .query({ code: 'g-code', state: googleState })
+    .set('Cookie', txCookie);
+  return { cb, verifier, appState };
+}
+
+describe('native (custom scheme) auth redirect', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  test('allow-listed redirect gets the one-time code and exchanges for a session JWT', async () => {
+    const app = makeApp();
+    const { cb, verifier, appState } = await runNativeLogin(app);
+    expect(cb.status).toBe(302);
+
+    const target = new URL(cb.headers.location);
+    expect(`${target.protocol}//${target.host}${target.pathname}`).toBe('idtap://auth/callback');
+    expect(target.searchParams.get('state')).toBe(appState);
+    const code = target.searchParams.get('code')!;
+    expect(code).toMatch(/^[A-Za-z0-9_-]+$/);
+
+    // the browser must not come away with a web session cookie
+    expect((cb.headers['set-cookie'] || []).join(';')).not.toMatch(/(^|[^_])sid=/);
+
+    const ex = await request(app)
+      .post('/session/desktop/exchange')
+      .send({ code, code_verifier: verifier });
+    expect(ex.status).toBe(200);
+    expect(verifySession(ex.body.token)?.uid).toBe(userId.toString());
+  });
+
+  test('the code from a native login is still single-use and PKCE-bound', async () => {
+    const app = makeApp();
+    const { cb, verifier } = await runNativeLogin(app);
+    const code = new URL(cb.headers.location).searchParams.get('code')!;
+    await request(app).post('/session/desktop/exchange').send({ code, code_verifier: verifier }).expect(200);
+    await request(app).post('/session/desktop/exchange').send({ code, code_verifier: verifier }).expect(401);
+  });
+
+  test('only the allow-listed redirect is accepted', async () => {
+    const app = makeApp();
+    const base = { state: b64url(crypto.randomBytes(24)), challenge: s256('v') };
+    // an open redirect here would hand any site a valid authorization code
+    await request(app).get('/auth/desktop').query({ ...base, redirect: 'https://evil.example/cb' }).expect(400);
+    await request(app).get('/auth/desktop').query({ ...base, redirect: 'idtap://auth/other' }).expect(400);
+    await request(app).get('/auth/desktop').query({ ...base, redirect: 'idtap://auth/callback/../x' }).expect(400);
+    await request(app).get('/auth/desktop').query({ ...base, redirect: '' }).expect(400);
+    await request(app).get('/auth/desktop').query({ ...base, redirect: 'idtap://auth/callback' }).expect(302);
+  });
+
+  test('redirect and port are mutually exclusive', async () => {
+    const app = makeApp();
+    const base = { state: b64url(crypto.randomBytes(24)), challenge: s256('v') };
+    await request(app)
+      .get('/auth/desktop')
+      .query({ ...base, redirect: 'idtap://auth/callback', port: '52345' })
+      .expect(400);
+  });
+
+  test('a native login still validates state and challenge', async () => {
+    const app = makeApp();
+    const ok = { redirect: 'idtap://auth/callback', state: b64url(crypto.randomBytes(24)), challenge: s256('v') };
+    await request(app).get('/auth/desktop').query({ ...ok, state: 'short' }).expect(400);
+    await request(app).get('/auth/desktop').query({ ...ok, challenge: 'not-43-chars' }).expect(400);
+  });
+
+  test('the loopback flow is unaffected', async () => {
+    const app = makeApp();
+    const { code, verifier } = await runDesktopLogin(app);
+    await request(app).post('/session/desktop/exchange').send({ code, code_verifier: verifier }).expect(200);
+  });
+});
