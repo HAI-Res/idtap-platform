@@ -3,6 +3,7 @@ import express, { Request, Response } from 'express';
 import fileUpload from 'express-fileupload';
 import bodyParser from 'body-parser';
 import cors from 'cors';
+import compression from 'compression';
 import morgan from 'morgan';
 import { MongoClient, ObjectId } from 'mongodb';
 import { promises as fs } from 'fs';
@@ -183,6 +184,11 @@ app.use(history({
   ],
 }) as unknown as express.RequestHandler)
 
+// Compress JSON/JS/CSS/SVG responses. nginx in front only gzips text/html by
+// default, so API responses and the Vite bundles were going out uncompressed
+// (the editor chunk alone is 1.5 MB raw). Already-compressed media (.gz, opus,
+// images) is left alone by the default filter.
+app.use(compression());
 app.use(cors({
   origin: '*'
 }));
@@ -719,7 +725,7 @@ const runServer = async () => {
 		  const query = { '_id': new ObjectId(req.body._id) };
 		  const result = await transcriptions.findOne(query);
 		  if (result && !canView(result, req.user?.uid)) { res.status(403).json({ error: 'forbidden' }); return; }
-		  res.send(JSON.stringify(result))
+		  res.json(result)
 		} catch (err) {
 		  console.error(err);
 		  res.status(500).send(err);
@@ -2498,23 +2504,29 @@ app.post('/handleGoogleAuthCodePythonAPI', async (req, res) => {
     }
   });
 
-	const setNoCache = (res: express.Response) => {
-	  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-	  res.setHeader('Pragma', 'no-cache');
-	  res.setHeader('Expires', '0')
+	// Media files are keyed by audioID but can be regenerated in place (e.g. a
+	// new spectrogram algorithm), so let browsers keep them and revalidate with
+	// the ETag/Last-Modified that express.static already sends: a 304 instead of
+	// re-downloading the 27 MB spectrogram on every editor open. The previous
+	// `no-store` forbade caching outright.
+	const setRevalidate = (res: express.Response) => {
+	  res.setHeader('Cache-Control', 'no-cache');
 	};
-	app.use('/audio', express.static(mediaPath('audio'), { setHeaders: setNoCache }));
-	app.use('/peaks', express.static(mediaPath('peaks'), { setHeaders: setNoCache }));
-	app.use('/test', express.static('test', { setHeaders: setNoCache }));
+	app.use('/audio', express.static(mediaPath('audio'), { setHeaders: setRevalidate }));
+	app.use('/peaks', express.static(mediaPath('peaks'), { setHeaders: setRevalidate }));
+	app.use('/test', express.static('test', { setHeaders: setRevalidate }));
 	app.use('/spectrograms', express.static(mediaPath('spectrograms'), {
-	  setHeaders: setNoCache
+	  setHeaders: setRevalidate
 	}))
 	app.use('/spec_data', express.static(mediaPath('spec_data'), {
-	  setHeaders: setNoCache
+	  setHeaders: setRevalidate
 	}))
 	app.use('/melographs', express.static(mediaPath('melographs'), {
-	  setHeaders: setNoCache
+	  setHeaders: setRevalidate
 	}));
+	// Vite content-hashes everything under /assets, so those files never change
+	// at a given URL: cache them for a year. index.html stays revalidated.
+	app.use('/assets', express.static('dist/assets', { immutable: true, maxAge: '1y' }));
 	app.use('/', express.static('dist'))
 	const server = app.listen(3000);
 	server.timeout = 600000;
