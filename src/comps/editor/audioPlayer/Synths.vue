@@ -20,6 +20,7 @@ import {
 import {
   getStarts, 
   getEnds,
+  valueCurveSampleCount,
 } from '@/ts/utils'
 import { v4 as uuidv4 } from 'uuid';
 import { WoodblockSynth } from '@/synths/woodblock';
@@ -761,7 +762,7 @@ export default defineComponent({
       const track = synth.idx;
       const valueDur = 0.02;
       const endTime = startTime + traj.durTot;
-      const valueCt = Math.round((endTime - startTime) / valueDur);
+      const valueCt = valueCurveSampleCount(endTime - startTime, valueDur);
       const freq = node.frequency !;
       const lpFreq = lpNode.frequency!;
       const verySmall = 0.000000000001;
@@ -801,7 +802,7 @@ export default defineComponent({
       const track = synth.idx;
       const valueDur = 0.02;
       const endTime = startTime + traj.durTot;
-      const valueCt = Math.round((endTime - startTime) / valueDur);
+      const valueCt = valueCurveSampleCount(endTime - startTime, valueDur);
       const freq = node.frequency!;  // Same as main sitar frequency parameter
       const verySmall = 0.000000000001;
       if (first) {
@@ -894,7 +895,7 @@ export default defineComponent({
     ) => {
       const valueDur = 0.02;
       const durTot = traj.durTot;
-      const valueCt = Math.round(durTot / valueDur);
+      const valueCt = valueCurveSampleCount(durTot, valueDur);
       const freq = synth.sarangiNode.freq!;
       const bowGain = synth.sarangiNode.bowGain!;
       const verySmall = 0.000000000001;
@@ -930,7 +931,7 @@ export default defineComponent({
     ) => {
       const valueDur = 0.02;
       const durTot = traj.durTot;
-      const valueCt = Math.round(durTot / valueDur);
+      const valueCt = valueCurveSampleCount(durTot, valueDur);
       const freq = synth.secondNode.freq!;  // Use second string node
       const bowGain = synth.secondNode.bowGain!;
       const verySmall = 0.000000000001;
@@ -1015,7 +1016,7 @@ export default defineComponent({
     ) => {
       const valueDur = 0.02;
       const endTime = startTime + traj.durTot;
-      const valueCt = Math.round(traj.durTot / valueDur);
+      const valueCt = valueCurveSampleCount(traj.durTot, valueDur);
       const freq = synth.node.f0!;
       const verySmall = 0.000000000001;
       const shwahTime = 0.3;
