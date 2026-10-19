@@ -276,6 +276,15 @@ class Trajectory {
     // in each id.]
     if (this.id < 4) {
       this.durArray = [1]
+    } else if (this.durArray == null && this.id === 13) {
+      // A vibrato is one segment, like a fixed trajectory (id13 only reads
+      // logFreqs[0]). Without this default an id 13 built from scratch (the
+      // Python client's reconstruct path) carries durArray null/undefined,
+      // and Piece.allDisplaySargam maps over it and throws for the whole
+      // TranscriptionLayer. The contract's vib-* fixtures carry [1.0]; the
+      // Python model defaults the same way. `== null` also catches a JSON
+      // `"durArray": null`, which fromJSON spreads straight into the ctor.
+      this.durArray = [1]
     } else if (this.durArray === undefined && this.id === 4) {
       this.durArray = [1 / 3, 2 / 3]
     } else if (this.durArray === undefined && this.id === 5) {
