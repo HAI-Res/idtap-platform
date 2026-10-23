@@ -847,7 +847,7 @@ const createNewPiece = async (obj: Piece): Promise<
   let request = {
     method: 'POST',
     headers: {
-      'Conent-Type': 'application/json'
+      'Content-Type': 'application/json', 'X-IDTAP-Client': 'web'
     },
     body: data
   };
