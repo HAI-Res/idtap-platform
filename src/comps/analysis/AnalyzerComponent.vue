@@ -1728,7 +1728,7 @@ export default defineComponent({
           .map(t => {
             const initP = this.piece!.phraseGrid[this.instIdx][t[0].phraseIdx!];
             if (initP === undefined) {
-              debugger;
+              throw new Error(`phrase ${t[0].phraseIdx} not found in track ${this.instIdx}`);
             }
             const initStart = initP.startTime! + t[0].startTime!;
             const lastP = this.piece!.phraseGrid[this.instIdx][t[t.length - 1].phraseIdx!];

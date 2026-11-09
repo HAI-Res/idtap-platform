@@ -210,8 +210,8 @@
           type='range'
           class='slider'
           v-model.number='rate'
-          min='1'
-          max='12'
+          :min='rateMin'
+          :max='rateMax'
           step='0.1'
           @input='updateVibObj'
           :disabled='!editable'
@@ -225,7 +225,7 @@
           class='slider'
           v-model.number='extentCents'
           min='0'
-          max='200'
+          :max='extentMax'
           step='1'
           @input='updateVibObj'
           :disabled='!editable'
@@ -242,7 +242,7 @@
           :class='{ muted: !ramp }'
           v-model.number='extentEndCents'
           min='0'
-          max='200'
+          :max='extentMax'
           step='1'
           @input='updateVibObj'
           :disabled='!editable || !ramp'
@@ -353,6 +353,11 @@ type TrajSelectPanelDataType = {
   rate: number,
   extentCents: number,
   extentEndCents: number,
+  // slider bounds, widened per trajectory so a healed v1 value (rate > 12 Hz,
+  // extent > 200 ¢) still sits on the slider instead of pinning the thumb
+  rateMin: number,
+  rateMax: number,
+  extentMax: number,
   ramp: boolean,
   offset: number,
   initUp: boolean,
@@ -407,6 +412,9 @@ export default defineComponent({
       rate: 5.5,
       extentCents: 60,
       extentEndCents: 60,
+      rateMin: 1,
+      rateMax: 12,
+      extentMax: 200,
       ramp: false,
       offset: 0,
       initUp: true,
@@ -1083,6 +1091,13 @@ export default defineComponent({
       this.ramp = v.extentEnd !== v.extentStart;
       // normalled: with Ramp off, End follows Extent (they are equal on the wire)
       this.extentEndCents = this.ramp ? v.extentEnd * 1200 : this.extentCents;
+      // Bounds come from the loaded value, not the live one, so they stay put
+      // while dragging (a live max would rescale the slider under the pointer).
+      this.rateMax = Math.max(12, Math.ceil(this.rate));
+      this.rateMin = Math.max(0, Math.min(1, Math.floor(this.rate * 10) / 10));
+      this.extentMax = Math.max(
+        200, Math.ceil(Math.max(this.extentCents, this.extentEndCents))
+      );
       const ref = Math.max(v.extentStart, v.extentEnd) / 2;
       this.offset = ref > 0 ? Math.max(-1, Math.min(1, v.vertOffset / ref)) : 0;
       this.phase = v.phase;
