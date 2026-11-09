@@ -517,6 +517,9 @@
      }
     ],
     "durTot": 2,
+    "durArray": [
+     1
+    ],
     "slope": 2,
     "articulations": {},
     "vibObj": {
@@ -812,6 +815,9 @@
      }
     ],
     "durTot": 2,
+    "durArray": [
+     1
+    ],
     "slope": 2,
     "articulations": {},
     "vibObj": {
@@ -1107,6 +1113,9 @@
      }
     ],
     "durTot": 0.55,
+    "durArray": [
+     1
+    ],
     "slope": 2,
     "articulations": {},
     "vibObj": {
@@ -1402,6 +1411,9 @@
      }
     ],
     "durTot": 0.3,
+    "durArray": [
+     1
+    ],
     "slope": 2,
     "articulations": {},
     "vibObj": {
@@ -1696,6 +1708,9 @@
      }
     ],
     "durTot": 2,
+    "durArray": [
+     1
+    ],
     "slope": 2,
     "articulations": {},
     "vibObj": {
@@ -1990,6 +2005,9 @@
      }
     ],
     "durTot": 2,
+    "durArray": [
+     1
+    ],
     "slope": 2,
     "articulations": {},
     "vibObj": {
@@ -2284,6 +2302,9 @@
      }
     ],
     "durTot": 2,
+    "durArray": [
+     1
+    ],
     "slope": 2,
     "articulations": {},
     "vibObj": {
@@ -2578,6 +2599,9 @@
      }
     ],
     "durTot": 0.474,
+    "durArray": [
+     1
+    ],
     "slope": 2,
     "articulations": {},
     "vibObj": {
