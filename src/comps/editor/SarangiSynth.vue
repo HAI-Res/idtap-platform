@@ -5,6 +5,7 @@
 
 import { defineComponent, PropType } from 'vue';
 import { Trajectory } from '@model';
+import { valueCurveSampleCount } from '@/ts/utils';
 
 type SarangiSynthDataType = {
   freq: number,
@@ -142,7 +143,7 @@ export default defineComponent({
       transposition = 0
     ) {
       const valueDur = 0.02;
-      const valueCt = Math.floor((endTime - startTime) / valueDur);
+      const valueCt = valueCurveSampleCount(endTime - startTime, valueDur);
       const verySmall = 0.000000000001;
       const envelope = new Float32Array(valueCt);
       const gainEnv = new Float32Array(valueCt);

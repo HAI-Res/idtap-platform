@@ -67,7 +67,11 @@ class Automation {
   }
 
   generateValueCurve(valueDur: number, duration: number, max: number = 1) {
-    const valueCt = Math.round(duration / valueDur);
+    // `valueCt` counts intervals, not points, so a duration under half of
+    // `valueDur` rounds to zero and makes every `normTime` below 0/0 (NaN,
+    // which `valueAtX` slips past its range guard on before throwing). Keep at
+    // least one interval, i.e. a two-point curve.
+    const valueCt = Math.max(Math.round(duration / valueDur), 1);
     let envelope = new Float32Array(valueCt+1);
     // sort values by normTime
     this.values.sort((a, b) => a.normTime - b.normTime);
