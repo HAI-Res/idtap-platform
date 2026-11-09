@@ -785,8 +785,10 @@ interface ProcessMessage {
 }
 
 interface WorkerMessage {
-  msg: 'process' | 'requestRenderData';
-  payload: ProcessMessage | { startX: number, width: number, canvasIdx: number };
+  msg: 'process' | 'requestRenderData' | 'prefetch';
+  payload: ProcessMessage
+    | { startX: number, width: number, canvasIdx: number }
+    | { audioID: string };
 }
 
 type MelographData = {
