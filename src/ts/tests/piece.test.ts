@@ -1340,3 +1340,33 @@ test('Piece multi-cycle round-trip: save → load → save → load preserves da
   // Verify serialized size stabilizes (doesn't grow or shrink across cycles)
   expect(JSON.stringify(json2).length).toBe(JSON.stringify(json3).length);
 });
+
+test('per-chunk queries match the chunked*() tables', () => {
+  const pieces = [
+    buildSimplePiece(),
+    Piece.fromJSON(JSON.parse(JSON.stringify(pieceData))),
+  ];
+  for (const piece of pieces) {
+    for (const dur of [0.75, 1, 30]) {
+      const nChunks = Math.ceil(piece.durTot! / dur);
+      for (let inst = 0; inst < piece.instrumentation.length; inst++) {
+        const trajChunks = piece.chunkedTrajs(inst, dur, 0);
+        const sargamChunks = piece.chunkedDisplaySargam(inst, dur, 0);
+        const bolChunks = piece.chunkedDisplayBols(inst, dur, 0);
+        const chikariChunks = piece.chunkedDisplayChikaris(inst, dur);
+        const divChunks = piece.chunkedPhraseDivs(inst, dur);
+        for (let idx = 0; idx < nChunks; idx++) {
+          expect(piece.trajsInChunk(inst, dur, 0, idx)).toEqual(trajChunks[idx]);
+          expect(piece.displaySargamInChunk(inst, dur, 0, idx)).toEqual(sargamChunks[idx]);
+          expect(piece.displayBolsInChunk(inst, dur, 0, idx)).toEqual(bolChunks[idx]);
+          expect(piece.displayChikarisInChunk(inst, dur, idx)).toEqual(chikariChunks[idx]);
+          expect(piece.phraseDivsInChunk(inst, dur, idx)).toEqual(divChunks[idx]);
+        }
+      }
+      const meterChunks = piece.chunkedMeters(dur);
+      for (let idx = 0; idx < nChunks; idx++) {
+        expect(piece.metersInChunk(dur, idx)).toEqual(meterChunks[idx]);
+      }
+    }
+  }
+});

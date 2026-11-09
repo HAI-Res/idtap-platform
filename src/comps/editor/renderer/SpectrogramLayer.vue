@@ -31,10 +31,6 @@ export default defineComponent({
     showSpectrogram: {
       type: Boolean,
       required: true
-    },
-    scrollX: {
-      type: Number,
-      required: true
     }
   },
   setup(props) {
@@ -277,11 +273,6 @@ export default defineComponent({
       canvases.value.forEach((canvas) => {
         canvas.style.opacity = opacity.value.toString();
       });
-    });
-
-    // Watch scroll changes to trigger chunk cleanup
-    watch(() => props.scrollX, () => {
-      checkForDistantCanvases();
     });
 
     const resetCanvases = () => {

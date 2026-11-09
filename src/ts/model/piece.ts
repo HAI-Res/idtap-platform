@@ -960,6 +960,71 @@ class Piece {
   }
 
 
+  // --- Per-chunk queries -----------------------------------------------------
+  // The chunked*() methods below build every chunk of the whole piece and the
+  // renderer then keeps one of them, so loading a single chunk cost
+  // O(items x chunks). These return exactly chunked*()[idx] in O(items).
+
+  private chunkOf<T>(items: T[], time: (item: T) => number, duration: number, idx: number): T[] {
+    const start = idx * duration;
+    const end = start + duration;
+    return items.filter(item => {
+      const t = time(item);
+      return t >= start && t < end;
+    });
+  }
+
+  /** Same as chunkedTrajs(inst, duration, stringIdx)[idx]. */
+  trajsInChunk(inst = 0, duration = 30, stringIdx = 0, idx = 0) {
+    const trajs = this.allTrajectories(inst, stringIdx);
+    const durs = trajs.map(t => t.durTot);
+    const starts = getStarts(durs);
+    const endTimes = getEnds(durs);
+    const i = idx * duration;
+    return trajs.filter((_, j) => {
+      const s = starts[j];
+      const e = endTimes[j];
+      return (s >= i && s < i + duration) ||
+        (e > i && e <= i + duration) ||
+        (s < i && e > i + duration);
+    });
+  }
+
+  /** Same as chunkedDisplaySargam(inst, duration, stringIdx)[idx]. */
+  displaySargamInChunk(inst = 0, duration = 30, stringIdx = 0, idx = 0) {
+    return this.chunkOf(this.allDisplaySargam(inst, stringIdx), s => s.time, duration, idx);
+  }
+
+  /** Same as chunkedDisplayVowels(inst, duration)[idx]. */
+  displayVowelsInChunk(inst = 0, duration = 30, idx = 0) {
+    return this.chunkOf(this.allDisplayVowels(inst), v => v.time, duration, idx);
+  }
+
+  /** Same as chunkedDisplayConsonants(inst, duration, stringIdx)[idx]. */
+  displayConsonantsInChunk(inst = 0, duration = 30, stringIdx = 0, idx = 0) {
+    return this.chunkOf(this.allDisplayEndingConsonants(inst, stringIdx), c => c.time, duration, idx);
+  }
+
+  /** Same as chunkedDisplayChikaris(inst, duration)[idx]. */
+  displayChikarisInChunk(inst = 0, duration = 30, idx = 0) {
+    return this.chunkOf(this.allDisplayChikaris(inst), c => c.time, duration, idx);
+  }
+
+  /** Same as chunkedDisplayBols(inst, duration, stringIdx)[idx]. */
+  displayBolsInChunk(inst = 0, duration = 30, stringIdx = 0, idx = 0) {
+    return this.chunkOf(this.allDisplayBols(inst, stringIdx), b => b.time, duration, idx);
+  }
+
+  /** Same as chunkedPhraseDivs(inst, duration)[idx]. */
+  phraseDivsInChunk(inst = 0, duration = 30, idx = 0) {
+    return this.chunkOf(this.allPhraseDivs(inst), pd => pd.time, duration, idx);
+  }
+
+  /** Same as chunkedMeters(duration)[idx]. */
+  metersInChunk(duration = 30, idx = 0) {
+    return this.chunkOf(this.meters, m => m.startTime, duration, idx);
+  }
+
   chunkedTrajs(inst = 0, duration = 30, stringIdx = 0) {
     // for all trajs in the piece, return an array of arrays of trajs, each
     // containing trajs that overlap with a chunk of the given duration
