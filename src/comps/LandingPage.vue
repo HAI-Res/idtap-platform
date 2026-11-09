@@ -4,13 +4,13 @@
       <span class='title'>Swara.Studio</span>
       <span class='subtitle'>{{ subtitleText }}</span>
       <div class='buttonRow'>
-        <div class='enterButton' @click='goToLogin'>Enter IDTAP</div>
+        <router-link class='enterButton' to='/logIn'>Enter IDTAP</router-link>
         <div class='demosButton'>
           <a href='https://www.youtube.com/channel/UCSsnBpY5Hh8mvZu-63lpmaQ'>
             Demos
           </a>
         </div>
-        <div class='enterButton' @click='goToChangelog'>Changelog</div>
+        <router-link class='enterButton' to='/changelog'>Changelog</router-link>
         <div class='linkButton'>
           <a href='https://pypi.org/project/idtap/' target='_blank'>
             Python Package
@@ -44,9 +44,16 @@
             </span>
           </div>
           <div><img :src='logos.neh' alt='National Endowment for the Humanities'></div>
-          <div><img :src='logos.or'></div>
-          <div><img :src='logos.ari'></div>
-          <div><img :src='logos.e'></div>
+          <div><img :src='logos.or' alt='UC Santa Cruz Office of Research'></div>
+          <div>
+            <img :src='logos.ari' alt='UC Santa Cruz Arts Research Institute'>
+          </div>
+          <div>
+            <img 
+              :src='logos.e' 
+              alt='The Hasan & Ali Akbar Khan Endowment for Classical Indian Music'
+              >
+          </div>
         </div>
       </div>
       <div class='bottomRow'>
@@ -165,15 +172,6 @@ export default {
       ]
     }
   },
-  methods: {
-    goToLogin() {
-      this.$router.push('/logIn');
-    },
-
-    goToChangelog() {
-      this.$router.push('/changelog');
-    }
-  }
 }
 </script>
 
@@ -273,7 +271,8 @@ export default {
 
 
 
-.buttonRow > div {
+.buttonRow > div,
+.buttonRow > .enterButton {
   height: 40px;
   display: flex;
   align-items: center;
@@ -282,13 +281,15 @@ export default {
   color: white;
   font-weight: bold;
   cursor: pointer;
-  transition: background-color 0.3s ease;
-  transition: color 0.3s ease;
+  /* colour-only transition; never animate position here */
+  transition: background-color 0.3s ease, color 0.3s ease;
   padding: 0 12px;
   width: fit-content;
 }
 
-.buttonRow > div:hover {
+.buttonRow > div:hover,
+.buttonRow > .enterButton:hover,
+.buttonRow > .enterButton:focus-visible {
   background-color: #F9E0A9;
   color: black;
 }

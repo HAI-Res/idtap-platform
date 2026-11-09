@@ -1,6 +1,7 @@
 <template>
   <div
     ref='tooltip'
+    role='tooltip'
     :class='["tooltipOuter", { closed: !open }]'
     :style='{ top: computedY + "px", left: computedX + "px" }'
     >{{ text }}
@@ -101,7 +102,7 @@ export default defineComponent({
 .tooltipOuter.closed {
   visibility: hidden;
   opacity: 0;
-  transition: visiblity 0s 0.15s, opacity 0.15s linear;
+  transition: visibility 0s 0.15s, opacity 0.15s linear;
 
 }
 </style>
