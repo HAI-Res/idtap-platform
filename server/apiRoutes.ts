@@ -5,6 +5,7 @@ import fileUpload from 'express-fileupload';
 
 import { mediaPath, PYTHON_PATH, pythonEnv } from './mediaConfig';
 import { isOwner, canEdit, canView } from '../shared/authz';
+import { isValidObjectId, isIndex, runToCompletion } from './security';
 
 // Function to run a Python script and return a Promise
 function runPythonScript(scriptPath: string, args: string[] = []): Promise<void> {
@@ -106,8 +107,8 @@ export default function apiRoutes(collections: Collections) {
     const transcriptionId = req.params.id;
     const actorId = await mongoUserId(req);
 
-    if (!transcriptionId) {
-      return res.status(400).json({ error: 'Transcription ID is required' });
+    if (!isValidObjectId(transcriptionId)) {
+      return res.status(400).json({ error: 'A valid transcription ID is required' });
     }
 
     try {
@@ -137,8 +138,8 @@ export default function apiRoutes(collections: Collections) {
     // fixes that and also honors legacy string permissions.
     const actorId = await mongoUserId(req);
 
-    if (!transcriptionId) {
-      return res.status(400).json({ error: 'Transcription ID is required' });
+    if (!isValidObjectId(transcriptionId)) {
+      return res.status(400).json({ error: 'A valid transcription ID is required' });
     }
 
     try {
@@ -163,19 +164,11 @@ export default function apiRoutes(collections: Collections) {
         xlsxOut
       ];
 
-      const pythonScript = spawn(PYTHON_PATH, argvs, { env: pythonEnv() });
-
-      pythonScript.stdout.on('data', data => {
-        console.log(`stdout: ${data}`)
-      });
-
-      pythonScript.stderr.on('data', data => {
-        console.error(`stderr: ${data}`)
-      });
-
-      pythonScript.on('close', () => {
-        res.download(jsonOut);
-      });
+      const code = await runToCompletion(PYTHON_PATH, argvs, { env: pythonEnv() });
+      if (code !== 0) {
+        return res.status(500).json({ error: 'export failed' });
+      }
+      res.download(jsonOut);
 
     } catch (err) {
       console.error(err);
@@ -188,8 +181,8 @@ export default function apiRoutes(collections: Collections) {
     // Same sub-vs-Mongo-id fix as /transcription/:id/json above.
     const actorId = await mongoUserId(req);
 
-    if (!transcriptionId) {
-      return res.status(400).json({ error: 'Transcription ID is required' });
+    if (!isValidObjectId(transcriptionId)) {
+      return res.status(400).json({ error: 'A valid transcription ID is required' });
     }
 
     try {
@@ -214,19 +207,11 @@ export default function apiRoutes(collections: Collections) {
         xlsxOut
       ];
 
-      const pythonScript = spawn(PYTHON_PATH, argvs, { env: pythonEnv() });
-
-      pythonScript.stdout.on('data', data => {
-        console.log(`stdout: ${data}`)
-      });
-
-      pythonScript.stderr.on('data', data => {
-        console.error(`stderr: ${data}`)
-      });
-
-      pythonScript.on('close', () => {
-        res.download(xlsxOut);
-      });
+      const code = await runToCompletion(PYTHON_PATH, argvs, { env: pythonEnv() });
+      if (code !== 0) {
+        return res.status(500).json({ error: 'export failed' });
+      }
+      res.download(xlsxOut);
 
     } catch (err) {
       console.error(err);
@@ -673,7 +658,20 @@ export default function apiRoutes(collections: Collections) {
       // Create new audio event if needed or use existing one
       let audioEventID = audioEventConfig?.audioEventId;
       let recIdx = audioEventConfig?.recordingIndex || 0;
-      
+
+      if (audioEventID) {
+        // Attaching to an existing event: both values become Mongo paths / an _id, and
+        // the caller must be allowed to edit that event (previously anyone could upsert
+        // a track into any event).
+        if (!isValidObjectId(audioEventID) || !isIndex(recIdx)) {
+          return res.status(400).json({ error: 'invalid audioEventId or recordingIndex' });
+        }
+        const existing = await collections.audioEvents?.findOne({ _id: new ObjectId(audioEventID) });
+        if (existing && !canEdit(existing, actorId)) {
+          return res.status(403).json({ error: 'forbidden' });
+        }
+      }
+
       if (!audioEventID) {
         // Create new audio event
         const newAudioEvent = {
@@ -767,16 +765,11 @@ export default function apiRoutes(collections: Collections) {
       if (suffix === '.opus') {
         const newFilename = newId.toString() + '.wav';
         const spawnArgs = ['-i', uploadPath, mediaPath('uploads', newFilename)];
-        const convertProcess = spawn('ffmpeg', spawnArgs);
-        
-        convertProcess.stderr.on('data', data => {
-          console.error(`ffmpeg stderr: ${data}`);
-        });
-        
-        convertProcess.on('close', () => {
-          console.log('opus conversion finished');
-        });
-        
+        // process_audio.py reads the .wav, so wait for the conversion (it used to race)
+        const ffmpegCode = await runToCompletion('ffmpeg', spawnArgs, {}, 'ffmpeg');
+        if (ffmpegCode !== 0) {
+          return res.status(500).json({ error: 'audio conversion failed', audio_id: newId.toString() });
+        }
         filename = newFilename;
       }
 

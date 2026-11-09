@@ -1391,7 +1391,6 @@ const removeTFromColl = async (transcriptionID: string, colID: string) => {
 }
 
 import { 
-  UserDataType,
   AudioEventMetadataType,
   IpaVowelType,
   IPAConsonantType,
@@ -1401,37 +1400,6 @@ import {
   MusicianNameType,
   DisplaySettings
 } from '@shared/types.ts'
-
-const userLoginGoogle = async (userData: UserDataType) => {
-  const data = JSON.stringify({
-    sub: userData.sub,
-    picture: userData.picture,
-    email: userData.email,
-    name: userData.name,
-    given_name: userData.given_name,
-    family_name: userData.family_name,
-    collections: [],
-    transcriptions: [],
-    savedQueries: [],
-  });
-  let out;
-  let request = {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json', 'X-IDTAP-Client': 'web'
-    },
-    body: data
-  };
-  try {
-    const response = await fetch(url + 'userLoginGoogle', request);
-    if (response.ok) {
-      out = await response.json()
-    }
-    return out
-  } catch (err) {
-    console.error(err)
-  }
-}
 
 const agreeToWaiver = async (userID: string) => {
   let out;
@@ -1468,28 +1436,6 @@ const nameFromUserID = async (userID: string) => {
       out = await response.json()
     }
     return out
-  } catch (err) {
-    console.error(err)
-  }
-}
-
-const handleGoogleAuthCode = async (code: string, redirectURL: string) => {
-  let out;
-  const request = {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json', 'X-IDTAP-Client': 'web'
-    },
-    body: JSON.stringify({ 
-      authCode: code,
-      redirectURL: redirectURL
-    })
-  };
-  try {
-    const response = await fetch(url + 'handleGoogleAuthCode', request);
-    if (response.ok) {
-      out = await response.json()
-    } return out
   } catch (err) {
     console.error(err)
   }
@@ -2235,12 +2181,10 @@ export {
   saveRaagRules,
   getAudioRecording,
   getNumberOfSpectrograms,
-  userLoginGoogle,
   agreeToWaiver,
   nameFromUserID,
   makeSpectrograms,
   pieceExists,
-  handleGoogleAuthCode,
   cloneTranscription,
   excelData,
   jsonData,
