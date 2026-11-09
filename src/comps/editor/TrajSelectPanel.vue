@@ -711,6 +711,9 @@ export default defineComponent({
     }
   },
 
+  beforeUnmount() {
+    if (this.hoverTimeout !== undefined) clearTimeout(this.hoverTimeout);
+  },
   methods: {
 
     selectedTrajsConstituteAGroup() {

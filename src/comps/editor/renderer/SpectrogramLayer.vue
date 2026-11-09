@@ -15,6 +15,7 @@
 import { defineComponent, ref, onMounted, watch, computed } from 'vue';
 import { RenderCall } from '@shared/types';
 import { getWorker } from '@/ts/workers/workerManager.ts';
+import { SPECTROGRAM_TILE_WIDTH } from '@shared/spectrogram';
 import { throttle } from 'lodash';
 
 export default defineComponent({
@@ -34,8 +35,7 @@ export default defineComponent({
     }
   },
   setup(props) {
-    const maxCanvasWidth = 1000; // this is a hard-coded value. If you change it
-    // you must also change this value in the spectrogramWorker
+    const maxCanvasWidth = SPECTROGRAM_TILE_WIDTH;
     const container = ref<HTMLDivElement | null>(null);
     const canvases = ref<HTMLCanvasElement[]>([]);
     const ctxs = ref<CanvasRenderingContext2D[]>([]);

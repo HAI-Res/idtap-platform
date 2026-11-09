@@ -107,7 +107,6 @@ export default defineComponent({
         let data_chunks = data.data_chunks;
         let time_chunk_starts = data.time_chunk_starts;
         if (props.excerptRange !== undefined) {
-          console.log('transforming data')
           const start = props.excerptRange.start;
           const end = props.excerptRange.end;
           const timeStarts = data.time_chunk_starts;
