@@ -978,6 +978,11 @@ export default defineComponent({
 
 
       this.oldHeight = window.innerHeight;
+      // The audio player reads `piece` through its props, which only update on
+      // the next render. Without this it saw the placeholder piece (default Sa
+      // 261.63 Hz) and cropped the spectrogram around the wrong Sa, so the
+      // transcription sat a constant interval off the spectrogram.
+      await this.$nextTick();
       const ap = this.$refs.audioPlayer as APType;
       ap.parentLoaded();
       const colors = ['#204580', '#802030', '#532080', '#428020'];
