@@ -1364,7 +1364,11 @@ export default defineComponent({
     let lastHighlightUpdate = -Infinity;
     watch(() => props.currentTime, t => {
       if (props.playing) {
-        ensurePlayheadInView(t);
+        // While playing, only page forward when the playhead runs off the
+        // right edge. A playhead left of the view means the user scrolled
+        // away on purpose; don't yank them back (play start still jumps to
+        // it, see startPlayingTransition).
+        if (t > props.displayRange[1]) ensurePlayheadInView(t);
         if (props.playheadAnimation === PlayheadAnimations.Block) {
           // `!==` rather than `>`: a seek or loop back moves the time
           // backwards, and the block must follow it instead of freezing until
