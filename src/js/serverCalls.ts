@@ -1139,6 +1139,42 @@ const getAllGharanas = async (): Promise<GharanaType[]> => {
   return out
 }
 
+// Turn whatever an upload request failed with into a message a user can read.
+// The server answers errors as `{ error }`, `{ message }`, or a plain string.
+const uploadErrorMessage = (err: unknown): string => {
+  if (axios.isAxiosError(err)) {
+    const data = err.response?.data;
+    let detail: string | undefined;
+    if (typeof data === 'string' && data.trim().length > 0) {
+      detail = data.trim();
+    } else if (data && typeof data === 'object') {
+      const d = data as { error?: unknown, message?: unknown };
+      if (typeof d.error === 'string') detail = d.error;
+      else if (typeof d.message === 'string') detail = d.message;
+    }
+    if (err.response) {
+      return detail ?
+        `Upload failed (${err.response.status}): ${detail}` :
+        `Upload failed (status ${err.response.status})`;
+    }
+    return 'Upload failed: could not reach the server. Check your connection.';
+  }
+  return err instanceof Error ? err.message : 'Upload failed';
+};
+
+export type NewUploadFileResult = {
+  status: boolean,
+  message: string,
+  data: {
+    name: string,
+    mimetype: string,
+    size: number,
+    audioFileId: string
+  }
+};
+
+// Uploads an audio file. Resolves with the server's response body on success
+// and REJECTS with a readable Error on any failure, so callers can show it.
 const newUploadFile = async (file: File, onProgress: OnProgressType, {
   audioEventType = 'add',
   audioEventID = undefined,
@@ -1153,7 +1189,12 @@ const newUploadFile = async (file: File, onProgress: OnProgressType, {
   userID?: string,
   aeName?: string,
   aeType?: string
-} = {}) => {
+} = {}): Promise<NewUploadFileResult> => {
+  if (userID === undefined && audioEventType !== 'add') {
+    throw new Error('userID must be defined')
+  }
+  const formData = new FormData();
+  formData.append('audioFile', file);
   if (audioEventType === 'add') {
     if (audioEventID === undefined) {
       throw new Error('audioEventID must be defined')
@@ -1161,92 +1202,48 @@ const newUploadFile = async (file: File, onProgress: OnProgressType, {
     if (recIdx === undefined) {
       throw new Error('recIdx must be defined')
     }
-    const formData = new FormData();
-    formData.append('audioFile', file);
     formData.append('audioEventID', audioEventID);
     formData.append('recIdx', String(recIdx));
-    formData.append('audioEventType', audioEventType);
-    formData.append('userID', userID || '');
-    const config = {
-      headers: {
-        'Content-Type': 'multipart/form-data', 'X-IDTAP-Client': 'web'
-      },
-      onUploadProgress: (progEvent: AxiosProgressEvent) => {
-        const progressPercent = 100 * progEvent.loaded / progEvent.total!;
-        if (onProgress) onProgress(progressPercent);
-        return progressPercent
-      }
-    };
-    try {
-      const response = await axios.post(url+'newUploadFile', formData, config)
-      if (response.statusText !== 'OK') {
-        throw new Error(`Error! status: ${response.status}`)
-      }
-      return response.data;
-    } catch (err) {
-      console.log(err)
-    }
   } else if (audioEventType === 'create') {
-    // first create new audio event
-    if (userID === undefined) {
-      throw new Error('userID must be defined')
+    // first create the new audio event
+    const result = await initializeAudioEvent(userID!, aeName, aeType);
+    if (!result || !result.insertedId) {
+      throw new Error('Upload failed: could not create the new audio event.')
     }
-    const result = await initializeAudioEvent(userID, aeName, aeType);
-    audioEventID = result.insertedId;
-    const formData = new FormData();
-    formData.append('audioFile', file);
-    formData.append('audioEventID', audioEventID);
+    formData.append('audioEventID', result.insertedId);
     formData.append('recIdx', '0');
-    formData.append('audioEventType', audioEventType);
-    formData.append('userID', userID);
-    const config = {
-      headers: {
-        'Content-Type': 'multipart/form-data', 'X-IDTAP-Client': 'web'
-      },
-      onUploadProgress: (progEvent: AxiosProgressEvent) => {
-        const progressPercent = 100 * progEvent.loaded / progEvent.total!;
-        if (onProgress) onProgress(progressPercent);
-        return progressPercent
-      }
-    };
-    try {
-      const response = await axios.post(url+'newUploadFile', formData, config)
-      if (response.statusText !== 'OK') {
-        throw new Error(`Error! status: ${response.status}`)
-      }
-      return response.data;
-    } catch (err) {
-      console.log(err)
-    }
-  } else {
-    if (userID === undefined) {
-      throw new Error('userID must be defined')
-    }
-    const formData = new FormData();
-    formData.append('audioFile', file);
-    formData.append('audioEventType', audioEventType);
-    formData.append('userID', userID);
-    const config = {
-      headers: {
-        'Content-Type': 'multipart/form-data', 'X-IDTAP-Client': 'web'
-      },
-      onUploadProgress: (progEvent: AxiosProgressEvent) => {
-        const progressPercent = 100 * progEvent.loaded / progEvent.total!;
-        if (onProgress) onProgress(progressPercent);
-        return progressPercent
-      }
-    };
-    try {
-      const response = await axios.post(url+'newUploadFile', formData, config)
-      if (response.statusText !== 'OK') {
-        throw new Error(`Error! status: ${response.status}`)
-      }
-      return response.data;
-    } catch (err) {
-      console.log(err)
-    }
-
   }
+  formData.append('audioEventType', audioEventType);
+  formData.append('userID', userID || '');
+  const config = {
+    headers: {
+      'Content-Type': 'multipart/form-data', 'X-IDTAP-Client': 'web'
+    },
+    onUploadProgress: (progEvent: AxiosProgressEvent) => {
+      const total = progEvent.total || file.size;
+      if (!total) return;
+      const progressPercent = Math.min(100, 100 * progEvent.loaded / total);
+      if (onProgress) onProgress(progressPercent);
+    }
+  };
+  let response;
+  try {
+    response = await axios.post(url + 'newUploadFile', formData, config);
+  } catch (err) {
+    console.error(err);
+    throw new Error(uploadErrorMessage(err));
+  }
+  // `statusText` is empty over HTTP/2, so check the numeric status instead.
+  if (response.status < 200 || response.status >= 300) {
+    throw new Error(`Upload failed (status ${response.status})`);
+  }
+  const body = response.data as Partial<NewUploadFileResult> | undefined;
+  if (!body || body.status === false || !body.data?.audioFileId) {
+    throw new Error(
+      body?.message ? `Upload failed: ${body.message}` : 'Upload failed: the server returned no recording id.'
+    );
+  }
+  return body as NewUploadFileResult;
 }
 
 const addRecordingToCollection = async (recordingID: string, colID: string) => {
