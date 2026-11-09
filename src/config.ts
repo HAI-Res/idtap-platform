@@ -27,3 +27,7 @@ const _origin: string =
   typeof location !== 'undefined' ? location.origin + '/' : 'https://swara.studio/';
 export const SERVER_BASE: string =
   _env.VITE_API_URL || (_env.DEV ? 'https://swara.studio/' : _origin);
+
+// The piece the editor opens when the URL has no id and the last-opened one is
+// gone: the public Yaman sitar demo transcription.
+export const DEFAULT_TRANSCRIPTION_ID = '63445d13dc8b9023a09747a6';
