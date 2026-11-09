@@ -246,7 +246,10 @@ export default {
       }
       const pbOuter = this.$refs.pbOuter as HTMLDivElement;
       const bb = pbOuter.getBoundingClientRect();
-      this.audio.currentTime = this.audio.duration * e.clientX / bb.width
+      const dur = this.audio.duration;
+      if (!isFinite(dur) || bb.width <= 0) return;
+      const frac = Math.min(1, Math.max(0, (e.clientX - bb.left) / bb.width));
+      this.audio.currentTime = dur * frac
     },
     
     tooLeftLimit() {
@@ -334,7 +337,9 @@ export default {
         }
         let offset = this.audio.duration * (e.clientX - this.dragStart) 
         offset /= bb.width;
-        const newTime = this.audio.currentTime + offset;
+        const newTime = Math.min(
+          this.audio.duration, Math.max(0, this.audio.currentTime + offset)
+        );
         if (this.audio.fastSeek) {
           this.audio.fastSeek(newTime)
         } else {

@@ -514,13 +514,29 @@ export default defineComponent({
         text: 'Delete Recording',
         action: async () => {
           this.contextMenuClosed = true;
+          const name = rec.title ? `"${rec.title}"` : 'this recording';
+          const ok = window.confirm(
+            `Delete ${name}? This cannot be undone.`
+          );
+          if (!ok) return;
           try { 
-            await deleteRecording(rec._id!);
-            this.allRecordings = await getAllAudioRecordingMetadata();
-            const fTable = this.$refs.filterableTable as typeof FilterableTable;
-            fTable.toggleSort(fTable.selectedSortIdx, true);
+            const res = await deleteRecording(rec._id!);
+            if (res === undefined) {
+              throw new Error('the server did not delete it.');
+            }
           } catch (err) {
-            console.log(err); 
+            console.error(err); 
+            const msg = err instanceof Error ? err.message : String(err);
+            window.alert(`Could not delete ${name}: ${msg}`);
+            return;
+          }
+          try {
+            this.allRecordings = await getAllAudioRecordingMetadata();
+            const fTable = this.$refs.filterableTable as 
+              typeof FilterableTable | undefined;
+            fTable?.toggleSort(fTable.selectedSortIdx, true);
+          } catch (err) {
+            console.error(err);
           }
         },
         enabled: owned
