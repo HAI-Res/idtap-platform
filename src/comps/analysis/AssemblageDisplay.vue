@@ -329,7 +329,7 @@ export default defineComponent({
         
         if (!isVisible) {
           segmentElement.scrollIntoView({ 
-            behavior: 'smooth', 
+            behavior: 'auto', 
             block: 'center' 
           });
         }

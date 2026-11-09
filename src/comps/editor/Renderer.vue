@@ -235,7 +235,8 @@ import {
   toRef
 } from 'vue';
 import { throttle } from 'lodash';
-import { suppressMotion } from '@/js/motionPrefs.ts';
+import { useSuppressMotion } from '@/js/motionPrefs.ts';
+import { isTypingInField } from '@/comps/editor/editorUtils';
 
 import SpectrogramLayer from '@/comps/editor/renderer/SpectrogramLayer.vue';
 import XAxis from '@/comps/editor/renderer/XAxis.vue';
@@ -806,6 +807,7 @@ export default defineComponent({
       }]
     };
     const handleKeydown = (e: KeyboardEvent) => {
+      if (isTypingInField(e)) return;
       if (e.key === 'Escape') {
         contextMenuClosed.value = true;
         showEditInstrumentation.value = false;
@@ -868,14 +870,17 @@ export default defineComponent({
       verticalScrollUpdateIdx.value += 1;
     }, 16);
 
+    // Reactive in the OS reduced-motion setting and in the userID, which
+    // NavBar's async session lookup fills in after the editor mounts.
+    const motionSuppressed = useSuppressMotion(() => store.state.userID);
     const onWheel = (e: WheelEvent) => {
-      if (suppressMotion(store.state.userID)) {
+      if (motionSuppressed.value) {
         e.preventDefault();
         e.stopPropagation();
       }
     };
     const onTouchMove = (e: TouchEvent) => {
-      if (suppressMotion(store.state.userID)) {
+      if (motionSuppressed.value) {
         e.preventDefault();
         e.stopPropagation();
       }
