@@ -24,6 +24,11 @@ import {
   verifySession, signSession, sessionCookieOptions, SESSION_COOKIE, SESSION_TTL_SECONDS,
 } from './session';
 import { canView, canEdit, isOwner } from '@shared/authz';
+import {
+  isValidObjectId, isAdmin, isNonEmptyString, runToCompletion, stripProtectedKeys,
+  isIndex, isSafePathSegment,
+  USER_DIRECTORY_PROJECTION, toUserDirectoryEntry,
+} from './security';
 
 import { mediaPath, PYTHON_PATH, UPLOAD_TMP_DIR, pythonEnv } from './mediaConfig';
 
@@ -400,8 +405,19 @@ const runServer = async () => {
 
 	app.get('/getAllCollections', async (req, res) => {
 	  try {
+		const uid = req.user?.uid;
 		const result = await collections.find().toArray();
-		res.json(result)
+		// Only collections the caller may see (public, owned, or shared via the
+		// permissions lists), and the invite code only to the owner: anyone holding it
+		// can enroll themselves via /enrollUserInCollection.
+		const visible = result
+		  .filter(coll => coll.permissions?.publicView === true || canView(coll, uid))
+		  .map(coll => {
+			if (isOwner(coll, uid)) return coll;
+			const { inviteCode, ...rest } = coll;
+			return rest;
+		  });
+		res.json(visible)
 	  } catch (err) {
 		console.error(err);
 		res.status(500).send(err);
@@ -554,10 +570,13 @@ const runServer = async () => {
 	  }
 	});
 
-	app.get('/allUsers', async (req, res) => {
+	app.get('/allUsers', requireSession, async (req, res) => {
+	  // User directory for the share / owner pickers. Logged-in only, and only the
+	  // fields those pickers display (name + email) or copy (given/family name);
+	  // never sub, settings, view history or saved queries.
 	  try {
-		const result = await users.find().toArray();
-		res.send(JSON.stringify(result))
+		const result = await users.find({}, { projection: USER_DIRECTORY_PROJECTION }).toArray();
+		res.json(result.map(toUserDirectoryEntry))
 	  } catch (err) {
 		console.error(err);
 		res.status(500).send(err);
@@ -996,7 +1015,8 @@ const runServer = async () => {
 
 	app.get('/verifySpectrogram', async (req, res) => {
 	  // verify that spectrogram exists for a particular recording
-	  const dir = mediaPath('spectrograms', String(req.query.id), '0');
+	  if (!isValidObjectId(req.query.id)) { res.json(false); return; }
+	  const dir = mediaPath('spectrograms', req.query.id, '0');
 	  try {
 		const files = await fs.readdir(dir);
 		res.json(files.length > 0)
@@ -1013,7 +1033,8 @@ const runServer = async () => {
 
 	app.get('/verifyMelograph', async (req, res) => {
 	  // verify that melograph exists for a particular recording
-	  const dir = mediaPath('melographs', String(req.query.id));
+	  if (!isValidObjectId(req.query.id)) { res.json(false); return; }
+	  const dir = mediaPath('melographs', req.query.id);
 	  try {
 		const files = await fs.readdir(dir);
 		res.json(files.length > 0)
@@ -1078,7 +1099,8 @@ const runServer = async () => {
 
 	app.get('/getNumberOfSpectrograms', async (req, res) => {
 	  // returns the number of spectrograms that the app needs to load
-	  const dir = mediaPath('spectrograms', String(req.query.id), '0');
+	  if (!isValidObjectId(req.query.id)) { res.status(400).json({ error: 'invalid id' }); return; }
+	  const dir = mediaPath('spectrograms', req.query.id, '0');
 	  try {  
 		const files = await fs.readdir(dir);
 		res.json(files.length)  
@@ -1164,59 +1186,56 @@ const runServer = async () => {
 
 	});
 	
+	// Regenerating a recording's media rewrites files every viewer of that recording
+	// loads, so it is limited to people who can edit the recording (the same people
+	// /updateSaEstimate lets correct the sa, which is why these get re-run) or an admin.
+	// Returns the validated args, or undefined after sending the error response.
+	const authorizeMediaRegen = async (
+	  req: Request, res: Response,
+	): Promise<{ recId: string; saEst: string } | undefined> => {
+	  const { recId, saEst } = req.body ?? {};
+	  if (!isValidObjectId(recId)) { res.status(400).json({ error: 'invalid recId' }); return; }
+	  const sa = Number(saEst);
+	  if (saEst === undefined || saEst === null || saEst === '' || !Number.isFinite(sa)) {
+		res.status(400).json({ error: 'invalid saEst' }); return;
+	  }
+	  const rec = await audioRecordings.findOne({ _id: new ObjectId(recId) });
+	  if (!rec) { res.status(404).json({ error: 'not found' }); return; }
+	  if (!canEdit(rec, req.user!.uid) && !isAdmin(req.user!.uid)) {
+		res.status(403).json({ error: 'forbidden' }); return;
+	  }
+	  return { recId, saEst: String(sa) };
+	};
+
 	app.post('/makeSpectrograms', requireSession, requireCsrfHeader, async (req, res) => {
 	  // generate spectrograms for the given recording ID and tonic estimate
-	  const makingSpecs = spawn(
-		PYTHON_PATH,
-		['generate_log_spectrograms.py', req.body.recId, req.body.saEst],
-		{ env: pythonEnv() }
-	  );
 	  try {
-		makingSpecs.stdout.on('data', data => {
-		  console.log(`stdout: ${data}`)
-		});
-		
-		makingSpecs.stderr.on('data', data => {
-		  console.error(`stderr: ${data}`)
-		});
-		await makingSpecs.on('close', (msg) => {
-		  console.log(msg)
-		  res.json('made the spectrograms')
-		})
+		const ok = await authorizeMediaRegen(req, res);
+		if (!ok) return;
+		const code = await runToCompletion(
+		  PYTHON_PATH, ['generate_log_spectrograms.py', ok.recId, ok.saEst], { env: pythonEnv() },
+		);
+		if (code !== 0) { res.status(500).json({ error: 'spectrogram generation failed' }); return; }
+		res.json('made the spectrograms')
 	  } catch (err) {
 		console.error(err)
+		if (!res.headersSent) res.status(500).json({ error: 'internal error' });
 	  }
 	})
 
 	app.post('/makeMelograph', requireSession, requireCsrfHeader, async (req, res) => {
 	  res.setTimeout(10 * 60 * 1000); // 10 minutes
-	  const makingMelograph = spawn(
-		PYTHON_PATH,
-		['generate_melograph.py', req.body.recId, req.body.saEst],
-		{ env: pythonEnv() }
-	  );
 	  try {
-		makingMelograph.stdout.on('data', data => {
-		  console.log(`stdout: ${data}`)
-		});
-		
-		makingMelograph.stderr.on('data', data => {
-		  console.error(`stderr: ${data}`)
-		});
-		await new Promise((resolve, reject) => {
-		  makingMelograph.on('close', (msg) => {
-			console.log(msg);
-			resolve(undefined);
-		  });
-	
-		  makingMelograph.on('error', (err) => {
-			console.error(err);
-			reject(err);
-		  });
-		});
+		const ok = await authorizeMediaRegen(req, res);
+		if (!ok) return;
+		const code = await runToCompletion(
+		  PYTHON_PATH, ['generate_melograph.py', ok.recId, ok.saEst], { env: pythonEnv() },
+		);
+		if (code !== 0) { res.status(500).json({ error: 'melograph generation failed' }); return; }
 		res.json('made the melograph')
 	  } catch (err) {
 		console.error(err)
+		if (!res.headersSent) res.status(500).json({ error: 'internal error' });
 	  }
 	})
 
@@ -1225,6 +1244,10 @@ const runServer = async () => {
 		const result = await audioEvents.findOne({
 		  _id: new ObjectId(req.query._id as string)
 		});
+		// same visibility rule as /getAEsFromIds
+		if (result && !(canView(result, req.user?.uid) || result.visibility === 'public')) {
+		  res.status(403).json({ error: 'forbidden' }); return;
+		}
 		res.json(result)
 	  } catch (err) {
 		console.error(err);
@@ -1277,6 +1300,7 @@ const runServer = async () => {
 	})
 
 	app.delete('/cleanEmptyDoc', requireSession, requireCsrfHeader, async (req, res) => {
+	  if (!isValidObjectId(req.body?._id)) { res.status(400).json({ error: 'invalid _id' }); return; }
 	  const query = { _id: new ObjectId(req.body._id) };
 	  const projection = { projection: { _id: 0 } };
 	  try {
@@ -1284,9 +1308,17 @@ const runServer = async () => {
     if (!result) {
       return res.status(404).send('Audio event not found');
     }
+		// an owned event may only be cleaned up by its owner; legacy stubs without a
+		// userID stay cleanable by any logged-in user, as before
+		if (result.userID && !isOwner(result, req.user!.uid)) {
+		  res.status(403).json({ error: 'forbidden' }); return;
+		}
 		if (Object.keys(result).length <= 2) {
 		  const output = await audioEvents.deleteOne(query);
 		  res.json(output)
+		} else {
+		  // not empty: nothing to clean, but always answer so the client doesn't hang
+		  res.json({ acknowledged: true, deletedCount: 0 })
 		}
 	  } catch (err) {
 		console.error(err);
@@ -1295,16 +1327,22 @@ const runServer = async () => {
 	})
 
 	app.post('/saveAudioMetadata', requireSession, requireCsrfHeader, async (req, res) => {
+	  if (!isValidObjectId(req.body?._id)) { res.status(400).json({ error: 'invalid _id' }); return; }
 	  const parentId = new ObjectId(req.body._id);
-	  const myUpdates = req.body.updates;
-	  const addMusicians = req.body.addMusicians;
+	  // editors may change the event's content, not who owns it or who it's shared with
+	  // (that is /updateVisibility, owner-only)
+	  const myUpdates = stripProtectedKeys(req.body.updates);
+	  const addMusicians = Array.isArray(req.body.addMusicians) ? req.body.addMusicians : [];
 	  const query = { _id: parentId };
-	  const existingAE = await audioEvents.findOne(query);
-	  if (existingAE && !canEdit(existingAE, req.user!.uid)) { res.status(403).json({ error: 'forbidden' }); return; }
-	  const update = { $set: myUpdates };
+	  // an upsert creates the event, so its creator owns it (previously it had no owner)
+	  const update: { $set?: Record<string, any>; $setOnInsert: Record<string, any> } = {
+		$setOnInsert: { userID: req.user!.uid },
+	  };
+	  if (Object.keys(myUpdates).length > 0) update.$set = myUpdates;
 	  const options = { upsert: true };
-	  console.log(addMusicians)
 	  try {
+		const existingAE = await audioEvents.findOne(query);
+		if (existingAE && !canEdit(existingAE, req.user!.uid)) { res.status(403).json({ error: 'forbidden' }); return; }
 		if (addMusicians.length > 0) {
 		  const [result1, result2] = await Promise.all([
 			audioEvents.updateOne(query, update, options),
@@ -1355,8 +1393,13 @@ const runServer = async () => {
 	app.post('/addCountryToDB', requireSession, requireCsrfHeader, async (req, res) => {
 	  const country = req.body.country;
 	  const continent = req.body.continent;
-	  const update = { $set: { [`${continent}.${country}`]: [] } };
-	  const query = {};
+	  if (!isSafePathSegment(continent) || !isSafePathSegment(country)) {
+		res.status(400).json({ error: 'invalid continent or country' }); return;
+	  }
+	  const path = `${continent}.${country}`;
+	  const update = { $set: { [path]: [] } };
+	  // only when the country is new: $set-ing [] over an existing one wiped its cities
+	  const query = { [path]: { $exists: false } };
 	  try {
 		const result = await location.updateOne(query, update);
 		res.json(result);
@@ -1370,7 +1413,10 @@ const runServer = async () => {
 	  const continent = req.body.continent;
 	  const country = req.body.country;
 	  const city = req.body.city;
-	  const update = { $push: { [`${continent}.${country}`]: city } };
+	  if (!isSafePathSegment(continent) || !isSafePathSegment(country) || !isNonEmptyString(city)) {
+		res.status(400).json({ error: 'invalid continent, country or city' }); return;
+	  }
+	  const update = { $addToSet: { [`${continent}.${country}`]: city } };
 	  const query = {};
 	  try {
 		const result = await location.updateOne(query, update);
@@ -1395,6 +1441,9 @@ const runServer = async () => {
 
 	app.post('/updateSaEstimate', requireSession, requireCsrfHeader, async (req, res) => {
 	  try {
+		if (!isIndex(req.body.recIdx) || !isValidObjectId(req.body.aeID) || !isValidObjectId(req.body.recID)) {
+		  res.status(400).json({ error: 'invalid aeID, recID or recIdx' }); return;
+		}
 		const verString = `recordings.${req.body.recIdx}.saVerified`;
 		const estString = `recordings.${req.body.recIdx}.saEstimate`;
 		const octString = `recordings.${req.body.recIdx}.octOffset`;
@@ -1402,12 +1451,17 @@ const runServer = async () => {
 		const ae = await audioEvents.findOne(query);
 		if (!ae) { res.status(404).json({ error: 'not found' }); return; }
 		if (!canEdit(ae, req.user!.uid)) { res.status(403).json({ error: 'forbidden' }); return; }
+		const otherQuery = { _id: new ObjectId(req.body.recID) };
+		// edit rights on the event only cover recordings that belong to it
+		const rec = await audioRecordings.findOne(otherQuery);
+		if (rec && String(rec.parentID) !== req.body.aeID && !canEdit(rec, req.user!.uid)) {
+		  res.status(403).json({ error: 'forbidden' }); return;
+		}
 		const update: { $set: { [key: string]: any } } = { $set: {} };
 		update.$set[verString] = req.body.verified;
 		update.$set[estString] = req.body.saEstimate;
 		update.$set[octString] = req.body.octOffset;
 		await audioEvents.updateOne(query, update);
-		const otherQuery = { _id: new ObjectId(req.body.recID) };
 		const saEst = req.body.saEstimate;
 		const ver = req.body.verified;
 		const oct = req.body.octOffset;
@@ -1427,16 +1481,35 @@ const runServer = async () => {
 		const rec = await audioRecordings.findOne(query);
 		if (!rec) { res.status(404).json({ error: 'not found' }); return; }
 		if (!canEdit(rec, req.user!.uid)) { res.status(403).json({ error: 'forbidden' }); return; }
+		// Editors change content; ownership never moves here, and sharing
+		// (explicitPermissions — the upload form's editor/viewer pickers) only for the owner.
+		const protectedRoots = isOwner(rec, req.user!.uid)
+		  ? ['_id', 'userID', 'permissions']
+		  : ['_id', 'userID', 'permissions', 'explicitPermissions'];
+		const recUpdates = stripProtectedKeys(req.body.updates, protectedRoots);
+		// the nested copy lives in the recording's own parent event, at a numeric index
+		const writeAE = req.body.ae_id !== undefined && req.body.ae_id !== null;
+		if (writeAE) {
+		  if (!isValidObjectId(req.body.ae_id) || !isIndex(req.body.parentTrackNum)) {
+			res.status(400).json({ error: 'invalid ae_id or parentTrackNum' }); return;
+		  }
+		  if (String(rec.parentID) !== req.body.ae_id) {
+			const otherAE = await audioEvents.findOne({ _id: new ObjectId(req.body.ae_id) });
+			if (!otherAE || !canEdit(otherAE, req.user!.uid)) {
+			  res.status(403).json({ error: 'forbidden' }); return;
+			}
+		  }
+		}
 		const isoDateString = new Date().toISOString();
 		const update = { $set: {
-		  ...req.body.updates,
+		  ...recUpdates,
 		  dateModified: isoDateString
 		 } };
 		const result = await audioRecordings.updateOne(query, update);
-		if (req.body.ae_id !== undefined) {
+		if (writeAE) {
 		  const aeUpdate: { [key: string]: any } = {};
-		  Object.keys(req.body.updates).forEach(key => {
-			aeUpdate[key] = JSON.parse(JSON.stringify(req.body.updates[key]));
+		  Object.keys(recUpdates).forEach(key => {
+			aeUpdate[key] = JSON.parse(JSON.stringify(recUpdates[key]));
 		  })
 		  aeUpdate['audioFileId'] = new ObjectId(req.body._id);
 		  delete aeUpdate['_id'];
@@ -1494,6 +1567,7 @@ const runServer = async () => {
 		const target = await transcriptions.findOne(query);
 		if (!target) { res.status(404).json({ error: 'not found' }); return; }
 		if (!isOwner(target, req.user!.uid)) { res.status(403).json({ error: 'forbidden' }); return; }
+		if (!isValidObjectId(req.body.userID)) { res.status(400).json({ error: 'invalid userID' }); return; }
 		const update = { $set: {
 		  userID: req.body.userID,
 		  name: req.body.name,
@@ -1501,8 +1575,9 @@ const runServer = async () => {
 		  given_name: req.body.given_name
 		} };
 		const result = await transcriptions.updateOne(query, update);
-		// remove from old user's transcriptions array
-		const query2 = { _id: new ObjectId(req.body.originalOwnerID) };
+		// remove from old user's transcriptions array (the verified owner, not the
+		// client-supplied originalOwnerID, which could name any user)
+		const query2 = { _id: new ObjectId(target.userID) };
 		const tID = new ObjectId(req.body.transcriptionID);
 		await users.updateOne(query2, { $pull: {
 		  transcriptions: { $in: [tID] }
@@ -1724,7 +1799,8 @@ const runServer = async () => {
 	  try {
 		const query = { parentID: null };
 		const result = await audioRecordings.find(query).toArray();
-		res.json(result)
+		// same post-filter as /getRecsFromIds
+		res.json(result.filter(rec => canView(rec, req.user?.uid)))
 	  } catch (err) {
       console.error(err);
       res.status(500).send(err)
@@ -1800,7 +1876,15 @@ const runServer = async () => {
 
 	app.post('/saveRaagRules', requireSession, requireCsrfHeader, async (req, res) => {
 	  try {
+      if (!isNonEmptyString(req.body?.name)) { res.status(400).json({ error: 'invalid name' }); return; }
       const query = { name: req.body.name };
+      // Raga rulesets are global reference data with no owner. Anyone logged in may
+      // supply rules for a raga that has none yet (the new-piece flow requires a saved
+      // ruleset); overwriting an existing ruleset is admin-only.
+      const existing = await ragas.findOne(query, { projection: { rules: 1 } });
+      if (existing?.rules && !isAdmin(req.user!.uid)) {
+        res.status(403).json({ error: 'only an admin can change an existing raga ruleset' }); return;
+      }
       const update = {
         $set: { rules: req.body.rules, updatedDate: req.body.date }
       };
@@ -1813,18 +1897,10 @@ const runServer = async () => {
 	  }
 	})
 
-	app.post('/userLoginGoogle', async (req, res) => {
-	  try {
-		const query = { sub: req.body.sub };
-		const update = { $set: req.body };
-		const options = { upsert: true, returnDocument: 'after' as const };
-		const result = await users.findOneAndUpdate(query, update, options);
-		res.json(result);
-	  } catch (err) {
-		console.error(err);
-		res.status(500).send(err);
-	  }
-	})
+	// /userLoginGoogle and /handleGoogleAuthCode were removed: web login is the
+	// server-mediated OIDC flow in authRoutes.ts (/auth/login, /auth/callback) and the
+	// Python client uses /oauth/*. /userLoginGoogle upserted `$set: req.body` keyed by a
+	// client-supplied `sub` with no auth, i.e. anyone could rewrite any user document.
 
 	app.post('/agreeToWaiver', requireSession, requireCsrfHeader, async (req, res) => {
 	  try {
@@ -1884,36 +1960,6 @@ app.post('/handleGoogleAuthCodePythonAPI', async (req, res) => {
   }
 });
 
-	app.post('/handleGoogleAuthCode', async (req, res) => {
-	  try {
-		let url = req.body.redirectURL;
-		if (url !== 'http://localhost:8080/') {
-			if (url[url.length-1] === '/') {
-		  		url = url.slice(0, url.length-1);
-			}
-			if (url.slice(url.length-5, url.length) === 'logIn')[
-				url = url.slice(0, url.length-6)
-			]
-		}
-		
-		console.log(url)
-		const OAuthClient = new OAuth2Client({
-		  clientId: GOOGLE_CLIENT_ID,
-		  clientSecret: GOOGLE_CLIENT_SECRET,
-		  redirectUri: url
-		});
-		let { tokens } = await OAuthClient.getToken(req.body.authCode);
-		OAuthClient.setCredentials({ access_token: tokens.access_token });
-		const userinfo = await OAuthClient.request({
-		  url: 'https://www.googleapis.com/oauth2/v3/userinfo'
-		})
-		res.json(userinfo.data)
-	  } catch (err) {
-		console.error(err);
-		res.status(500).send(err);
-	  }
-	})
-
 	app.post('/cloneTranscription', requireSession, requireCsrfHeader, async (req, res) => {
 	  try {
 
@@ -1943,72 +1989,48 @@ app.post('/handleGoogleAuthCodePythonAPI', async (req, res) => {
 	  }
 	})
 
-	app.get('/excelData', async (req, res) => {
-	  const id = req.query._id as string;
-	  const jsonOut = mediaPath('data', 'json', `${id}.json`);
-	  const xlsxOut = mediaPath('data', 'excel', `${id}.xlsx`);
-	  const argvs = [
-      'make_excel.py',
-      id,
-      jsonOut,
-      xlsxOut
-	  ];
+	// Transcription export (make_excel.py writes both the JSON and the XLSX). Same
+	// visibility rule as /getOneTranscription: canView, so public pieces still export
+	// for logged-out viewers. The id is validated as a 24-hex ObjectId before it is
+	// used in a filesystem path, and a failed script is a 500, not a stale/missing file.
+	const exportTranscription = async (req: Request, res: Response, kind: 'json' | 'excel') => {
+	  const id = req.query._id;
+	  if (!isValidObjectId(id)) { res.status(400).json({ error: 'invalid _id' }); return; }
 	  try {
-      const pythonScript = spawn(PYTHON_PATH, argvs, { env: pythonEnv() });
-      pythonScript.stdout.on('data', data => {
-        console.log(`stdout: ${data}`)
-      });
-
-      pythonScript.stderr.on('data', data => {
-        console.error(`stderr: ${data}`)
-      });
-      await pythonScript.on('close', () => {
-        res.download(xlsxOut);
-      })
-	  } catch (err) {
-      console.error(err);
-      res.status(500).send(err)
-	  }
-	})
-
-	app.get('/jsonData', async (req, res) => {
-	  const id = req.query._id as string;
-	  const jsonOut = mediaPath('data', 'json', `${id}.json`);
-	  const xlsxOut = mediaPath('data', 'excel', `${id}.xlsx`);
-	  const argvs = [
-		'make_excel.py',
-		id,
-		jsonOut,
-		xlsxOut
-	  ];
-	  try {
-		const pythonScript = spawn(PYTHON_PATH, argvs, { env: pythonEnv() });
-		pythonScript.stdout.on('data', data => {
-		  console.log(`stdout: ${data}`)
-		});
-
-		pythonScript.stderr.on('data', data => {
-		  console.error(`stderr: ${data}`)
-		});
-		pythonScript.on('close', () => {
-		  res.download(jsonOut);
-		})
+		const piece = await transcriptions.findOne(
+		  { _id: new ObjectId(id) },
+		  { projection: { userID: 1, permissions: 1, explicitPermissions: 1 } },
+		);
+		if (!piece) { res.status(404).json({ error: 'not found' }); return; }
+		if (!canView(piece, req.user?.uid)) { res.status(403).json({ error: 'forbidden' }); return; }
+		const jsonOut = mediaPath('data', 'json', `${id}.json`);
+		const xlsxOut = mediaPath('data', 'excel', `${id}.xlsx`);
+		const code = await runToCompletion(
+		  PYTHON_PATH, ['make_excel.py', id, jsonOut, xlsxOut], { env: pythonEnv() },
+		);
+		if (code !== 0) { res.status(500).json({ error: 'export failed' }); return; }
+		res.download(kind === 'json' ? jsonOut : xlsxOut);
 	  } catch (err) {
 		console.error(err);
-		res.status(500).send(err)
+		if (!res.headersSent) res.status(500).json({ error: 'internal error' });
 	  }
-	})
+	};
+
+	app.get('/excelData', (req, res) => exportTranscription(req, res, 'excel'));
+
+	app.get('/jsonData', (req, res) => exportTranscription(req, res, 'json'));
 
 	app.get('/getInstrumentation', async (req, res) => {
 	  // from the audio recording.
 	  try {
 		const audioID = new ObjectId(JSON.parse(req.query.audioID as string));
 		const query = { _id: audioID };
-		const projection = { projection: { musicians: 1, _id: 0 } };
+		const projection = { projection: { musicians: 1, _id: 0, userID: 1, explicitPermissions: 1, permissions: 1 } };
 		const result = await audioRecordings.findOne(query, projection);
     if (!result) {
       return res.status(404).send('Audio recording not found');
     }
+		if (!canView(result, req.user?.uid)) { res.status(403).json({ error: 'forbidden' }); return; }
 		const musicians = result.musicians;
 		const keys = Object.keys(musicians);
 		const sortOrder = ['Soloist', 'Accompanist'];
@@ -2033,11 +2055,12 @@ app.post('/handleGoogleAuthCodePythonAPI', async (req, res) => {
 	  try {
 		const transcriptionID = new ObjectId(req.query.transcriptionID as string);
 		const query = { _id: transcriptionID };
-		const projection = { projection: { instrumentation: 1, _id: 0 } };
+		const projection = { projection: { instrumentation: 1, _id: 0, userID: 1, explicitPermissions: 1, permissions: 1 } };
 		const result = await transcriptions.findOne(query, projection);
     if (!result) {
       return res.status(404).send('Transcription not found');
     }
+		if (!canView(result, req.user?.uid)) { res.status(403).json({ error: 'forbidden' }); return; }
 		res.json(result.instrumentation);
 	  } catch (err) {
 		console.error(err);
@@ -2047,38 +2070,56 @@ app.post('/handleGoogleAuthCodePythonAPI', async (req, res) => {
 
 	app.post('/newUploadFile', requireSession, requireCsrfHeader, async (req, res) => {
 	  try {
-		if (!req.files) {
-		  res.send({ status: false, message: 'No file uploaded' });
-		} else {
-		  const newId = new ObjectId();
-		  const dateModified = new Date().toISOString();
-		  const audioEventID = req.body.audioEventID;
-		  let recIdx = req.body.recIdx;
-		  const audioFile = req.files.audioFile as fileUpload.UploadedFile;
-		  let parentTitle = undefined;
-		  let aeUserID = undefined;
-		  if (
-			req.body.audioEventType === 'add' || 
-			req.body.audioEventType === 'create'
-			) {
-			const recPath = `recordings.${recIdx}`;
-			const afIdPath = `${recPath}.audioFileId`;
-			const datePath = `${recPath}.date`;
-			const locationPath = `${recPath}.location`;
-			const musiciansPath = `${recPath}.musicians`;
-			const raagsPath = `${recPath}.raags`;
-			const octOffsetPath = `${recPath}.octOffset`;
-			const dateModifiedPath = `${recPath}.dateModified`
-			const expPermissionsPath = `${recPath}.explicitPermissions`;
-			const q = { _id: new ObjectId(audioEventID) };
-			// 'add' attaches to an EXISTING audio event → require edit rights on it.
-			// 'create' upserts a brand-new event (owned by this uploader), so no check.
-			if (req.body.audioEventType === 'add') {
-			  const existingAE = await audioEvents.findOne(q);
-			  if (!existingAE) { res.status(404).json({ error: 'audio event not found' }); return; }
-			  if (!canEdit(existingAE, req.user!.uid)) { res.status(403).json({ error: 'forbidden' }); return; }
-			}
-			const update = { $set: {
+		if (!req.files || !req.files.audioFile) {
+		  res.status(400).send({ status: false, message: 'No file uploaded' });
+		  return;
+		}
+		const newId = new ObjectId();
+		const dateModified = new Date().toISOString();
+		const audioEventType = req.body.audioEventType;
+		const audioEventID = req.body.audioEventID;
+		let recIdx = req.body.recIdx;
+		const audioFile = (Array.isArray(req.files.audioFile)
+		  ? req.files.audioFile[0]
+		  : req.files.audioFile) as fileUpload.UploadedFile;
+		const suffix = getSuffix(audioFile.mimetype);
+		if (!suffix) {
+		  res.status(400).send({ status: false, message: `Unsupported audio type: ${audioFile.mimetype}` });
+		  return;
+		}
+		let parentTitle = undefined;
+		let aeUserID = undefined;
+		if (audioEventType === 'add' || audioEventType === 'create') {
+		  // both go into Mongo paths / an _id, so they must be exactly an id and an index
+		  if (!isValidObjectId(audioEventID)) {
+			res.status(400).send({ status: false, message: 'invalid audioEventID' }); return;
+		  }
+		  if (typeof recIdx !== 'string' || !/^\d+$/.test(recIdx)) {
+			res.status(400).send({ status: false, message: 'invalid recIdx' }); return;
+		  }
+		  const recPath = `recordings.${recIdx}`;
+		  const afIdPath = `${recPath}.audioFileId`;
+		  const datePath = `${recPath}.date`;
+		  const locationPath = `${recPath}.location`;
+		  const musiciansPath = `${recPath}.musicians`;
+		  const raagsPath = `${recPath}.raags`;
+		  const octOffsetPath = `${recPath}.octOffset`;
+		  const dateModifiedPath = `${recPath}.dateModified`
+		  const expPermissionsPath = `${recPath}.explicitPermissions`;
+		  const q = { _id: new ObjectId(audioEventID) };
+		  // Writing a track into an EXISTING audio event needs edit rights on it, whichever
+		  // type the client says: the web 'create' flow calls /initializeAudioEvent first,
+		  // so its event already exists and is owned by this uploader. 'add' requires the
+		  // event to exist; a 'create' for a missing id upserts one owned by the uploader.
+		  const existingAE = await audioEvents.findOne(q);
+		  if (!existingAE && audioEventType === 'add') {
+			res.status(404).json({ error: 'audio event not found' }); return;
+		  }
+		  if (existingAE && !canEdit(existingAE, req.user!.uid)) {
+			res.status(403).json({ error: 'forbidden' }); return;
+		  }
+		  const update = {
+			$set: {
 			  [afIdPath]: newId,
 			  [datePath]: {},
 			  [locationPath]: {},
@@ -2090,90 +2131,98 @@ app.post('/handleGoogleAuthCodePythonAPI', async (req, res) => {
 				publicView: true,
 				edit: [],
 				view: []
-			  }         
-			} };
-			const op = { upsert: true, returnOriginal: false };
-			const result = await audioEvents.findOneAndUpdate(q, update, op);
-      if (!result.value) {
-        return res.status(404).send('Audio event not found');
-      }
-			parentTitle = result.value.name;
-			aeUserID = result.value.userID;
-			console.log(result.value)
-		  }
-			// here we should also update the audioRecordings collection
-			// with the new audio file, so as not to rely on the aggregation
-			// which generates from audioEvents forever.
-		  await audioRecordings.insertOne({
-			_id: newId,
-			duration: 0,
-			saEstimate: 0,
-			saVerified: false,
-			octOffset: 0,
-			collections: [],
-			musicians: {},
-			title: '',
-			date: {},
-			location: {},
-			raags: {},
-			parentID: audioEventID,
-			parentTitle: parentTitle,
-			aeUserID: aeUserID,
-			userID: req.user!.uid,
-			parentTrackNumber: recIdx,
-			dateModified: dateModified,
-			explicitPermissions: {
-			  publicView: true,
-			  edit: [],
-			  view: []
-			}
-		  })
-
-		  const suffix = getSuffix(audioFile.mimetype)!;
-		  let fn = newId + suffix;
-		  audioFile.mv(mediaPath('uploads', fn));
-		  if (suffix === '.opus') {
-			const newFN = newId + '.wav';
-			const spawnArgs = ['-i', mediaPath('uploads', fn), mediaPath('uploads', newFN)];
-			const convertToOpus = spawn('ffmpeg', spawnArgs)
-			fn = newFN;
-			convertToOpus.stderr.on('data', data => {
-			  console.error(`stderr: ${data}`)
-			});
-			convertToOpus.on('close', () => {
-			  console.log('opus conversion finished')
-			})
-		  }
-		  const spawns = ['process_audio.py', fn, audioEventID, recIdx, newId];
-		  const processAudio = spawn(PYTHON_PATH, spawns, { env: pythonEnv() });
-		  processAudio.stderr.on('data', data => {
-			console.error(`stderr: ${data}`)
-		  });
-		  processAudio.on('close', () => {
-			console.log('audio processing finished');
-			res.send({
-			  status: true,
-			  message: 'File is uploaded',
-			  data: {
-				name: audioFile.name,
-				mimetype: audioFile.mimetype,
-				size: audioFile.size,
-				audioFileId: newId
 			  }
-			});
-			const script1 = './visualization_scripts/generate_melograph.py';
-			const script2 = './visualization_scripts/make_spec_data.py';
-			runPythonScript(script1, [newId.toString()])
-			  .then(() => console.log('Melograph generation finished'))
-			  .catch(err => console.error('Error in melograph generation:', err));
-			runPythonScript(script2, [newId.toString()])
-			  .then(() => console.log('Spectrogram data generation finished'))
-			  .catch(err => console.error('Error in spectrogram data generation:', err));
-		  });
+			},
+			$setOnInsert: { userID: req.user!.uid },
+		  };
+		  const op = { upsert: true, returnDocument: 'after' as const };
+		  const result = await audioEvents.findOneAndUpdate(q, update, op);
+		  if (!result.value) {
+			return res.status(404).send('Audio event not found');
+		  }
+		  parentTitle = result.value.name;
+		  aeUserID = result.value.userID;
 		}
+		// here we should also update the audioRecordings collection
+		// with the new audio file, so as not to rely on the aggregation
+		// which generates from audioEvents forever.
+		await audioRecordings.insertOne({
+		  _id: newId,
+		  duration: 0,
+		  saEstimate: 0,
+		  saVerified: false,
+		  octOffset: 0,
+		  collections: [],
+		  musicians: {},
+		  title: '',
+		  date: {},
+		  location: {},
+		  raags: {},
+		  parentID: audioEventID,
+		  parentTitle: parentTitle,
+		  aeUserID: aeUserID,
+		  userID: req.user!.uid,
+		  parentTrackNumber: recIdx,
+		  dateModified: dateModified,
+		  explicitPermissions: {
+			publicView: true,
+			edit: [],
+			view: []
+		  }
+		})
+
+		let fn = newId + suffix;
+		// wait for the temp file to land before anything reads it
+		await audioFile.mv(mediaPath('uploads', fn));
+		if (suffix === '.opus') {
+		  // process_audio.py reads the .wav, so the conversion must finish first
+		  // (previously it ran concurrently and raced the processing step)
+		  const newFN = newId + '.wav';
+		  const ffmpegCode = await runToCompletion(
+			'ffmpeg', ['-i', mediaPath('uploads', fn), mediaPath('uploads', newFN)], {}, 'ffmpeg',
+		  );
+		  if (ffmpegCode !== 0) {
+			res.status(500).send({ status: false, message: 'audio conversion failed', data: { audioFileId: newId } });
+			return;
+		  }
+		  fn = newFN;
+		}
+		const processCode = await runToCompletion(
+		  PYTHON_PATH,
+		  ['process_audio.py', fn, String(audioEventID), String(recIdx), String(newId)],
+		  { env: pythonEnv() },
+		);
+		if (processCode !== 0) {
+		  // the recording row already exists; report its id so it can be cleaned up
+		  res.status(500).send({
+			status: false,
+			message: 'audio processing failed',
+			data: { audioFileId: newId },
+		  });
+		  return;
+		}
+		console.log('audio processing finished');
+		res.send({
+		  status: true,
+		  message: 'File is uploaded',
+		  data: {
+			name: audioFile.name,
+			mimetype: audioFile.mimetype,
+			size: audioFile.size,
+			audioFileId: newId
+		  }
+		});
+		const script1 = './visualization_scripts/generate_melograph.py';
+		const script2 = './visualization_scripts/make_spec_data.py';
+		runPythonScript(script1, [newId.toString()])
+		  .then(() => console.log('Melograph generation finished'))
+		  .catch(err => console.error('Error in melograph generation:', err));
+		runPythonScript(script2, [newId.toString()])
+		  .then(() => console.log('Spectrogram data generation finished'))
+		  .catch(err => console.error('Error in spectrogram data generation:', err));
 	  } catch (err) {
 		console.error(err);
-		res.status(500).send(err);
+		if (!res.headersSent) res.status(500).send(err);
 	  }
 	})
 
@@ -2307,7 +2356,8 @@ app.post('/handleGoogleAuthCodePythonAPI', async (req, res) => {
 		const { transcriptionID, instrumentation } = req.body;
 		if (!transcriptionID || !instrumentation) {
 		  res.status(400).send('TranscriptionID and instrumentation are required');
-		};
+		  return;
+		}
 		const query = { _id: new ObjectId(transcriptionID) };
 		const transcription = await transcriptions.findOne(query);
 		if (!transcription) { res.status(404).json({ error: 'not found' }); return; }
@@ -2349,11 +2399,12 @@ app.post('/handleGoogleAuthCodePythonAPI', async (req, res) => {
 	  try {
 		const transcriptionID = new ObjectId(req.query.transcriptionID as string);
 		const query = { _id: transcriptionID };
-		const projection = { projection: { instrumentation: 1, trackTitles: 1, _id: 0 } };
+		const projection = { projection: { instrumentation: 1, trackTitles: 1, _id: 0, userID: 1, explicitPermissions: 1, permissions: 1 } };
 		const result = await transcriptions.findOne(query, projection);
 		if (!result) {
 		  return res.status(404).send('Transcription not found');
 		}
+		if (!canView(result, req.user?.uid)) { res.status(403).json({ error: 'forbidden' }); return; }
 		// Return both instrumentation and trackTitles, with empty array fallback for trackTitles
 		res.json({
 		  instrumentation: result.instrumentation || [],
@@ -2436,7 +2487,11 @@ app.post('/handleGoogleAuthCodePythonAPI', async (req, res) => {
 
 	app.post('/enrollUserInCollection', requireSession, requireCsrfHeader, async (req, res) => {
 	  try {
-		const query = { inviteCode: req.body.inviteCode };
+		// must be a plain string: an object like { $ne: null } would match (and enroll
+		// the caller in) any collection that has an invite code
+		const inviteCode = req.body?.inviteCode;
+		if (!isNonEmptyString(inviteCode)) { res.status(400).json({ error: 'invalid inviteCode' }); return; }
+		const query = { inviteCode };
 		const collection = await collections.findOne(query);
 		if (!collection) {
 		  res.status(404).send('Collection not found');
@@ -2454,6 +2509,7 @@ app.post('/handleGoogleAuthCodePythonAPI', async (req, res) => {
 
 	app.post('/updateTranscriptionViewed', requireSession, requireCsrfHeader, async (req, res) => {
 	  try {
+		if (!isValidObjectId(req.body.transcriptionID)) { res.status(400).json({ error: 'invalid transcriptionID' }); return; }
 		const query = { _id: new ObjectId(req.user!.uid) };
 		const update = {
 		  $set: {
@@ -2489,8 +2545,21 @@ app.post('/handleGoogleAuthCodePythonAPI', async (req, res) => {
 
 	app.get('/DNExtractExcel', async (req, res) => {
     try {
-      const id = req.query.id as string;
-      const extractorOptions = JSON.parse(req.query.options as string) as DN_ExtractorOptions;
+      const id = req.query.id;
+      if (!isValidObjectId(id)) { res.status(400).json({ error: 'invalid id' }); return; }
+      // same visibility rule as /getOneTranscription (public pieces work logged-out)
+      const piece = await transcriptions.findOne(
+        { _id: new ObjectId(id) },
+        { projection: { userID: 1, permissions: 1, explicitPermissions: 1 } },
+      );
+      if (!piece) { res.status(404).json({ error: 'not found' }); return; }
+      if (!canView(piece, req.user?.uid)) { res.status(403).json({ error: 'forbidden' }); return; }
+      let extractorOptions: DN_ExtractorOptions;
+      try {
+        extractorOptions = JSON.parse(req.query.options as string) as DN_ExtractorOptions;
+      } catch {
+        res.status(400).json({ error: 'invalid options' }); return;
+      }
       const extractor = await DN_Extractor.create(id, extractorOptions);
 
       // Generate Excel in-memory
