@@ -20,8 +20,8 @@
         <line
           v-for="line in dottedLines"
           :key="line.id"
-          :x1="line.position"
-          :x2="line.position"
+          :x1="xScale(line.creationTime)"
+          :x2="xScale(line.creationTime)"
           :y1="0"
           :y2="height"
           :opacity="line.opacity"
@@ -58,12 +58,12 @@
     :closed='contextMenuClosed' 
     :choices='contextMenuChoices'
     />
-  <div class='timeModalOuter'v-if="goToTimeModal">
+  <div class='timeModalOuter' v-if="goToTimeModal" @click.self="goToTimeModal = false">
     <div class="time-entry-modal">
       <div class="time-entry-container">
-        <input ref='hrInput' type="text" v-model="goToHours" placeholder="HH" class="time-entry-input" />
+        <input ref='hrInput' type="text" inputmode="numeric" v-model="goToHours" placeholder="MM" aria-label="Minutes" class="time-entry-input" />
         <span>:</span>
-        <input type="text" v-model="goToMinutes" placeholder="MM" class="time-entry-input" />
+        <input type="text" inputmode="numeric" v-model="goToMinutes" placeholder="SS" aria-label="Seconds" class="time-entry-input" />
       </div>
       <button @click="goToTime">Go</button>
     </div>
@@ -95,6 +95,13 @@ import {
 } from '@/ts/utils.ts';
 import { EditorMode, Instrument, PlayheadAnimations } from '@shared/enums';
 import { BrowserInfo } from 'detect-browser';
+import { useStore } from 'vuex';
+import { useSuppressMotion } from '@/js/motionPrefs.ts';
+import {
+  isTypingInField,
+  goToTimeSeconds,
+  playheadViewStart,
+} from '@/comps/editor/editorUtils';
 import AutomationWindow from '@/comps/editor/AutomationWindow.vue';
 import TrajectoryAnnotator from '@/comps/editor/renderer/TrajectoryAnnotator.vue';
 import { 
@@ -361,6 +368,9 @@ export default defineComponent({
     'selectAssemblagePhrase',
   ],
   setup(props, { emit }) {
+    const store = useStore();
+    // Reactive in the OS reduced-motion setting and in the late-arriving userID.
+    const motionSuppressed = useSuppressMotion(() => store.state.userID);
     const instance = getCurrentInstance();
     const emitter = instance?.appContext.config.globalProperties.emitter;
 
@@ -419,6 +429,8 @@ export default defineComponent({
     const DOTTED_LINE_INTERVAL = 0.5;
     const DOTTED_LINE_DURATION = 500;
     const MAX_DOTTED_LINES = 20;
+    // Pointer travel (px) below which a press-release counts as a click, not a drag.
+    const CLICK_DISTANCE = 4;
     const litTrajs = ref<(Trajectory | undefined)[]>(Array(props.instTracks.length).fill(undefined));
     const litChikaris = ref<string[][]>(props.instTracks.map(() => []));    
     const goToTimeModal = ref<boolean>(false);
@@ -1352,12 +1364,13 @@ export default defineComponent({
     let lastHighlightUpdate = -Infinity;
     watch(() => props.currentTime, t => {
       if (props.playing) {
-        if (t > props.displayRange[1]) {
-          horizontalMoveGraph(0.85)
-        }
+        ensurePlayheadInView(t);
         if (props.playheadAnimation === PlayheadAnimations.Block) {
+          // `!==` rather than `>`: a seek or loop back moves the time
+          // backwards, and the block must follow it instead of freezing until
+          // the clock passes the old second again.
           let doUpdate = false;
-          if (Math.floor(props.currentTime) > currentSec.value) {
+          if (Math.floor(props.currentTime) !== currentSec.value) {
             doUpdate = true;
           } else if (props.loop) {
             doUpdate = true;
@@ -1645,11 +1658,13 @@ export default defineComponent({
       }
     });
 
+    // The two fields are minutes : seconds (the refs keep their old names).
+    // Empty fields count as 0, so the result is never NaN.
     const goToTime = () => {
       goToTimeModal.value = false;
-      const hours = parseInt(goToHours.value);
-      const minutes = parseInt(goToMinutes.value);
-      const time = minutes + hours * 60;
+      const time = goToTimeSeconds(
+        goToHours.value, goToMinutes.value, props.piece.durTot ?? Infinity
+      );
       const x = props.xScale(time);
       emit('moveToX', x);
     }
@@ -1784,7 +1799,19 @@ export default defineComponent({
       }
     }
 
+    // Jump (never animate) so the playhead is visible, whichever side of the
+    // view it is on. Puts it 15% into the view, like the old page flip.
+    const ensurePlayheadInView = (t: number) => {
+      const start = playheadViewStart(t, props.displayRange);
+      if (start === undefined) return;
+      emit('moveToX', props.xScale(start));
+    };
+
     const startPlayingTransition = () => {
+      // A seek while playing is stop()+play() in one tick, so this is also the
+      // seek path: resync the Block playhead's whole-second gate.
+      currentSec.value = Math.floor(props.currentTime);
+      ensurePlayheadInView(props.currentTime);
       // Handle dotted line animation
       if (isDottedLine.value) {
         // Start the animation loop immediately, it will check playing state inside
@@ -1987,10 +2014,16 @@ export default defineComponent({
         const pxlX = props.xScale(time);
         playhead.value.setAttribute('transform',`matrix(1, 0, 0, 1, ${pxlX}, 0)`);
         smoothPositionX = pxlX;
-
-      } else {
-        
-        throw new Error('Playing transition not implemented');
+        currentSec.value = Math.floor(time);
+      } else if (props.playheadAnimation === PlayheadAnimations.Animated) {
+        // Zooming while the Animated playhead runs: its rAF loop recomputes
+        // the target from the new xScale. Snap to it instead of gliding
+        // there from the old-scale position.
+        if (movingPlayhead) {
+          currentX = props.xScale(time);
+          playhead.value.setAttribute('transform', `translate(${currentX}, 0)`);
+        }
+        return;
       }
     }
   
@@ -4481,7 +4514,11 @@ export default defineComponent({
       targetDragDotY.value = e.y;
       laggingDragDotX.value = e.x;
       laggingDragDotY.value = e.y;
-      requestAnimationFrame(dragDotAnimationStep);
+      // With motion suppressed the dot is moved directly in
+      // updateTargetDragDot; no easing loop.
+      if (!motionSuppressed.value) {
+        requestAnimationFrame(dragDotAnimationStep);
+      }
     };
 
     const updateDurArray = (traj: any, delta: number) => {
@@ -4526,6 +4563,17 @@ export default defineComponent({
       const time = constrainTime(initTime, dragDotIdx!);
       targetDragDotX.value = props.xScale(time);
       targetDragDotY.value = e.y;
+      if (motionSuppressed.value && dragDotDragging) {
+        // No eased "lagging" glide: the dot sits under the pointer.
+        laggingDragDotX.value = targetDragDotX.value;
+        laggingDragDotY.value = targetDragDotY.value;
+        const traj = selectedTrajs.value[0];
+        if (traj) {
+          d3.select(`#dragDot${traj.uniqueId}_${dragDotIdx}`)
+            .attr('cx', targetDragDotX.value)
+            .attr('cy', targetDragDotY.value);
+        }
+      }
     };
 
 
@@ -5425,6 +5473,9 @@ export default defineComponent({
     }
 
     const handleKeydown = (e: KeyboardEvent) => {
+      // Typing in a field (tempo, go-to-time, labels...) is not a shortcut.
+      // Escape and modifiers still pass; Enter passes for the go-to-time box.
+      if (isTypingInField(e, goToTimeModal.value ? ['Enter'] : [])) return;
       const inst = props.instTracks[props.editingInstIdx].inst;
       if (e.key === 'Escape') {
         if (selectedPulse.value) {
@@ -6563,7 +6614,8 @@ export default defineComponent({
         }
 
       } else {
-        const c = selBoxStartX === e.x && selBoxStartY === e.y;
+        const c = selBoxStartX !== undefined && selBoxStartY !== undefined &&
+          Math.hypot(selBoxStartX - e.x, selBoxStartY - e.y) < CLICK_DISTANCE;
         if (selBoxStartX !== undefined && selBoxStartY !== undefined && !c) {
           const x = Math.min(selBoxStartX, e.x);
           const y = Math.min(selBoxStartY, e.y);
@@ -6622,7 +6674,9 @@ export default defineComponent({
     const setUpSvg = () => {
       const svg = (d3.select(tranSvg.value) as 
         d3.Selection<SVGSVGElement, Datum, null, undefined>);
+      // clickDistance: a click that jitters a few pixels is still a click.
       const drag = d3.drag<SVGSVGElement, Datum>()
+        .clickDistance(CLICK_DISTANCE)
         .on('start', selBoxDragStart)
         .on('drag', selBoxDragMove)
         .on('end', selBoxDragEnd);
@@ -6781,7 +6835,14 @@ export default defineComponent({
       }
     }
  
-    const handleClick = (e: MouseEvent) => {
+    // What handleClick needs from the event, read synchronously: by the time a
+    // debounced call runs, the view may have scrolled or re-rendered.
+    type ClickSnapshot = {
+      target: EventTarget | null,
+      offsetX: number,
+      offsetY: number,
+    };
+    const handleClick = (e: ClickSnapshot) => {
       // In serial mode, skip if click was on a trajectory element (handled by handleClickTraj)
       const target = e.target as Element;
       if (props.selectedMode === EditorMode.Series) {
@@ -6868,7 +6929,14 @@ export default defineComponent({
 
     }
 
-    const debouncedHandleClick = debounce(handleClick, 100);
+    const debouncedHandleClickCore = debounce(handleClick, 100);
+    const debouncedHandleClick = (e: MouseEvent) => {
+      debouncedHandleClickCore({
+        target: e.target,
+        offsetX: e.offsetX,
+        offsetY: e.offsetY,
+      });
+    };
 
     const meterMagnetize = (time: number) => {
       let outTime = undefined
@@ -7910,6 +7978,7 @@ export default defineComponent({
       // Clean up mitt listeners
       emitter?.off('pulseTap', insertPulse);
       emitter?.off('enterMeterModeWithPulses', enterMeterModeWithPulsesCallback);
+      debouncedHandleClickCore.cancel();
 
       // Clean up dotted line animation
       if (dottedLineAnimationId.value !== undefined) {

@@ -13,6 +13,7 @@ import {
   computed, 
   PropType, 
   onMounted,
+  onBeforeUnmount,
   watch,
   nextTick
 } from 'vue';
@@ -173,8 +174,6 @@ export default defineComponent({
         .attr('height', elementHeight.value)
         .attr('fill', props.axisColor)
         .on('mousedown', handleMouseDown)
-        .on('mouseup', handleMouseUp)
-        .on('mouseout', handleMouseUp)
       svg.append('g')
         .attr('transform', `translate(0, ${elementHeight.value - 1})`)
         .call(axis.value)
@@ -255,22 +254,21 @@ export default defineComponent({
           .attr('stroke-width', 1);
       }
       regionStartPxl.value = e.offsetX;
+      // Finish on mouseup wherever it happens (leaving the axis strip mid-drag
+      // used to finish the selection early on mouseout).
+      window.removeEventListener('mouseup', handleMouseUp, true);
+      window.addEventListener('mouseup', handleMouseUp, true);
     };
     
     const handleMouseUp = (e: MouseEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-      if (
-        xAxisContainer.value &&
-        e.relatedTarget instanceof Node &&
-        xAxisContainer.value.contains(e.relatedTarget)
-      ) {
-        return;
-      }
-      const x = e.offsetX;
+      window.removeEventListener('mouseup', handleMouseUp, true);
       if (regionStartPxl.value === undefined) {
         return
       }
+      // Position along the axis from clientX, since the mouseup may land on
+      // another element (or outside the axis) whose offsetX means nothing here.
+      const left = axSvg.value?.getBoundingClientRect().left ?? 0;
+      const x = Math.min(Math.max(0, e.clientX - left), props.scaledWidth);
       if (axSvg.value) {
         d3.select(axSvg.value)
           .append('line')
@@ -298,11 +296,11 @@ export default defineComponent({
           .attr('stroke', 'grey')
           .attr('stroke-width', 1);
       }
-      if (e.offsetX < regionStartPxl.value) {
+      if (x < regionStartPxl.value) {
         regionEndPxl.value = regionStartPxl.value;
-        regionStartPxl.value = e.offsetX;
+        regionStartPxl.value = x;
       } else {
-        regionEndPxl.value = e.offsetX;
+        regionEndPxl.value = x;
       }
       emit('update:region', [regionStartPxl.value, regionEndPxl.value]);
       regionStartPxl.value = undefined;
@@ -314,8 +312,6 @@ export default defineComponent({
         .attr('width', props.scaledWidth)
         .attr('height', elementHeight.value)
         .on('mousedown', handleMouseDown)
-        .on('mouseup', handleMouseUp)
-        .on('mouseout', handleMouseUp)
       svg.selectAll('*').remove();
       svg.append('rect')
         .attr('width', props.scaledWidth)
@@ -368,8 +364,6 @@ export default defineComponent({
         .attr('width', props.scaledWidth)
         .attr('height', elementHeight.value)
         .on('mousedown', handleMouseDown)
-        .on('mouseup', handleMouseUp)
-        .on('mouseout', handleMouseUp)
       svg.selectAll('*').remove();
       svg.append('rect')
         .attr('width', props.scaledWidth)
@@ -481,6 +475,9 @@ export default defineComponent({
       }
     }
 
+    onBeforeUnmount(() => {
+      window.removeEventListener('mouseup', handleMouseUp, true);
+    });
     onMounted(() => {
       // put the axis on the axSvg
       if (axSvg.value) {
@@ -493,8 +490,6 @@ export default defineComponent({
           .attr('fill', props.axisColor)
           // .attr('y', props.height/2)
           .on('mousedown', handleMouseDown)
-          .on('mouseup', handleMouseUp)
-          .on('mouseout', handleMouseUp)
         svg.append('g')
           .attr('transform', `translate(0, ${elementHeight.value - 1})`)
           .call(axis.value)
