@@ -141,6 +141,8 @@ import {
 import { SortState, Instrument } from '@shared/enums';
 import EditInstrumentation from '@/comps/EditInstrumentation.vue';
 
+const errMsg = (err: unknown) => err instanceof Error ? err.message : String(err);
+
 type FileManagerDataType = {
   designPieceModal: boolean;
   selectedPiece?: TransMetadataType,
@@ -356,9 +358,7 @@ export default defineComponent({
       this.designNewPiece();
     }
     this.fileContainerHeight = window.innerHeight - this.navHeight;
-    window.addEventListener('resize', () => {
-      this.fileContainerHeight = window.innerHeight - this.navHeight;
-    });
+    window.addEventListener('resize', this.handleResize);
     try {
       const userID = this.userID!;
       this.viewedTranscriptions = await getUsersLastViewedTranscriptions(userID);
@@ -384,13 +384,15 @@ export default defineComponent({
 
   beforeUnmount() {
     window.removeEventListener('keydown', this.handleKeydown);
-    window.removeEventListener('resize', () => {
-      this.fileContainerHeight = window.innerHeight - this.navHeight;
-    });
+    window.removeEventListener('resize', this.handleResize);
 
   },
 
   methods: {
+
+    handleResize() {
+      this.fileContainerHeight = window.innerHeight - this.navHeight;
+    },
 
     async closePermissionsModal() {
       this.permissionsModalOpen = false;
@@ -802,6 +804,10 @@ export default defineComponent({
             soloInstrument: newPieceInfo.soloInstrument,
 
           });
+          if (!result || !result.insertedId) {
+            throw new Error('the server did not create the clone.');
+          }
+          this.designPieceModal = false;
           this.$router.push({
             name: 'EditorComponent',
             query: { id: result.insertedId },
@@ -811,6 +817,9 @@ export default defineComponent({
           delete npi.clone;
           const stringRaga = npi.raga as string;
           const rsRes = await getRaagRule(stringRaga);
+          if (!rsRes) {
+            throw new Error(`could not load the rules for raga "${stringRaga}".`);
+          }
           const ruleSet = rsRes.rules;
           const spawnRagaObj: {
             name: string;
@@ -827,6 +836,9 @@ export default defineComponent({
           let durTot;
           if (npi.audioID) {
             const audioDBDoc = await getAudioRecording(npi.audioID);
+            if (!audioDBDoc) {
+              throw new Error('could not load the selected recording.');
+            }
             durTot = audioDBDoc.duration;
           } else {
             durTot = 60;
@@ -852,12 +864,14 @@ export default defineComponent({
           ];
           npi.family_name = this.$store.state.lastName;
           npi.given_name = this.$store.state.firstName;
-          this.createNewPiece(npi as RagaNewPieceInfoType);
+          await this.createNewPiece(npi as RagaNewPieceInfoType);
         }
       } catch (err) {
-        console.log(err);
+        // Leave the registrar open so the user's input is not lost.
+        console.error(err);
+        const verb = newPieceInfo.clone ? 'clone' : 'create';
+        window.alert(`Could not ${verb} the transcription: ${errMsg(err)}`);
       }
-      this.designPieceModal = false
     },
 
     async saveNewOwner() {
@@ -865,11 +879,16 @@ export default defineComponent({
       const originalOwnerID = this.selectedPiece!.userID!;
       const ownerObj = this.allUsers![this.editingUserIdx!];
       try {
-        await updateTranscriptionOwner(id, ownerObj, originalOwnerID);
-        await this.updateSort();
+        const res = await updateTranscriptionOwner(id, ownerObj, originalOwnerID);
+        if (res === undefined) {
+          throw new Error('the server did not accept the change.');
+        }
       } catch (err) {
-        console.log(err);
+        console.error(err);
+        window.alert(`Could not change the owner: ${errMsg(err)}`);
+        return;
       }
+      await this.updateSort();
       this.editOwnerModal = false;
     },
 
@@ -914,23 +933,24 @@ export default defineComponent({
       this.passedInDataObj = '';
     },
 
-    createNewPiece(obj: RagaNewPieceInfoType) {
+    // Rejects on failure so the caller can tell the user and keep the modal.
+    async createNewPiece(obj: RagaNewPieceInfoType) {
       if (typeof obj.raga === 'string') {
         throw new Error('obj.raga is a string')
       }
       const piece = obj ? new Piece(obj) : new Piece();
       piece.userID = this.$store.state.userID;
       piece.name = this.$store.state.name;
-      createNewPiece(piece).then((data) => {
-        if (data === undefined) {
-          throw new Error('data is undefined')
-        }
-        this.$store.commit('update_id', data.insertedId);
-        this.$cookies.set('currentPieceId', data.insertedId);
-        this.$router.push({
-          name: 'EditorComponent',
-          query: { id: data.insertedId },
-        });
+      const data = await createNewPiece(piece);
+      if (data === undefined || !data.insertedId) {
+        throw new Error('the server did not save the new transcription.');
+      }
+      this.designPieceModal = false;
+      this.$store.commit('update_id', data.insertedId);
+      this.$cookies.set('currentPieceId', data.insertedId);
+      this.$router.push({
+        name: 'EditorComponent',
+        query: { id: data.insertedId },
       });
     },
 
@@ -940,8 +960,11 @@ export default defineComponent({
         throw new Error('piece is undefined')
       }
       const url = window.location.origin + '/editor?id=' + piece._id;
-      navigator.clipboard.writeText(url);
       this.closeDropDown();
+      navigator.clipboard.writeText(url).catch(err => {
+        console.error(err);
+        window.prompt('Could not copy automatically. Copy this link:', url);
+      });
     },
 
     async clonePiece() {
@@ -973,27 +996,34 @@ export default defineComponent({
         this.passedInDataObj = JSON.stringify(dataObj);
         this.designPieceModal = true;
       } catch (err) {
-        console.log(err);
+        console.error(err);
+        window.alert(`Could not prepare the clone: ${errMsg(err)}`);
       }
     },
 
     async deletePiece() {
-      if (this.selectedPiece === undefined) {
+      const piece = this.selectedPiece;
+      if (piece === undefined) {
         throw new Error('selectedPiece is undefined')
       }
-      const isUser = this.userID === this.selectedPiece.userID;
-      if (isUser) {
-        // const dropDown = this.$refs.dropDown as HTMLElement;
-        // dropDown.classList.add('closed');
-        this.closeDropDown()
-        const res = await deletePiece(this.selectedPiece);
-        if (res.deletedCount === 1) {
-          const id = this.userID!;
-          const sortKey = 'title';
-          const sortDir = '1';
-          this.allPieces = await getAllPieces(id, sortKey, sortDir, true);
+      const isUser = this.userID === piece.userID;
+      if (!isUser) return;
+      this.closeDropDown()
+      const ok = window.confirm(
+        `Delete the transcription "${piece.title}"? This cannot be undone.`
+      );
+      if (!ok) return;
+      try {
+        const res = await deletePiece(piece);
+        if (!res || res.deletedCount !== 1) {
+          throw new Error('the server did not delete it.');
         }
+      } catch (err) {
+        console.error(err);
+        window.alert(`Could not delete "${piece.title}": ${errMsg(err)}`);
+        return;
       }
+      await this.updateSort();
     },
 
     async updateSort() {
@@ -1031,7 +1061,16 @@ export default defineComponent({
     async saveTitle() {
       const id = this.selectedPiece!._id!;
       const title = this.editingTitle!;
-      await updateTranscriptionTitle(id, title);
+      try {
+        const res = await updateTranscriptionTitle(id, title);
+        if (res === undefined) {
+          throw new Error('the server did not accept the change.');
+        }
+      } catch (err) {
+        console.error(err);
+        window.alert(`Could not save the title: ${errMsg(err)}`);
+        return; // keep the modal open with the user's text
+      }
       await this.updateSort();
       this.editTitleModal = false;
     },
@@ -1039,7 +1078,16 @@ export default defineComponent({
     async savePermissions() {
       const id = this.selectedPiece!._id!;
       const permissions = this.editingPermissions!;
-      await updateTranscriptionPermissions(id, permissions);
+      try {
+        const res = await updateTranscriptionPermissions(id, permissions);
+        if (res === undefined) {
+          throw new Error('the server did not accept the change.');
+        }
+      } catch (err) {
+        console.error(err);
+        window.alert(`Could not save permissions: ${errMsg(err)}`);
+        return;
+      }
       await this.updateSort();
       this.editPermissionsModal = false;
     },

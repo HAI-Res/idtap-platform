@@ -8,6 +8,7 @@
             type="file" 
             @change="handleFileChange" 
             accept="audio/*"
+            aria-label='Audio file to upload'
             ref='file'
             />
         </div>
@@ -42,7 +43,7 @@
             </div>
           </div>
           <div class='subColumn' v-if='aeChoice === "addToAudioEvent"'>
-            <select v-model='selectedAE'>
+            <select v-model='selectedAE' aria-label='Audio event'>
               <option 
                 v-for='(ae, i) in allAudioEvents' 
                 :key='i'
@@ -57,12 +58,16 @@
             v-if='aeChoice === "createNewAudioEvent"'
             >
             <div class='subRow'>
-              <label>Event Name</label>
-              <input type='text' class='textInput' v-model='newAEName'>
+              <label for='newAEName'>Event Name</label>
+              <input 
+                type='text' 
+                id='newAEName' 
+                class='textInput' 
+                v-model='newAEName'>
             </div>
             <div class='subRow'>
-              <label>Event Type</label>
-              <select v-model='newAEType'>
+              <label for='newAEType'>Event Type</label>
+              <select id='newAEType' v-model='newAEType'>
                 <option 
                   v-for='(aeType, i) in aeTypes' 
                   :key='i'
@@ -85,7 +90,7 @@
           <div class='progressContainer' v-if='!uploadDone'>
             <div class='progress'></div>
           </div>
-          <div v-if='uploadDone && !processingDone'>
+          <div v-if='uploadDone && !processingDone && !uploadError'>
             Processing...
           </div>
           <audio 
@@ -95,6 +100,9 @@
             >
             <source :src='audioMp3Src'>
         </audio>
+        </div>
+        <div class='modalRow errorRow' v-if='uploadError' role='alert'>
+          {{ uploadError }}
         </div>
       </div>
       <div class='modalFrame' v-if='frameView === "editRecMetadata"'>
@@ -384,13 +392,18 @@
           <button @click='editRecIdx--' :disabled='editRecIdx===0'>
             {{ "<" }}
           </button>
-          <button @click='saveUpdates'>Save Updates</button>
+          <button @click='saveUpdates' :disabled='saving'>Save Updates</button>
           <button @click='editRecIdx++' :disabled='editRecIdx>2'>
             {{ ">" }}
           </button>
         </div>
         <div class='modalRow centered short'>
           <span>{{ dateModified }}</span>
+        </div>
+        <div class='modalRow centered short' role='status' aria-live='polite'>
+          <span v-if='saving'>Saving...</span>
+          <span v-else-if='saveError' class='errorText'>{{ saveError }}</span>
+          <span v-else-if='saveSucceeded'>Saved.</span>
         </div>
       </div>
 
@@ -489,6 +502,10 @@ type UploadRecordingDataType = {
   visible: boolean,
   allUsers: UserType[],
   recTitle: string,
+  uploadError: string,
+  saving: boolean,
+  saveError: string,
+  saveSucceeded: boolean,
 }
 export default defineComponent({
   data(): UploadRecordingDataType {
@@ -553,6 +570,10 @@ export default defineComponent({
       visible: true,
       allUsers: [],
       recTitle: '',
+      uploadError: '',
+      saving: false,
+      saveError: '',
+      saveSucceeded: false,
     };
   },
 
@@ -590,6 +611,12 @@ export default defineComponent({
     
     uploadButtonDisabled() {
       return this.numFiles < 1 || this.startedUpload;
+    },
+
+    // True while a file is being sent or the server is still processing it;
+    // closing the modal then would abandon the upload and its metadata.
+    uploadInProgress(): boolean {
+      return this.startedUpload && !this.processingDone && !this.uploadError;
     },
 
     getCountries() {
@@ -638,19 +665,9 @@ export default defineComponent({
   },
 
   async mounted() {
-    // esc closes modal
-    document.addEventListener('keydown', (event) => {
-      if (event.key === 'Escape') {
-        this.$emit('closeModal');
-      }
-    });
-    //  if you click outside modal-content, it closes the modal
-    window.addEventListener('click', (e) => {
-      const modal = this.$el as HTMLElement;
-      if (e.target === modal) {
-        this.$emit('closeModal');
-      }
-    });
+    // esc closes modal; clicking outside modal-content closes it too
+    document.addEventListener('keydown', this.handleKeydown);
+    window.addEventListener('click', this.handleWindowClick);
     try {
       if (this.recId && this.frameView === 'editRecMetadata') {
         this.audioFileId = this.recId;
@@ -671,8 +688,8 @@ export default defineComponent({
   },
 
   unmounted() {
-    document.removeEventListener('keydown', () => {});
-    document.removeEventListener('click', () => {});
+    document.removeEventListener('keydown', this.handleKeydown);
+    window.removeEventListener('click', this.handleWindowClick);
   },
 
   props: {
@@ -703,6 +720,30 @@ export default defineComponent({
   },
 
   methods: {
+
+    handleKeydown(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        this.requestClose();
+      }
+    },
+
+    handleWindowClick(e: MouseEvent) {
+      const modal = this.$el as HTMLElement;
+      if (e.target === modal) {
+        this.requestClose();
+      }
+    },
+
+    requestClose() {
+      if (this.uploadInProgress) {
+        const ok = window.confirm(
+          'Your recording is still uploading or processing. Close anyway? ' +
+          'You will lose the upload progress on this screen.'
+        );
+        if (!ok) return;
+      }
+      this.$emit('closeModal');
+    },
 
     handleSelMusChange(name: string, selIdx: number) {
       const mus = this.allMusicians.find(m => {
@@ -754,9 +795,11 @@ export default defineComponent({
       return ep.edit.includes(id) || rec.userID === id;
     },
 
+    // Awaited sequentially (was forEach(async) — nothing waited on it and
+    // failures were swallowed). Errors propagate to saveUpdates.
     async saveMusicians(recUpdates: RecUpdateType) {
-      this.editMus.forEach(async (mus, musIdx) => {
-        try {
+      for (const [musIdx, mus] of this.editMus.entries()) {
+        {
           const gharana = mus.gharana === 'Other' ? 
             this.newGharanas[musIdx] : 
             mus.gharana;
@@ -773,6 +816,11 @@ export default defineComponent({
               instrument: mus.instrument!,
               gharana: gharana!,
             })
+            if (!res || !res.insertedId) {
+              throw new Error(
+                `could not add musician "${this.newMusNames[musIdx]}".`
+              );
+            }
             musId = res.insertedId;
           } else {
             recUpdates.musicians[mus.name!] = {
@@ -791,14 +839,12 @@ export default defineComponent({
               members: [musId],
             })
           }
-        } catch (err) {
-          console.log(err);
         }
-      })
+      }
     },
 
     async saveLocation(recUpdates: RecUpdateType) {
-      try {
+      {
         if (this.selectedContinent) {
           recUpdates.location.continent = this.selectedContinent;
           if (this.selCountry) {
@@ -823,8 +869,6 @@ export default defineComponent({
             }
           }
         };
-      } catch (err) {
-        console.log(err);
       }
     },
 
@@ -839,7 +883,7 @@ export default defineComponent({
     },
 
     async saveRaag(update: RecUpdateType) {
-      try {
+      {
         if (this.selRaag) {
           const pSecNames = this.editingSecs.map((pSec) => pSec.name);
           if (this.selRaag === 'Other (specify)') {
@@ -869,8 +913,6 @@ export default defineComponent({
             })
           }
         }
-      } catch (err) {
-        console.log(err);
       }
     },
 
@@ -887,6 +929,9 @@ export default defineComponent({
         title: this.recTitle,
 
       };
+      this.saving = true;
+      this.saveError = '';
+      this.saveSucceeded = false;
       try {
         await this.saveMusicians(recUpdates);
         await this.saveLocation(recUpdates);
@@ -898,11 +943,18 @@ export default defineComponent({
           this.editingRec!.parentID,
           this.editingRec!.parentTrackNumber,
           );
+        if (res === undefined) {
+          throw new Error('The server did not accept the update.');
+        }
         // reload the editing rec
         await this.prepareForEditing();
-
+        this.saveSucceeded = true;
       } catch (err) {
-        console.log(err);
+        console.error(err);
+        const msg = err instanceof Error ? err.message : String(err);
+        this.saveError = `Could not save updates: ${msg}`;
+      } finally {
+        this.saving = false;
       }
       
     },
@@ -1091,15 +1143,16 @@ export default defineComponent({
       if (target.files && target.files.length > 0) {
         this.file = target.files[0];
         this.numFiles = target.files.length;
+        this.uploadError = '';
       }
     },
 
     async uploadRecording() {
-      // Perform the upload logic here
-      console.log('Uploading recording...');
-      this.startedUpload = true;
+      if (this.startedUpload) return;
+      this.uploadError = '';
       const fileElem = this.$refs.file as HTMLInputElement;
       if (fileElem.files && fileElem.files.length > 0) {
+        this.startedUpload = true;
         const file = fileElem.files[0];
         this.processingDone = false;
         this.uploadDone = false;
@@ -1111,6 +1164,9 @@ export default defineComponent({
               audioEventType = 'create';
             } else if (this.aeChoice === 'noAudioEvent') {
               audioEventType = 'none';
+            }
+            if (audioEventType === 'add' && !this.selectedAE) {
+              throw new Error('Please choose an audio event to add to.');
             }
             let recIdx = 0;
             if (this.selectedAE && this.selectedAE.recordings) {
@@ -1134,13 +1190,20 @@ export default defineComponent({
           }
         } catch (err) {
           console.error(err);
+          const msg = err instanceof Error ? err.message : String(err);
+          this.uploadError = msg || 'Upload failed.';
+          // let the user retry with the same file and metadata
+          this.startedUpload = false;
+          this.uploadDone = false;
+          this.progressWidth = 0;
         }
       } else {
-        throw new Error('No file selected');
+        this.uploadError = 'Please choose an audio file first.';
       }
     },
 
     onProgress(percent: number) {
+      if (!this.startedUpload) return;
       this.progressWidth = this.progressContainerWidth * percent / 100;
       if (percent === 100) {
         this.uploadDone = true;
@@ -1277,6 +1340,10 @@ export default defineComponent({
   background-color: white;
   border: 1px solid black;
   margin-left: 10px;
+}
+
+.errorRow, .errorText {
+  color: #a00000;
 }
 
 .progress {

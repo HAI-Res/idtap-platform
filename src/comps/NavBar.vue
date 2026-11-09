@@ -15,25 +15,51 @@
       </div>
     </router-link>
     <div class='gap'></div>
-    <div class='imgBox' @click='handleUsrImgClick'>
+    <div 
+      class='imgBox' 
+      role='button'
+      tabindex='0'
+      aria-label='Account menu'
+      aria-haspopup='menu'
+      :aria-expanded='showUserMenu'
+      @click='handleUsrImgClick'
+      @keydown.enter.prevent='handleUsrImgClick'
+      @keydown.space.prevent='handleUsrImgClick'
+      >
       <img 
         v-if='usrImgUrl' 
         :src='usrImgUrl' 
         class='usrImg'
+        alt=''
         referrerpolicy="no-referrer"
         > 
       <img 
         v-else
         :src='defaultUsrImgUrl'
         class='usrImg'
+        alt=''
         >
     </div> 
   </div>
-  <div id='userMenu' v-if='showUserMenu'>
-    <div class='userMenuRow' @click='logIn'>
+  <div id='userMenu' v-if='showUserMenu' role='menu'>
+    <div 
+      class='userMenuRow' 
+      role='menuitem' 
+      tabindex='0' 
+      @click='logIn'
+      @keydown.enter.prevent='logIn'
+      @keydown.space.prevent='logIn'
+      >
       <span>Log in</span>
     </div>
-    <div class='userMenuRow last' @click='logOut'>
+    <div 
+      class='userMenuRow last' 
+      role='menuitem' 
+      tabindex='0' 
+      @click='logOut'
+      @keydown.enter.prevent='logOut'
+      @keydown.space.prevent='logOut'
+      >
       <span>Log out</span>
     </div>
   </div>
@@ -211,9 +237,11 @@ export default defineComponent({
   border-radius: 4px;
 }
 
-html, body {
-  scroll-behavior: smooth;
-}
+/* NOTE: this <style> block is unscoped, so everything below applies to the
+   whole app. `div { width: 100% }` and `body { position: fixed }` are
+   load-bearing for the layout of most pages; do not remove them without
+   auditing every view. (Smooth scroll-behavior was removed on purpose:
+   no animated scrolling anywhere in the app.) */
 
 div {
   width: 100%
@@ -223,7 +251,6 @@ body {
   margin: 0px;
   display: flex;
   flex-direction: row;
-  overflow: none;
   position: fixed;
   width: 100%;
   height: 100%;
