@@ -372,13 +372,13 @@ import {
   getNumberOfSpectrograms,
   savePiece,
   makeSpectrograms,
-  pieceExists,
-  getMelographJSON,
   getEditableCollections,
   updateTranscriptionViewed
 } from '@/js/serverCalls.ts';
 import { Meter, Pulse } from '@/js/meter.ts';
 import { suppressMotion } from '@/js/motionPrefs.ts';
+import { DEFAULT_TRANSCRIPTION_ID } from '@/config';
+import { prefetchSpectrogramData } from '@/ts/workers/workerManager.ts';
 import EditorAudioPlayer from '@/comps/editor/audioPlayer/EditorAudioPlayer.vue';
 import TrajSelectPanel from '@/comps/editor/TrajSelectPanel.vue';
 import ContextMenu from'@/comps/ContextMenu.vue';
@@ -416,7 +416,8 @@ import {
   MeterControlsType,
   ExcerptRange,
   VibObjType,
-  AssemblageEditorType
+  AssemblageEditorType,
+  RuleSetType
 } from '@shared/types';
 import { 
   EditorMode, 
@@ -586,28 +587,16 @@ type EditorDataType = {
   zoom: d3.ZoomBehavior<Element, unknown>,
   curWidth: number,
   oldRectHeight: number,
-  scrollX: Selection<SVGSVGElement, undefined, null, undefined>,
-  scrollY: Selection<SVGSVGElement, undefined, null, undefined>,
   regionG?: Selection<SVGGElement, undefined, null, undefined>,
   desiredWidth: number,
   desiredHeight: number,
   xScale: number,
   yScale: number,
   unscaledWidth: number,
-  loadedImgs: number,
-  numSpecs: number,
-  totNaturalWidth: number,
-  cumulativeWidths: number[],
-  imgs: HTMLImageElement[],
   specBox: Selection<SVGGElement, undefined, null, undefined>,
   browser: BrowserInfo,
   dragIdx: string,
   IPLims: [number, number],
-  melographJSON?: {
-    data_chunks: number[][],
-    time_chunk_starts: number[],
-    time_increment: number,
-  },
   melographVisible: boolean,
   autoWindowX: number,
   autoWindowY: number,
@@ -761,23 +750,15 @@ export default defineComponent({
       curWidth: 0,
       oldRectHeight: 0,
       specBox: d3Create('g'),
-      scrollX: d3Create('svg'),
-      scrollY: d3Create('svg'),
       regionG: undefined,
       desiredWidth: 0,
       desiredHeight: 0,
       xScale: 1,
       yScale: 1,
       unscaledWidth: 0,
-      loadedImgs: 0,
-      numSpecs: 0,
-      totNaturalWidth: 0,
-      cumulativeWidths: [],
-      imgs: [],
       browser: detect() as BrowserInfo,
       dragIdx: '',
       IPLims: [0, 0],
-      melographJSON: undefined,
       melographVisible: false,
       selectedPhraseDivIdx: undefined,
       autoWindowX: 500,
@@ -905,40 +886,56 @@ export default defineComponent({
       // check if stored piece esists. if so, load it, else: load default piece.
       // push the id to router. 
       
-      let piece, pieceDoesExist;
+      let piece: Piece | undefined | null;
       const queryId = this.route.query.id! as string;
       this.queryTime = this.route.query.t ? Number(this.route.query.t) : 0;
       const queryPIdx = this.route.query.pIdx !== undefined ? Number(this.route.query.pIdx) : undefined;
       const queryInst = this.route.query.inst ? Number(this.route.query.inst) : 0;
+      // One request answers both "does it exist" and "may I see it": the
+      // server returns null for an unknown id and 403 for a private one, and
+      // getPiece yields undefined/null for either.
       if (queryId) {
-        pieceDoesExist = await pieceExists(queryId);
-        if (pieceDoesExist) {
-          piece = await getPiece(queryId);
-
-        } else {
-          window.alert('IDTP logger: Piece does not exist, or you do not have permission to view.');
-          await this.router.push({ name: 'Transcriptions' });
-          throw 'IDTP logger: Piece does not exist, or you do not have \
-          permission to view.'
-        }
+        piece = await getPiece(queryId);
       } else {
-        const storedId = this.$store.state._id;
-        pieceDoesExist = await pieceExists(storedId);
-        const id = pieceDoesExist ? storedId : '63445d13dc8b9023a09747a6';
-        this.router.push({ 
+        // No id in the URL: try the last-opened piece, then the default piece,
+        // and write the winning id into the URL so the page is reloadable.
+        let id = this.$store.state._id;
+        piece = await getPiece(id);
+        if (!piece) {
+          id = DEFAULT_TRANSCRIPTION_ID;
+          piece = await getPiece(id);
+        }
+        this.router.push({
           name: 'EditorComponent',
           query: { 'id': id }
         })
-        piece = await getPiece(id);
+      }
+      if (!piece) {
+        window.alert('IDTP logger: Piece does not exist, or you do not have permission to view.');
+        await this.router.push({ name: 'Transcriptions' });
+        throw 'IDTP logger: Piece does not exist, or you do not have \
+        permission to view.'
       }
       this.browser = detect() as BrowserInfo;
+      const userID = this.$store.state.userID!;
+      // Everything below only needs the piece document, so fetch it all at
+      // once instead of one round trip at a time.
+      const ruleSetPromise = getRaagRule(piece.raga.name);
+      const editableColsPromise = getEditableCollections(userID);
+      let audioDocPromise: Promise<RecType | undefined> = Promise.resolve(undefined);
       if (piece.audioID) {
         this.excerptRange = piece.excerptRange;
         this.audioSource = this.browser.name === 'safari' ?
           `${SERVER_BASE}audio/mp3/${piece.audioID}.mp3` :
-          `${SERVER_BASE}audio/opus/${piece.audioID}.opus`;        
-        this.audioDBDoc = await getAudioRecording(piece.audioID);
-        this.melographJSON = await getMelographJSON(piece.audioID);
+          `${SERVER_BASE}audio/opus/${piece.audioID}.opus`;
+        audioDocPromise = getAudioRecording(piece.audioID);
+        // The spectrogram data is by far the largest download; start it now
+        // rather than after the spectrogram controls mount and load settings.
+        prefetchSpectrogramData(piece.audioID);
+      }
+      const [rsRes, audioDBDoc] = await Promise.all([ruleSetPromise, audioDocPromise]);
+      if (piece.audioID) {
+        this.audioDBDoc = audioDBDoc;
         this.durTot = this.audioDBDoc!.duration;
         if (this.excerptRange !== undefined) {
           this.durTot = this.excerptRange.end - this.excerptRange.start;
@@ -947,7 +944,7 @@ export default defineComponent({
         this.durTot = piece.durTot!;
       }
       this.initXScale = this.durTot / this.initViewDur;
-      await this.getPieceFromJson(piece);
+      this.getPieceFromJson(piece, rsRes?.rules);
 
       // Query param precedence: pIdx > t
       // If both ?pIdx and ?t are provided, pIdx takes precedence because it's
@@ -975,8 +972,9 @@ export default defineComponent({
           permission to view.'
       }
 
-      await updateTranscriptionViewed(this.$store.state.userID!, this.piece._id!);
-
+      // Bookkeeping only; nothing below depends on it, so don't hold up the
+      // editor for the round trip.
+      updateTranscriptionViewed(userID, this.piece._id!).catch(console.error);
 
 
       this.oldHeight = window.innerHeight;
@@ -1065,8 +1063,7 @@ export default defineComponent({
       if (this.queryTime !== 0) {
         this.currentTime = this.queryTime;
       }
-      const userID = this.$store.state.userID!;
-      this.editableCols = await getEditableCollections(userID);
+      this.editableCols = await editableColsPromise;
     } catch (err) {
       console.error(err)
     }
@@ -2426,16 +2423,6 @@ export default defineComponent({
       this.unsavedChanges = false;
     },
 
-    handleKeyup(e: KeyboardEvent) {
-      if (e.key === 'Shift') this.shifted = false;
-      if (e.key === 'Meta' && this.browser.os!.includes('Mac OS')) {
-        this.metad = false
-      }
-      if (e.key === 'Control' && this.browser.os!.includes('Windows')) {
-        this.metad = false
-      }
-    },
-
     handleKeydown(e: KeyboardEvent) {
       if (this.selectedMode === EditorMode.Trajectory || this.selectedTraj) {
         const tsp = this.$refs.trajSelectPanel as TSPType;
@@ -2451,9 +2438,8 @@ export default defineComponent({
       }
     },
 
-    async getPieceFromJson(piece: Piece) {
-      const rsRes = await getRaagRule(piece.raga.name);
-      piece.raga.ruleSet = rsRes.rules;
+    getPieceFromJson(piece: Piece, ruleSet?: RuleSetType) {
+      if (ruleSet) piece.raga.ruleSet = ruleSet;
       this.piece = Piece.fromJSON(piece);
       this.dateModified = new Date(this.piece.dateModified);
       this.fixTrajs();
@@ -2476,17 +2462,6 @@ export default defineComponent({
           }
         })
       })
-    },
-
-    resize() {
-      console.log('resized')
-      const diff = Math.abs(this.oldHeight! - window.innerHeight);
-      if (diff > 53) {
-        console.log('changed real height')
-        this.resizeHeight();
-      }
-      this.oldHeight = window.innerHeight;
-      this.fullWidth = window.innerWidth;
     },
 
     phraseIdxFromTime(time: number, rounded=false) {
@@ -2712,78 +2687,6 @@ export default defineComponent({
   width: calc(100% - v-bind(controlBoxWidth + 'px'));
   height: 100%;
   position: relative;
-}
-
-.scrollYContainer {
-  width: v-bind(scrollYWidth+'px');
-  background-color: white;
-  border-right: 1px solid black;
-  border-bottom: 1px solid black;
-  height: calc(100% - 1px);
-  display: flex;
-  flex-direction: column;
-}
-
-.topNotch {
-  width: v-bind(scrollYWidth+'px');
-  min-width: v-bind(scrollYWidth+'px');
-  height: v-bind(xAxHeight - 0.5 +'px');
-  min-height: v-bind(xAxHeight - 0.5 +'px');
-  border-bottom: 1px solid black;
-  background-color: grey;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-}
-
-.topNotchZoomer {
-  width: v-bind(scrollYWidth+'px');
-  min-width: v-bind(scrollYWidth+'px');
-  height: v-bind((xAxHeight - 1.5)/2 +'px');
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  justify-content: center;
-  background-color: v-bind(scrollDragColor)
-}
-
-.topNotchZoomer:hover {
-  background-color: v-bind(scrollDragColorHover);
-  cursor: pointer;
-}
-
-.topNotchZoomer.top {
-  border-bottom: 1px solid black;
-}
-
-.scrollY {
-  width: 100%;
-  height: v-bind(scrollYHeight-1.5 + 'px');
-}
-
-.bottomNotch {
-  width: 100%;
-  height: v-bind(scrollXHeight - 1 + 'px');
-  min-height: v-bind(scrollXHeight - 1 + 'px');
-  border-top: 1px solid black;
-  background-color: grey;
-}
-
-.scrollXContainer {
-  height: v-bind(scrollXHeight - 1 + 'px');
-  min-height: v-bind(scrollXHeight - 1 + 'px');
-  width: calc(100% - 1px);
-  border-bottom: 1px solid black;
-  border-right: 1px solid black;
-  background-color: white;
-  display: flex;
-  flex-direction: row;
-}
-
-.scrollX {
-  width: 100%;
-  height: 100%;
 }
 
 .controlBox {

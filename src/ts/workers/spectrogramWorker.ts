@@ -6,6 +6,7 @@ import ndarray, { NdArray } from 'ndarray';
 import ops from 'ndarray-ops';
 import pako from  'pako';
 import { ProcessMessage, WorkerMessage } from '@shared/types';
+import { SPECTROGRAM_TILE_WIDTH } from '@shared/spectrogram';
 
 let extData: Uint8Array | undefined = undefined;
 let extDataShape: [number, number] | undefined = undefined;
@@ -23,7 +24,7 @@ let cmapLUT: RGBColor[] | undefined = undefined;
 let initLogMin = Math.log2(75);
 let initLogMax = Math.log2(2400);
 let maxVal = 255;
-const maxCanvasWidth = 1000; // this needs to align with maxCanvasWidth in
+const maxCanvasWidth = SPECTROGRAM_TILE_WIDTH;
 let power = 1;
 let cmap: CMap = CMap.Viridis;
 
@@ -257,6 +258,24 @@ const createColorMapLUT = (cMapObj: any) => {
   return lut;
 }
 
+// In-flight / completed downloads keyed by audioID, so a 'prefetch' message
+// sent early in the editor's load can start the (large) download and the later
+// 'initial' message reuses it instead of fetching again.
+const specDataFetches = new Map<string, Promise<[Uint8Array, [number, number]]>>();
+const fetchSpecData = (audioID: string) => {
+  let p = specDataFetches.get(audioID);
+  if (p === undefined) {
+    const dir = `${SERVER_BASE}spec_data/`;
+    p = Promise.all([
+      fetchArrayBuf(dir + audioID + '/spec_data.gz'),
+      fetchShape(dir + audioID + '/spec_shape.json'),
+    ]);
+    p.catch(() => specDataFetches.delete(audioID));
+    specDataFetches.set(audioID, p);
+  }
+  return p;
+};
+
 const initialize = async (
     audioID: string, 
     logMin: number, 
@@ -264,18 +283,14 @@ const initialize = async (
     start: number,
     end: number,
   ) => {
-  const dir = `${SERVER_BASE}spec_data/`;
-  const dataUrl = dir + audioID + '/spec_data.gz';
-  const shapeUrl = dir + audioID + '/spec_shape.json';
   try {
-    const dataPromise = fetchArrayBuf(dataUrl);
-    const shapePromise = fetchShape(shapeUrl);
-    [extData, extDataShape] = await Promise.all([dataPromise, shapePromise]);
+    [extData, extDataShape] = await fetchSpecData(audioID);
   } catch (e) {
-    console.error(e); 
+    console.error(e);
   }
-  const f32ExtData = new Float32Array(extData!);
-  initData = ndarray(f32ExtData, extDataShape!);
+  // The data is uint8 (0-255 LUT indices) on disk; index it in place rather
+  // than widening to Float32, which quadrupled the worker's memory.
+  initData = ndarray(extData!, extDataShape!);
   const totalColumns = initData.shape[1];
   const colStart = Math.floor(totalColumns * start);
   const colEnd = Math.ceil(totalColumns * end);
@@ -398,9 +413,6 @@ const colorizeCol = (startX: number, width: number) => {
       const val = intensifiedData.get(i, j);
       const idx = (i * imgDataWidth + j) * 4;
       const color = cmapLUT[val];
-      if (color === undefined) {
-        debugger;
-      }
       imgDataData[idx] = color.r;
       imgDataData[idx + 1] = color.g;
       imgDataData[idx + 2] = color.b;
@@ -541,5 +553,8 @@ self.onmessage = async (e: MessageEvent<WorkerMessage>) => {
     };
     // const canvasIdx = e.data.payload.canvasIdx!;
     dispatcher.addToPriorityQueue(canvasIdx);
+  } else if (e.data.msg === 'prefetch') {
+    const { audioID } = e.data.payload as { audioID: string };
+    fetchSpecData(audioID).catch(() => { /* reported when 'initial' awaits it */ });
   }
 }

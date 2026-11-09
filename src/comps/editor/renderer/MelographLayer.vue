@@ -107,7 +107,6 @@ export default defineComponent({
         let data_chunks = data.data_chunks;
         let time_chunk_starts = data.time_chunk_starts;
         if (props.excerptRange !== undefined) {
-          console.log('transforming data')
           const start = props.excerptRange.start;
           const end = props.excerptRange.end;
           const timeStarts = data.time_chunk_starts;
@@ -176,7 +175,8 @@ export default defineComponent({
   opacity: var(--opacity);
   display: flex;
   flex-direction: row;
-  overflow-x: auto;
+  /* Not a scroll container: see .tranContainer in TranscriptionLayer. */
+  overflow: visible;
   width: var(--width);
   height: var(--height);
 }
