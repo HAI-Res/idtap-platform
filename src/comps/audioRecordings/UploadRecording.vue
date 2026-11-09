@@ -795,9 +795,11 @@ export default defineComponent({
       return ep.edit.includes(id) || rec.userID === id;
     },
 
+    // Awaited sequentially (was forEach(async) — nothing waited on it and
+    // failures were swallowed). Errors propagate to saveUpdates.
     async saveMusicians(recUpdates: RecUpdateType) {
-      this.editMus.forEach(async (mus, musIdx) => {
-        try {
+      for (const [musIdx, mus] of this.editMus.entries()) {
+        {
           const gharana = mus.gharana === 'Other' ? 
             this.newGharanas[musIdx] : 
             mus.gharana;
@@ -814,6 +816,11 @@ export default defineComponent({
               instrument: mus.instrument!,
               gharana: gharana!,
             })
+            if (!res || !res.insertedId) {
+              throw new Error(
+                `could not add musician "${this.newMusNames[musIdx]}".`
+              );
+            }
             musId = res.insertedId;
           } else {
             recUpdates.musicians[mus.name!] = {
@@ -832,14 +839,12 @@ export default defineComponent({
               members: [musId],
             })
           }
-        } catch (err) {
-          console.log(err);
         }
-      })
+      }
     },
 
     async saveLocation(recUpdates: RecUpdateType) {
-      try {
+      {
         if (this.selectedContinent) {
           recUpdates.location.continent = this.selectedContinent;
           if (this.selCountry) {
@@ -864,8 +869,6 @@ export default defineComponent({
             }
           }
         };
-      } catch (err) {
-        console.log(err);
       }
     },
 
@@ -880,7 +883,7 @@ export default defineComponent({
     },
 
     async saveRaag(update: RecUpdateType) {
-      try {
+      {
         if (this.selRaag) {
           const pSecNames = this.editingSecs.map((pSec) => pSec.name);
           if (this.selRaag === 'Other (specify)') {
@@ -910,8 +913,6 @@ export default defineComponent({
             })
           }
         }
-      } catch (err) {
-        console.log(err);
       }
     },
 
