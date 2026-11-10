@@ -266,10 +266,15 @@
             <option 
               v-for='animation in playheadAnimations' 
               :value='animation'
+              :disabled='!isPlayheadAnimationAllowed(animation, motionSuppressed)'
+              :title='isPlayheadAnimationAllowed(animation, motionSuppressed) ? undefined : animatedUnavailableText'
               >
-              {{ animation }}
+              {{ animation }}{{ isPlayheadAnimationAllowed(animation, motionSuppressed) ? '' : ' (off: reduced motion)' }}
             </option>
           </select>
+        </div>
+        <div class='row motionNote' v-if='motionSuppressed' :title='animatedUnavailableText'>
+          <span>Animated is off: reduced motion</span>
         </div>
       </div>
       <div class='rowBox'>
@@ -397,7 +402,7 @@ import {
   updateSavedDisplaySettings,
   deleteSavedDisplaySettings
 } from '@/js/serverCalls.ts'
-import { suppressMotion } from '@/js/motionPrefs.ts';
+import { useSuppressMotion, isPlayheadAnimationAllowed } from '@/js/motionPrefs.ts';
 import { useStore } from 'vuex';
 import { v4 as uuidv4 } from 'uuid';
 export default defineComponent({
@@ -698,7 +703,13 @@ export default defineComponent({
     const possibleTimingDisplays = Object.values(TimingDisplay);
 
     const playheadAnimations = Object.values(PlayheadAnimations);
+    const animatedUnavailableText = 'The sliding "Animated" playhead is ' +
+      'unavailable while reduced motion is on (system "Reduce motion" ' +
+      'setting or account preference).';
     const store = useStore();
+    // Re-evaluates when the OS reduced-motion setting changes and when the
+    // userID arrives from NavBar's async session lookup.
+    const motionSuppressed = useSuppressMotion(() => store.state.userID);
 
     const playheadAnimationProxy = computed({
       get() {
@@ -1203,9 +1214,9 @@ export default defineComponent({
       if (s.playheadAnimationStyle !== undefined) {
         playheadAnimationProxy.value = s.playheadAnimationStyle;
       }
-      if (suppressMotion(store.state.userID)) {
-        playheadAnimationProxy.value = PlayheadAnimations.DottedLine;
-      }
+      // No motion override here: EditorComponent applies the one playhead
+      // rule (resolvePlayheadAnimation) to whatever is emitted, so a saved
+      // Block or DottedLine is kept and a saved Animated becomes Block.
       if (s.highlightTrajs !== undefined) {
         highlightTrajsProxy.value = s.highlightTrajs;
       }
@@ -1337,6 +1348,9 @@ export default defineComponent({
       deleteSetting,
       playheadAnimations,
       playheadAnimationProxy,
+      motionSuppressed,
+      animatedUnavailableText,
+      isPlayheadAnimationAllowed,
       highlightTrajsProxy,
       possibleScaleSystems,
       scaleSystemProxy,
@@ -1412,6 +1426,11 @@ export default defineComponent({
   justify-content: space-evenly;
   box-sizing: border-box;
   border-top: 1px solid white;
+}
+
+.row.motionNote {
+  font-size: 0.8em;
+  opacity: 0.8;
 }
 
 .rowBox.tall {

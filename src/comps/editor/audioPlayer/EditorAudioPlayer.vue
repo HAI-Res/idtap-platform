@@ -29,14 +29,40 @@
         </div>
         <div class="controlFlexer">
           <div class="controlBox" v-if="!loading">
-            <img :src="icons.back_15" @click="back_15" />
-            <div class="playCircle" @click="togglePlay">
+            <!-- @keyup.space.prevent: Space is the editor-wide play/pause key
+                 (EditorComponent), so it must not also activate a focused
+                 button here and toggle twice. Enter still activates. -->
+            <button
+              type="button"
+              class="iconButton"
+              aria-label="Back 15 seconds"
+              @click="back_15"
+              @keyup.space.prevent
+            >
+              <img :src="icons.back_15" alt="" />
+            </button>
+            <button
+              type="button"
+              class="iconButton playCircle"
+              :aria-label="playing ? 'Pause' : 'Play'"
+              @click="togglePlay"
+              @keyup.space.prevent
+            >
               <img
                 ref="playImg"
+                alt=""
                 :src="[icons.play, icons.pause][Number(playing)]"
               />
-            </div>
-            <img :src="icons.forward_15" @click="forward_15" class="icon" />
+            </button>
+            <button
+              type="button"
+              class="iconButton"
+              aria-label="Forward 15 seconds"
+              @click="forward_15"
+              @keyup.space.prevent
+            >
+              <img :src="icons.forward_15" alt="" class="icon" />
+            </button>
           </div>
           <div class="loadingSymbol" v-else>
             <div class="loader"></div>
@@ -44,84 +70,148 @@
         </div>
         <div class="recInfo right">
           <div class='rulerBox'>
-            <img
-              :src='icons.specControl'
-              @click='toggleSpecControls'
-              class='specImg'
-              ref='specImg'
-              @mouseover='controlsMouseOver'
-              @mouseout='controlsMouseOut'
-            />
+            <button
+              type="button"
+              class="iconButton"
+              aria-label="Transcription and Graphic Controls"
+              @click="toggleSpecControls"
+              @keyup.space.prevent
+            >
+              <img
+                :src='icons.specControl'
+                class='specImg'
+                ref='specImg'
+                @mouseover='controlsMouseOver'
+                @mouseout='controlsMouseOut'
+                alt=""
+              />
+            </button>
           </div>
           <div class="rulerBox">
-            <img
-              :src="icons.assemblage"
+            <button
+              type="button"
+              class="iconButton"
+              aria-label="Assemblage Controls"
               @click="toggleAssemblage"
-              class="assemblageImg"
-              ref="assemblageImg"
-              @mouseover='controlsMouseOver'
-              @mouseout='controlsMouseOut'
-            />
+              @keyup.space.prevent
+            >
+              <img
+                :src="icons.assemblage"
+                class="assemblageImg"
+                ref="assemblageImg"
+                @mouseover='controlsMouseOver'
+                @mouseout='controlsMouseOut'
+                alt=""
+              />
+            </button>
           </div>
           <div class="rulerBox">
-            <img
-              :src="icons.tags"
+            <button
+              type="button"
+              class="iconButton"
+              aria-label="Label Editor"
               @click="toggleLabelControls"
-              class="tagsImg"
-              ref="tagsImg"
-              @mouseover='controlsMouseOver'
-              @mouseout='controlsMouseOut'
-            />
+              @keyup.space.prevent
+            >
+              <img
+                :src="icons.tags"
+                class="tagsImg"
+                ref="tagsImg"
+                @mouseover='controlsMouseOver'
+                @mouseout='controlsMouseOut'
+                alt=""
+              />
+            </button>
           </div>
           <div class="rulerBox">
-            <img
-              :src="icons.meter"
+            <button
+              type="button"
+              class="iconButton"
+              aria-label="Meter Controls"
               @click="toggleMeterControls"
-              class="meterImg"
-              ref="meterImg"
-              @mouseover='controlsMouseOver'
-              @mouseout='controlsMouseOut'
-            />
+              @keyup.space.prevent
+            >
+              <img
+                :src="icons.meter"
+                class="meterImg"
+                ref="meterImg"
+                @mouseover='controlsMouseOver'
+                @mouseout='controlsMouseOut'
+                alt=""
+              />
+            </button>
           </div>
           <div class="rulerBox">
-            <img
-              :src="icons.download"
+            <button
+              type="button"
+              class="iconButton"
+              aria-label="Download Data"
               @click="toggleDownloads"
-              class="downloadImg"
-              ref="downloadImg"
-              @mouseover='controlsMouseOver'
-              @mouseout='controlsMouseOut'
-            />
+              @keyup.space.prevent
+            >
+              <img
+                :src="icons.download"
+                class="downloadImg"
+                ref="downloadImg"
+                @mouseover='controlsMouseOver'
+                @mouseout='controlsMouseOut'
+                alt=""
+              />
+            </button>
           </div>
           <div class='rulerBox'>
-            <img
-            :src='icons.share'
-            @click='toggleShare'
-            class='shareImg'
-            ref='shareImg'
-            @mouseover='controlsMouseOver'
-            @mouseout='controlsMouseOut'
-            />
-          </div>
-          <div class="rulerBox">
-            <img
-              :src="icons.tuningFork"
-              @click="toggleTuning"
-              class="tuningFork"
-              ref="tuningImg"
-              @mouseover='controlsMouseOver'
-              @mouseout='controlsMouseOut'
-            />
-          </div>
-          <div class="rulerBox">
-            <img 
-              :src="icons.ruler" 
-              @click="toggleControls" 
-              ref="controlsImg" 
-              class='showControls'
-              @mouseover='controlsMouseOver'
-              @mouseout='controlsMouseOut'
+            <button
+              type="button"
+              class="iconButton"
+              aria-label="Share Transcription"
+              @click="toggleShare"
+              @keyup.space.prevent
+            >
+              <img
+                :src='icons.share'
+                class='shareImg'
+                ref='shareImg'
+                @mouseover='controlsMouseOver'
+                @mouseout='controlsMouseOut'
+                alt=""
               />
+            </button>
+          </div>
+          <div class="rulerBox">
+            <button
+              type="button"
+              class="iconButton"
+              aria-label="Tuning Controls"
+              @click="toggleTuning"
+              @keyup.space.prevent
+            >
+              <img
+                :src="icons.tuningFork"
+                class="tuningFork"
+                ref="tuningImg"
+                @mouseover='controlsMouseOver'
+                @mouseout='controlsMouseOut'
+                alt=""
+              />
+            </button>
+          </div>
+          <div class="rulerBox">
+            <button
+              type="button"
+              class="iconButton"
+              aria-label="Synthesis Controls"
+              @click="toggleControls"
+              @keyup.space.prevent
+            >
+              <img
+                :src="icons.ruler"
+                ref="controlsImg"
+                class='showControls'
+                @mouseover='controlsMouseOver'
+                @mouseout='controlsMouseOut'
+                alt=""
+              />
+            </button>
           </div>
         </div>
       </div>
@@ -473,6 +563,7 @@ import {
  } from '@shared/enums';
 import { AudioWorklet } from '@/audio-worklet';
 import { excelData, jsonData } from '@/js/serverCalls.ts';
+import { seekFraction } from '@/comps/editor/editorUtils';
 import { tuningData } from '@/ts/tuningData.ts';
 import { Meter } from '@/js/meter.ts';
 import { 
@@ -495,6 +586,7 @@ import { createRubberBandNode as createRBNode } from 'rubberband-web';
 type EditorAudioPlayerData = {
   progress: number;
   playing: boolean;
+  togglePending: boolean;
   looping: boolean;
   shuffling: boolean;
   showWaveform: boolean;
@@ -737,6 +829,7 @@ export default defineComponent({
     return {
       progress: 0.0,
       playing: false,
+      togglePending: false,
       looping: false,
       shuffling: false,
       showWaveform: false,
@@ -1139,10 +1232,15 @@ export default defineComponent({
     }
     this.initializeAudio();
     this.addDragger();
+    // Zoom (and other conferencing apps) grab or switch the audio device; the
+    // context can be suspended/interrupted underneath us. Try to resume.
+    navigator.mediaDevices?.addEventListener?.('devicechange', this.handleDeviceChange);
   },
 
 
   beforeUnmount() {
+    navigator.mediaDevices?.removeEventListener?.('devicechange', this.handleDeviceChange);
+    this.ac?.removeEventListener('statechange', this.handleAudioStateChange);
     this.tuningGains.forEach((_, i) => {
       this.tuningGains[i] = 0;
       this.updateTuningGain(i)
@@ -1384,6 +1482,7 @@ export default defineComponent({
 
     initializeAudio() {
       this.ac = new AudioContext({ sampleRate: 48000 });
+      this.ac.addEventListener('statechange', this.handleAudioStateChange);
       this.gainNode = this.ac.createGain();
       this.gainNode.gain.setValueAtTime(this.recGain, this.now());
       this.initializeStretching();
@@ -1579,7 +1678,9 @@ export default defineComponent({
         x: number,
         y: number
       }
+      // clickDistance: a click that jitters a few pixels is still a click.
       const drag = d3Drag<SVGCircleElement, Datum>()
+        .clickDistance(4)
         .on('start', this.dragStart)
         .on('drag', this.dragging)
         .on('end', this.dragEnd);
@@ -2062,8 +2163,48 @@ export default defineComponent({
       }
     },
 
+    // Is the audio clock actually advancing? ('interrupted' is Safari's state
+    // when another app takes the device; it is not in the TS lib type.)
+    audioRunning() {
+      return (this.ac?.state as string) === 'running';
+    },
+
+    // Ask a suspended/interrupted context to run again. Must be *called* from
+    // the user gesture (it is, synchronously, from togglePlay); resolves when
+    // running or after a timeout, since a lost device can leave it pending.
+    async resumeAudioContext(timeoutMs = 1500) {
+      const ac = this.ac;
+      if (!ac || this.audioRunning() || (ac.state as string) === 'closed') return;
+      try {
+        await Promise.race([
+          ac.resume(),
+          new Promise(resolve => setTimeout(resolve, timeoutMs)),
+        ]);
+      } catch (err) {
+        console.warn('AudioContext.resume() failed', err);
+      }
+    },
+
+    // The UI must not claim playback while the context is not running: if the
+    // device is taken away mid-play, pause (keeping the position).
+    handleAudioStateChange() {
+      if (!this.audioRunning() && this.playing && !this.togglePending) {
+        if ((this.ac?.state as string) === 'closed') return;
+        this.togglePlayNow();
+      }
+    },
+
+    handleDeviceChange() {
+      if (this.ac && !this.audioRunning() && (this.ac.state as string) !== 'closed') {
+        this.ac.resume().catch(() => {});
+      }
+    },
+
     play() {
       this.playing = true;
+      // Seeks call stop()+play() outside togglePlay; if the context dropped
+      // to suspended meanwhile, ask it to resume (sources start once it runs).
+      if (this.ac && !this.audioRunning()) this.ac.resume().catch(() => {});
       
       const offset = this.pausedAt;
       this.startingDelta = this.pausedAt;
@@ -2221,7 +2362,27 @@ export default defineComponent({
         this.requestId = undefined;
       }
     },
-    togglePlay() {
+    // Space (EditorComponent) and the play button both land here.
+    async togglePlay() {
+      if (this.togglePending) return;
+      if (!this.playing && this.ac && !this.audioRunning()) {
+        // e.g. Zoom grabbed/switched the output device: resume first, or the
+        // sources are scheduled on a frozen clock and nothing is heard.
+        this.togglePending = true;
+        try {
+          await this.resumeAudioContext();
+        } finally {
+          this.togglePending = false;
+        }
+        if (!this.audioRunning()) {
+          console.warn(`AudioContext is ${this.ac?.state}; not starting playback`);
+          return;
+        }
+      }
+      this.togglePlayNow();
+    },
+
+    togglePlayNow() {
       if (this.regionSpeedOn && this.stretchedBuffer) {
         if (!this.playing) {
           this.playStretched();
@@ -2346,13 +2507,14 @@ export default defineComponent({
     handleProgressClick(e: MouseEvent) {
       const pbOuter = this.$refs.pbOuter as HTMLDivElement;
       const bb = pbOuter.getBoundingClientRect();
+      const frac = seekFraction(e.clientX, bb.left, bb.width);
       if (!this.playing) {
-        this.pausedAt = (this.audioBuffer!.duration * e.clientX) / bb.width;
+        this.pausedAt = this.audioBuffer!.duration * frac;
         this.$emit('currentTimeEmit', this.pausedAt)
         this.updateProgress();
       } else {
         this.stop();
-        this.pausedAt = (this.audioBuffer!.duration * e.clientX) / bb.width;
+        this.pausedAt = this.audioBuffer!.duration * frac;
         this.play();
       }
     },
@@ -2595,20 +2757,41 @@ export default defineComponent({
   align-items: center;
   justify-content: center;
 }
-.rulerBox > img {
+.iconButton {
+  /* reset: these were <div>/<img> before becoming buttons */
+  appearance: none;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.iconButton:focus:not(:focus-visible) {
+  outline: none;
+}
+.iconButton:focus-visible {
+  outline: 2px solid white;
+  outline-offset: 2px;
+}
+.rulerBox img {
   height: 40px;
   filter: brightness(400%);
   cursor: pointer;
 }
-.rulerBox > img:hover {
+.rulerBox img:hover {
   filter: invert(46%) sepia(42%) saturate(292%) hue-rotate(78deg)
     brightness(94%) contrast(97%);
 }
-.rulerBox > .showWaveform {
+.rulerBox .showWaveform {
   filter: invert(46%) sepia(75%) saturate(292%) hue-rotate(85deg)
     brightness(97%) contrast(97%);
 }
-.rulerBox > .showControls {
+.rulerBox .showControls {
   filter: invert(46%) sepia(42%) saturate(292%) hue-rotate(78deg)
     brightness(94%) contrast(97%);
 }
@@ -2641,13 +2824,13 @@ export default defineComponent({
   align-items: center;
   justify-content: center;
 }
-.controlBox > img {
+.controlBox > .iconButton:not(.playCircle) > img {
   height: 30px;
   width: 30px;
   cursor: pointer;
   filter: brightness(400%);
 }
-.controlBox > img:hover {
+.controlBox > .iconButton:not(.playCircle) > img:hover {
   filter: invert(46%) sepia(42%) saturate(292%) hue-rotate(78deg)
     brightness(94%) contrast(97%);
 }
@@ -2868,35 +3051,35 @@ export default defineComponent({
   max-width: 300px;
   min-width: 150px;
 }
-.rulerBox > .tuningFork {
+.rulerBox .tuningFork {
   filter: invert(100%) sepia(100%) saturate(0%) hue-rotate(288deg)
     brightness(102%) contrast(102%);
 }
-.rulerBox > .showTuning {
+.rulerBox .showTuning {
   filter: invert(46%) sepia(42%) saturate(292%) hue-rotate(78deg)
     brightness(94%) contrast(97%);
 }
-.rulerBox > .showDownloads {
-  filter: invert(46%) sepia(42%) saturate(292%) hue-rotate(78deg)
-    brightness(94%) contrast(97%);
-}
-
-.rulerBox > .showMeterControls {
+.rulerBox .showDownloads {
   filter: invert(46%) sepia(42%) saturate(292%) hue-rotate(78deg)
     brightness(94%) contrast(97%);
 }
 
-.rulerBox > .showLabelControls {
+.rulerBox .showMeterControls {
   filter: invert(46%) sepia(42%) saturate(292%) hue-rotate(78deg)
     brightness(94%) contrast(97%);
 }
 
-.rulerBox > .showSpecControls {
+.rulerBox .showLabelControls {
   filter: invert(46%) sepia(42%) saturate(292%) hue-rotate(78deg)
     brightness(94%) contrast(97%);
 }
 
-.rulerBox > .showAssemblageControls {
+.rulerBox .showSpecControls {
+  filter: invert(46%) sepia(42%) saturate(292%) hue-rotate(78deg)
+    brightness(94%) contrast(97%);
+}
+
+.rulerBox .showAssemblageControls {
   filter: invert(46%) sepia(42%) saturate(292%) hue-rotate(78deg)
     brightness(94%) contrast(97%);
 }

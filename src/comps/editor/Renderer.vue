@@ -235,7 +235,8 @@ import {
   toRef
 } from 'vue';
 import { throttle } from 'lodash';
-import { suppressMotion } from '@/js/motionPrefs.ts';
+import { isMotionSensitiveUser } from '@/js/motionPrefs.ts';
+import { isTypingInField } from '@/comps/editor/editorUtils';
 
 import SpectrogramLayer from '@/comps/editor/renderer/SpectrogramLayer.vue';
 import XAxis from '@/comps/editor/renderer/XAxis.vue';
@@ -806,6 +807,7 @@ export default defineComponent({
       }]
     };
     const handleKeydown = (e: KeyboardEvent) => {
+      if (isTypingInField(e)) return;
       if (e.key === 'Escape') {
         contextMenuClosed.value = true;
         showEditInstrumentation.value = false;
@@ -868,14 +870,20 @@ export default defineComponent({
       verticalScrollUpdateIdx.value += 1;
     }, 16);
 
+    // Wheel/touch scrolling is blocked only for the listed motion-sensitive
+    // users, not for everyone with the OS reduced-motion setting: for most
+    // such users scrolling is fine, and losing it would make the editor
+    // unusable. Reactive in userID, which NavBar's async session lookup
+    // fills in after the editor mounts.
+    const scrollBlocked = computed(() => isMotionSensitiveUser(store.state.userID));
     const onWheel = (e: WheelEvent) => {
-      if (suppressMotion(store.state.userID)) {
+      if (scrollBlocked.value) {
         e.preventDefault();
         e.stopPropagation();
       }
     };
     const onTouchMove = (e: TouchEvent) => {
-      if (suppressMotion(store.state.userID)) {
+      if (scrollBlocked.value) {
         e.preventDefault();
         e.stopPropagation();
       }

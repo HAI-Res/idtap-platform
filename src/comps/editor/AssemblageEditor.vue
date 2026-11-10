@@ -152,6 +152,7 @@ import {
 import { Piece, Phrase } from '@model';
 import { Assemblage } from '@model'
 import { EditorMode } from '@shared/enums';
+import { isTypingInField } from '@/comps/editor/editorUtils';
 
 export default defineComponent({
   name: 'AssemblageEditor',
@@ -185,6 +186,8 @@ export default defineComponent({
 
 
     const handleGeneralKeydown = (e: KeyboardEvent) => {
+      // Backspace in a strand-name field must not delete the selected phrase.
+      if (isTypingInField(e)) return;
       if (e.key === 'Escape') {
         const el = document.querySelector('.phraseItem.phrase-' + (editorSelectedPhrase.value?.uniqueId || ''));
         if (el) {

@@ -362,8 +362,10 @@ class Piece {
     }
 
     this.sectionStartsGrid.forEach((ss, ssIdx) => {
+      // A track can have section starts but no categorization row (e.g. a
+      // track added after the grid was saved); start it empty and fill below.
       if (this.sectionCatGrid[ssIdx] === undefined) {
-        debugger;
+        this.sectionCatGrid[ssIdx] = [];
       }
       if (ss.length > this.sectionCatGrid[ssIdx].length) {
         const dif = ss.length - this.sectionCatGrid[ssIdx].length;

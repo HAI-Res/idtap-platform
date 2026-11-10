@@ -172,7 +172,7 @@
         @mutateTraj='mutateTrajEmit'
         @pluckBool='pluckBoolEmit'
         @newTraj='newTrajEmit'
-        @vibObj='throttledAlterVibObj'
+        @vibObj='onVibObj'
         @dampen='dampenEmit'
         @vowel='vowelEmit'
         @startConsonant='startConsonantEmit'
@@ -376,7 +376,17 @@ import {
   updateTranscriptionViewed
 } from '@/js/serverCalls.ts';
 import { Meter, Pulse } from '@/js/meter.ts';
-import { suppressMotion } from '@/js/motionPrefs.ts';
+import {
+  suppressMotionReactive,
+  resolvePlayheadAnimation
+} from '@/js/motionPrefs.ts';
+import {
+  isTypingInField,
+  clampZoomedSize,
+  MAX_X_PX_PER_SEC,
+  MAX_TRANSCRIPTION_WIDTH,
+  MAX_Y_PX_PER_OCTAVE,
+} from '@/comps/editor/editorUtils';
 import { DEFAULT_TRANSCRIPTION_ID } from '@/config';
 import { prefetchSpectrogramData } from '@/ts/workers/workerManager.ts';
 import EditorAudioPlayer from '@/comps/editor/audioPlayer/EditorAudioPlayer.vue';
@@ -627,6 +637,8 @@ type EditorDataType = {
   selectedPhraseDivUid?: string,
   throttledAlterSlope: ReturnType<typeof throttle> | undefined,
   throttledAlterVibObj: ReturnType<typeof throttle> | undefined,
+  vibObjTarget: Trajectory | undefined,
+  throttledWindowResize: ReturnType<typeof throttle>,
   editingInstIdx: number,
   currentStringIdx: 0 | 1,
   heldLogFreq?: number,
@@ -790,6 +802,8 @@ export default defineComponent({
       selectedPhraseDivUid: undefined,
       throttledAlterSlope: undefined,
       throttledAlterVibObj: undefined,
+      vibObjTarget: undefined,
+      throttledWindowResize: throttle(() => {}, 100),
       editingInstIdx: 0,
       currentStringIdx: 0 as 0 | 1,
       heldLogFreq: undefined,
@@ -873,11 +887,14 @@ export default defineComponent({
     this.fullWidth = window.innerWidth;
     this.throttledAlterSlope = throttle(this.alterSlope, 16);
     this.throttledAlterVibObj = throttle(this.alterVibObj, 16);
+    this.throttledWindowResize = throttle(this.handleWindowResize, 100);
     this.throttledRenderMeter = throttle(this.renderMeter, 100);
     this.throttledRefreshSargamLines = throttle(this.refreshSargamLines, 100);
-    if (suppressMotion(this.$store.state.userID)) {
-      this.playheadAnimation = PlayheadAnimations.Block;
-    }
+    // Motion suppression and the resulting playhead rule are applied by the
+    // `motionSuppressed` / `playheadAnimation` watchers (immediate), so they
+    // also catch the userID arriving late from NavBar's async session lookup
+    // and the OS "Reduce motion" setting changing while the editor is open.
+    window.addEventListener('resize', this.throttledWindowResize);
 
     try {
       // if there's a query id, 1. check if exists, 2. if so, load it, else:
@@ -1077,9 +1094,22 @@ export default defineComponent({
   unmounted() {
     window.removeEventListener('keydown', this.handleKeydown);
     window.removeEventListener('beforeunload', this.beforeUnload);
+    window.removeEventListener('resize', this.throttledWindowResize);
+    this.throttledWindowResize.cancel();
   },
 
   watch: {
+
+    motionSuppressed: {
+      handler() {
+        this.applyPlayheadRule();
+      },
+      immediate: true,
+    },
+
+    playheadAnimation() {
+      this.applyPlayheadRule();
+    },
 
     scaleSystem(ss) {
       if (ss === ScaleSystem.Sargam || ss === ScaleSystem.SargamCents) {
@@ -1163,6 +1193,12 @@ export default defineComponent({
   },
 
   computed: {
+
+    // True when on-screen motion must be suppressed: OS prefers-reduced-motion
+    // or a listed user. Reactive in both inputs (see motionPrefs.ts).
+    motionSuppressed(): boolean {
+      return suppressMotionReactive(this.$store.state.userID);
+    },
 
     yAxWidth() {
       const wides = [
@@ -1543,26 +1579,57 @@ export default defineComponent({
       });
     },
 
-    zoomInY() {
-      this.transcriptionHeight = Math.round(this.transcriptionHeight * 1.5);
+    // Zoom bounds: never smaller than "whole piece / whole pitch range fits
+    // the view", never larger than MAX_*_PX_PER_* (or the browser's layout
+    // limit for very long pieces).
+    zoomXBounds() {
+      const graphWidth = this.fullWidth - this.controlBoxWidth - this.scrollYWidth;
+      const min = Math.max(1, graphWidth);
+      const max = Math.max(
+        min, Math.min(this.durTot * MAX_X_PX_PER_SEC, MAX_TRANSCRIPTION_WIDTH)
+      );
+      return { min, max };
+    },
+
+    zoomYBounds() {
+      const logRange = this.maxPitch.logFreq - this.minPitch.logFreq;
+      const graphHeight = this.editorHeight - this.scrollXHeight;
+      const min = Math.max(1, graphHeight);
+      const max = Math.max(min, logRange * MAX_Y_PX_PER_OCTAVE);
+      return { min, max };
+    },
+
+    zoomY(factor: number) {
+      const { min, max } = this.zoomYBounds();
+      this.transcriptionHeight = clampZoomedSize(
+        this.transcriptionHeight, factor, min, max
+      );
       const logRange = this.maxPitch.logFreq - this.minPitch.logFreq;
       this.zoomYFactor = this.transcriptionHeight / logRange;
+    },
+
+    zoomX(factor: number) {
+      const { min, max } = this.zoomXBounds();
+      this.transcriptionWidth = clampZoomedSize(
+        this.transcriptionWidth, factor, min, max
+      );
+      this.zoomXFactor = this.transcriptionWidth / this.durTot;
+    },
+
+    zoomInY() {
+      this.zoomY(1.5);
     },
 
     zoomOutY() {
-      this.transcriptionHeight = Math.round(this.transcriptionHeight / 1.5);
-      const logRange = this.maxPitch.logFreq - this.minPitch.logFreq;
-      this.zoomYFactor = this.transcriptionHeight / logRange;
+      this.zoomY(1 / 1.5);
     },
 
     zoomInX() {
-      this.transcriptionWidth = Math.round(this.transcriptionWidth * 1.5);
-      this.zoomXFactor = this.transcriptionWidth / this.durTot;
+      this.zoomX(1.5);
     },
 
     zoomOutX() {
-      this.transcriptionWidth = Math.round(this.transcriptionWidth / 1.5);
-      this.zoomXFactor = this.transcriptionWidth / this.durTot;
+      this.zoomX(1 / 1.5);
     },
 
     resetZoom() {
@@ -1786,13 +1853,44 @@ export default defineComponent({
       tLayer.refreshTraj(selT);
     },
 
-    alterVibObj(vibObj: VibObjType) {
-      // legit
-      this.unsavedChanges = true;
+    // The vibrato sliders emit continuously; the throttle's trailing call must
+    // land on the trajectory that was selected when the slider moved, not on
+    // whatever is selected 16 ms later.
+    onVibObj(vibObj: VibObjType) {
       const r = this.$refs.renderer as RendererType;
       const tLayer = r.transcriptionLayer as TLayerType;
-      tLayer.selectedTraj!.vibObj = vibObj;
-      tLayer.refreshTraj(tLayer.selectedTraj!);
+      const traj = tLayer.selectedTraj;
+      if (!traj) return;
+      if (this.vibObjTarget !== undefined && this.vibObjTarget !== traj) {
+        // a pending trailing call belongs to the previous trajectory
+        this.throttledAlterVibObj?.flush();
+      }
+      this.vibObjTarget = traj;
+      this.throttledAlterVibObj!(vibObj, traj);
+    },
+
+    alterVibObj(vibObj: VibObjType, traj?: Trajectory) {
+      const r = this.$refs.renderer as RendererType;
+      const tLayer = r.transcriptionLayer as TLayerType;
+      const target = traj ?? tLayer.selectedTraj;
+      if (!target) return;
+      this.unsavedChanges = true;
+      target.vibObj = vibObj;
+      tLayer.refreshTraj(target);
+    },
+
+    applyPlayheadRule() {
+      const resolved = resolvePlayheadAnimation(
+        this.playheadAnimation, this.motionSuppressed
+      );
+      if (resolved !== this.playheadAnimation) {
+        this.playheadAnimation = resolved;
+      }
+    },
+
+    handleWindowResize() {
+      this.fullWidth = window.innerWidth;
+      if (this.$refs.audioPlayer) this.resizeHeight();
     },
 
     newTrajEmit(idx: number) {
@@ -2429,6 +2527,8 @@ export default defineComponent({
     },
 
     handleKeydown(e: KeyboardEvent) {
+      // Typing in a field (tempo, go-to-time, labels...) is not a shortcut.
+      if (isTypingInField(e)) return;
       if (this.selectedMode === EditorMode.Trajectory || this.selectedTraj) {
         const tsp = this.$refs.trajSelectPanel as TSPType;
         const keyNums = tsp.kNumsFiltered;
@@ -2437,7 +2537,11 @@ export default defineComponent({
         }
       }
       if (e.key === ' ') {
+        // preventDefault also stops a focused button/checkbox from being
+        // activated by the same keypress (which would toggle twice).
         e.preventDefault();
+        // Holding Space auto-repeats keydown; one press is one toggle.
+        if (e.repeat) return;
         const ap = this.$refs.audioPlayer as APType;
         ap.togglePlay()
       }
