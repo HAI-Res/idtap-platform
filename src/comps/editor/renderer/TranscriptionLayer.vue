@@ -2,8 +2,10 @@
   <div class='tranContainer' ref='tranContainer' :style='dynamicStyle'>
     <svg ref='tranSvg' class='tranSvg' @mousemove='onMainHover' @click='onMainClick'>
       <!-- this rect needs to stay because of how things are inserted -->
+      <!-- One playhead element for every mode. DottedLine only changes its fill
+           to a dashed pattern while playing; it is never re-created, so nothing
+           new is drawn while playing. -->
       <rect
-        v-show="!isDottedLine || !playing"
         ref='playhead'
         class='playhead'
         x='0'
@@ -11,26 +13,34 @@
         :width='playing && isBlock ? xScale(1) : 1'
         :opacity='playing && isBlock ? 0.5 : 1'
         :height='height'
-        :fill='playheadColor'
-        
+        :fill='playing && isDottedLine ? `url(#${dottedPatternId})` : playheadColor'
       ></rect>
-      
-      <!-- Dotted line animation -->
-      <g v-if="isDottedLine" class="dotted-lines">
-        <line
-          v-for="line in dottedLines"
-          :key="line.id"
-          :x1="xScale(line.creationTime)"
-          :x2="xScale(line.creationTime)"
-          :y1="0"
-          :y2="height"
-          :opacity="line.opacity"
-          stroke="#000000"
-          stroke-width="1"
-          stroke-dasharray="3,3"
-          class="dotted-playhead-line"
-        />
+      <!-- DottedLine trail: where the playhead just was, fading out. Rects
+           placed by `x` (see setPlayheadX for why not lines or transforms). -->
+      <g v-if='playing && isDottedLine' class='dottedTrail'>
+        <rect
+          v-for='g in dottedTrail'
+          :key='g.id'
+          :x='xScale(g.time)'
+          y='0'
+          width='1'
+          :height='height'
+          :opacity='g.opacity'
+          :fill='`url(#${dottedPatternId})`'
+        ></rect>
       </g>
+      <defs>
+        <pattern
+          :id='dottedPatternId'
+          patternUnits='userSpaceOnUse'
+          x='0'
+          y='0'
+          width='1'
+          height='6'
+        >
+          <rect x='0' y='0' width='1' height='3' fill='#000'></rect>
+        </pattern>
+      </defs>
     </svg>
     <div class='emptyOverlay' ref='emptyOverlay'></div>
     <AutomationWindow 
@@ -131,7 +141,6 @@ import {
   BolDisplayType,
   CollectionType,
   APType,
-  DottedLine,
 } from '@shared/types';
 import { 
   PhonemeRepresentation,
@@ -422,13 +431,42 @@ export default defineComponent({
     const targetDragDotY = ref<number | undefined>(undefined);
     const currentSec = ref<number>(0);
     
-    // Dotted line animation state
-    const dottedLines = ref<DottedLine[]>([]);
-    const lastLineCreationTime = ref<number>(0);
-    const dottedLineAnimationId = ref<number | undefined>(undefined);
+    // DottedLine playhead: the same rect as every other mode, moved in steps of
+    // DOTTED_LINE_INTERVAL seconds by the currentTime watcher (like Block's
+    // whole seconds). dottedStep is the step it was last drawn at.
     const DOTTED_LINE_INTERVAL = 0.5;
-    const DOTTED_LINE_DURATION = 500;
-    const MAX_DOTTED_LINES = 20;
+    const DOTTED_TRAIL_FADE_MS = 500;
+    let dottedStep = NaN;
+    let dottedTime: number | undefined = undefined;
+    let dottedTrailId = 0;
+    const dottedTrail = ref<{ id: number, time: number, born: number, opacity: number }[]>([]);
+    const clearDottedTrail = () => {
+      dottedTrail.value = [];
+      dottedTime = undefined;
+    };
+    // The fade is STEPPED, not smooth: solid, then faint, then gone, one change
+    // per DOTTED_TRAIL_STEP_MS (a smooth fade repaints every frame, which is
+    // the motion this mode exists to avoid). Called from the currentTime
+    // watcher while playing; no loop of its own, so it cannot outlive or miss
+    // the start of playback. Only a changed list is written back.
+    const DOTTED_TRAIL_LEVELS = [1, 0.35];
+    const DOTTED_TRAIL_STEP_MS = DOTTED_TRAIL_FADE_MS / DOTTED_TRAIL_LEVELS.length;
+    const fadeDottedTrail = () => {
+      if (dottedTrail.value.length === 0) return;
+      const now = performance.now();
+      const next = dottedTrail.value
+        .map(g => {
+          const level = DOTTED_TRAIL_LEVELS[Math.floor((now - g.born) / DOTTED_TRAIL_STEP_MS)];
+          return { ...g, opacity: level ?? 0 };
+        })
+        .filter(g => g.opacity > 0);
+      const changed = next.length !== dottedTrail.value.length
+        || next.some((g, i) => g.opacity !== dottedTrail.value[i].opacity);
+      if (changed) dottedTrail.value = next;
+    };
+      try { navigator.sendBeacon('/__dev/log', JSON.stringify(msg)); } catch (e) { /* ignore */ }
+    };
+    const dottedPatternId = `dotted-playhead-${Math.random().toString(36).slice(2)}`;
     // Pointer travel (px) below which a press-release counts as a click, not a drag.
     const CLICK_DISTANCE = 4;
     const litTrajs = ref<(Trajectory | undefined)[]>(Array(props.instTracks.length).fill(undefined));
@@ -1383,9 +1421,13 @@ export default defineComponent({
             currentSec.value = Math.floor(props.currentTime);
             updatePlayheadPosition(currentSec.value);
           }
+        } else if (props.playheadAnimation === PlayheadAnimations.DottedLine) {
+          // `!==` for the same reason as Block: seeks and loops go backwards.
+          if (Math.floor(t / DOTTED_LINE_INTERVAL) !== dottedStep) {
+            updatePlayheadPosition(t);
+          }
+          fadeDottedTrail();
         }
-        // DottedLine animation handles position updates through its own loop
-        // No need to update playhead position here
         const now = performance.now();
         if (props.highlightTrajs && now - lastHighlightUpdate >= HIGHLIGHT_INTERVAL_MS) {
           lastHighlightUpdate = now;
@@ -1645,20 +1687,12 @@ export default defineComponent({
     //   }
     // });
     
-    // Watch for playing state changes in dotted line mode
+    // On pause in DottedLine mode, put the (now solid) playhead exactly at the
+    // paused time rather than at the last quarter-second step.
     watch(() => props.playing, (newVal) => {
       if (isDottedLine.value && !newVal) {
-        // When stopping in dotted line mode, clear dotted lines and position the playhead at current time
-        dottedLines.value = [];
-        lastLineCreationTime.value = 0;
-        
-        nextTick(() => {
-          if (playhead.value) {
-            const pxlX = props.xScale(props.currentTime);
-            playhead.value.setAttribute('transform', `matrix(1, 0, 0, 1, ${pxlX}, 0)`);
-            currentSec.value = Math.floor(props.currentTime);
-          }
-        });
+        clearDottedTrail();
+        nextTick(() => updatePlayheadPosition(props.currentTime));
       }
     });
 
@@ -1815,14 +1849,10 @@ export default defineComponent({
       // A seek while playing is stop()+play() in one tick, so this is also the
       // seek path: resync the Block playhead's whole-second gate.
       currentSec.value = Math.floor(props.currentTime);
+      dottedStep = NaN;
+      clearDottedTrail();
       ensurePlayheadInView(props.currentTime);
-      // Handle dotted line animation
-      if (isDottedLine.value) {
-        // Start the animation loop immediately, it will check playing state inside
-        dottedLineAnimationLoop();
-        return;
-      }
-      
+
       // Only animate if playheadAnimation is Animated; otherwise, update playhead position immediately.
       if (props.playheadAnimation !== PlayheadAnimations.Animated) {
         updatePlayheadPosition(props.currentTime);
@@ -1861,7 +1891,7 @@ export default defineComponent({
         }
         currentX += (targetX - currentX) * 0.7;
         if (playhead.value) {
-          playhead.value.setAttribute('transform', `translate(${currentX}, 0)`);
+          setPlayheadTranslate(currentX);
         }
         animationFrameId = requestAnimationFrame(animate);
       };
@@ -1870,28 +1900,6 @@ export default defineComponent({
     };
 
     const stopPlayingTransition = () => {
-      // Handle dotted line animation
-      if (isDottedLine.value) {
-        // Clear all dotted lines immediately
-        dottedLines.value = [];
-        lastLineCreationTime.value = 0;
-        
-        // Cancel animation frame
-        if (dottedLineAnimationId.value !== undefined) {
-          cancelAnimationFrame(dottedLineAnimationId.value);
-          dottedLineAnimationId.value = undefined;
-        }
-        
-        // Position the regular playhead at the actual current time
-        // We need to bypass the playing check since we're transitioning to paused
-        if (playhead.value) {
-          const pxlX = props.xScale(props.currentTime);
-          playhead.value.setAttribute('transform', `matrix(1, 0, 0, 1, ${pxlX}, 0)`);
-          currentSec.value = Math.floor(props.currentTime);
-        }
-        return;
-      }
-      
       // Only perform animated stop if playheadAnimation is Animated; otherwise, update playhead immediately.
       if (props.playheadAnimation !== PlayheadAnimations.Animated) {
         updatePlayheadPosition(props.currentTime);
@@ -1902,75 +1910,6 @@ export default defineComponent({
         cancelAnimationFrame(animationFrameId);
         animationFrameId = null;
       }
-    };
-
-    // Dotted line animation functions
-    const createDottedLine = (currentTime: number) => {
-      if (dottedLines.value.length >= MAX_DOTTED_LINES) {
-        dottedLines.value.shift();
-      }
-      
-      const currentX = props.xScale(currentTime);
-      const newLine: DottedLine = {
-        id: `dotted-${Date.now()}-${Math.random()}`,
-        creationTime: currentTime,
-        position: currentX,
-        opacity: 1.0,
-        createdAt: performance.now()
-      };
-      
-      dottedLines.value.push(newLine);
-      lastLineCreationTime.value = currentTime;
-    };
-    
-    const updateDottedLines = () => {
-      const now = performance.now();
-      dottedLines.value = dottedLines.value.map(line => {
-        const elapsed = now - line.createdAt;
-        const opacity = Math.max(0, 1 - (elapsed / DOTTED_LINE_DURATION));
-        return { ...line, opacity };
-      }).filter(line => line.opacity > 0);
-    };
-    
-    const clearDottedLines = () => {
-      dottedLines.value = [];
-      lastLineCreationTime.value = 0;
-    };
-    
-    const dottedLineAnimationLoop = () => {
-      if (!isDottedLine.value) {
-        return;
-      }
-      
-      // Continue animation loop when playing, and also continue briefly when stopped to handle timing
-      if (!props.playing) {
-        // Keep fading out whatever is still visible, then stop: otherwise this
-        // loop ran at 60 fps forever after the first play.
-        updateDottedLines();
-        dottedLineAnimationId.value = dottedLines.value.length > 0
-          ? requestAnimationFrame(dottedLineAnimationLoop)
-          : undefined;
-        return;
-      }
-      
-      const currentTime = props.audioPlayerRef.regionSpeedOn ? 
-        props.audioPlayerRef.getStretchedCurTime() :
-        props.audioPlayerRef.getCurTime();
-      
-      // Handle loop restart
-      if (props.loop && currentTime < lastLineCreationTime.value) {
-        clearDottedLines();
-      }
-      
-      // Create new line if interval has passed or if this is the first line
-      if (currentTime - lastLineCreationTime.value >= DOTTED_LINE_INTERVAL || lastLineCreationTime.value === 0) {
-        createDottedLine(currentTime);
-      }
-      
-      // Update existing lines
-      updateDottedLines();
-      
-      dottedLineAnimationId.value = requestAnimationFrame(dottedLineAnimationLoop);
     };
 
     const scrollToPlayhead = () => {
@@ -1998,12 +1937,28 @@ export default defineComponent({
      
     }
 
+    // Stepped playheads (Block, DottedLine, paused) move by their `x`
+    // attribute, not `transform`. Motion-blocking extensions such as Still hide
+    // any SVG element whose `transform` (or path/line geometry) keeps changing
+    // until it has been still for 300 ms, but leave `x` alone. A playhead that
+    // steps every 0.25 s via `transform` was therefore never shown, and Block's
+    // was hidden for 300 ms of every second. The continuous Animated playhead
+    // keeps using `transform` (it is real motion, and is never offered when
+    // motion is suppressed); each writer resets the other's attribute.
+    const setPlayheadX = (px: number) => {
+      const r = playhead.value;
+      if (!r) return;
+      if (r.hasAttribute('transform')) r.removeAttribute('transform');
+      r.setAttribute('x', String(px));
+    };
+    const setPlayheadTranslate = (px: number) => {
+      const r = playhead.value;
+      if (!r) return;
+      if (r.getAttribute('x') !== '0') r.setAttribute('x', '0');
+      r.setAttribute('transform', `translate(${px}, 0)`);
+    };
+
     const updatePlayheadPosition = (time: number) => {
-      // Skip playhead position updates for dotted line mode only when playing
-      if (isDottedLine.value && props.playing) {
-        return;
-      }
-      
       // Make sure playhead element exists before trying to update it
       if (!playhead.value) {
         return;
@@ -2011,21 +1966,33 @@ export default defineComponent({
       
       if (!props.playing) {
         const pxlX = props.xScale(time);
-        playhead.value.setAttribute('transform',`matrix(1, 0, 0, 1, ${pxlX}, 0)`);
+        setPlayheadX(pxlX);
         smoothPositionX = pxlX;
         currentSec.value = Math.floor(time);
       } else if (props.playheadAnimation === PlayheadAnimations.Block) {
         const pxlX = props.xScale(time);
-        playhead.value.setAttribute('transform',`matrix(1, 0, 0, 1, ${pxlX}, 0)`);
+        setPlayheadX(pxlX);
         smoothPositionX = pxlX;
         currentSec.value = Math.floor(time);
+      } else if (props.playheadAnimation === PlayheadAnimations.DottedLine) {
+        const pxlX = props.xScale(time);
+        // The spot it leaves becomes a fading trail line (not on a seek
+        // backwards, where the old spot is no longer "just played").
+        if (dottedTime !== undefined && time > dottedTime) {
+          dottedTrail.value = [...dottedTrail.value,
+            { id: dottedTrailId++, time: dottedTime, born: performance.now(), opacity: 1 }];
+        }
+        setPlayheadX(pxlX);
+        smoothPositionX = pxlX;
+        dottedStep = Math.floor(time / DOTTED_LINE_INTERVAL);
+        dottedTime = time;
       } else if (props.playheadAnimation === PlayheadAnimations.Animated) {
         // Zooming while the Animated playhead runs: its rAF loop recomputes
         // the target from the new xScale. Snap to it instead of gliding
         // there from the old-scale position.
         if (movingPlayhead) {
           currentX = props.xScale(time);
-          playhead.value.setAttribute('transform', `translate(${currentX}, 0)`);
+          setPlayheadTranslate(currentX);
         }
         return;
       }
@@ -7984,11 +7951,6 @@ export default defineComponent({
       emitter?.off('enterMeterModeWithPulses', enterMeterModeWithPulsesCallback);
       debouncedHandleClickCore.cancel();
 
-      // Clean up dotted line animation
-      if (dottedLineAnimationId.value !== undefined) {
-        cancelAnimationFrame(dottedLineAnimationId.value);
-        dottedLineAnimationId.value = undefined;
-      }
       // Stop the Animated playhead loop and the chunk observer, which otherwise
       // keep running against detached nodes after leaving the editor.
       movingPlayhead = false;
@@ -8064,7 +8026,8 @@ export default defineComponent({
       autoWindowWidth,
       isBlock,
       isDottedLine,
-      dottedLines,
+      dottedPatternId,
+      dottedTrail,
       curPlayheadPxl,
       refreshSargamLines,
       alted,
