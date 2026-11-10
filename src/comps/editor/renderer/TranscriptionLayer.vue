@@ -464,8 +464,6 @@ export default defineComponent({
         || next.some((g, i) => g.opacity !== dottedTrail.value[i].opacity);
       if (changed) dottedTrail.value = next;
     };
-      try { navigator.sendBeacon('/__dev/log', JSON.stringify(msg)); } catch (e) { /* ignore */ }
-    };
     const dottedPatternId = `dotted-playhead-${Math.random().toString(36).slice(2)}`;
     // Pointer travel (px) below which a press-release counts as a click, not a drag.
     const CLICK_DISTANCE = 4;
