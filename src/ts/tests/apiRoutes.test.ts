@@ -279,3 +279,41 @@ describe('apiRoutes POST /uploadAudio permissions', () => {
     expect(captured.recording.explicitPermissions.publicView).toBe(true);
   });
 });
+
+import { unsafeUpdateKeys } from '../../../server/updateKeys';
+
+describe('dotted / operator body keys (permission bypass)', () => {
+  test('unsafeUpdateKeys flags dotted and $ keys only', () => {
+    expect(unsafeUpdateKeys({ title: 't', 'explicitPermissions.edit': ['x'], $rename: {}, 'a\0b': 1, phraseGrid: [] }))
+      .toEqual(['explicitPermissions.edit', '$rename', 'a\0b']);
+    expect(unsafeUpdateKeys(null)).toEqual([]);
+    expect(unsafeUpdateKeys({ explicitPermissions: { edit: [] } })).toEqual([]);
+  });
+
+  test('POST /transcription refuses a dotted key with 400 and never writes', async () => {
+    const DOC = '64b7f0f0f0f0f0f0f0f0f0f0';
+    let wrote = false;
+    const collections = {
+      transcriptions: {
+        findOne: () => Promise.resolve({ _id: DOC, userID: 'owner', explicitPermissions: { publicView: true, edit: ['actor'], view: [] } }),
+        updateOne: () => { wrote = true; return Promise.resolve({ acknowledged: true }); },
+        insertOne: () => { wrote = true; return Promise.resolve({ insertedId: DOC }); },
+      },
+      users: { findOne: () => Promise.resolve({ _id: { toString: () => 'actor' } }) },
+    };
+    const app = express();
+    app.use(express.json());
+    app.use((req, _res, next) => { (req as any).user = { id: 'sub' }; next(); });
+    app.use(apiRoutes(collections as any));
+    for (const body of [
+      { _id: DOC, 'explicitPermissions.edit': ['actor', 'friend'] },
+      { _id: DOC, 'explicitPermissions.publicView': false },
+      { _id: DOC, 'userID': 'actor', '$set': { userID: 'actor' } },
+      { 'explicitPermissions.edit': ['x'], title: 'insert' },
+    ]) {
+      const r = await request(app).post('/transcription').send(body);
+      expect(r.status).toBe(400);
+    }
+    expect(wrote).toBe(false);
+  });
+});

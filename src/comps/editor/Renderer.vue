@@ -8,6 +8,7 @@
         :enum='availableModes'
         :noneEnumItem='editorMode.None'
         :tooltipTexts='editorModeTexts'
+        :disabled='{ [editorMode.Lyric]: lyricUnavailable }'
         @update:selectedMode='$emit("update:selectedMode", $event)'
         @showTooltip='$emit("showTooltip", $event)'
         @hideTooltip='$emit("hideTooltip")'
@@ -138,6 +139,10 @@
               :clientWidth='clientWidth'
               :showSargam='showSargam'
               :showSargamLines='showSargamLines'
+              :lyricMode='lyricMode'
+              :lyricHighlight='lyricHighlight'
+              @lyricClickTraj='(uid: string, shift: boolean) => lyric && lyric.clickTraj(uid, shift)'
+              @lyricDblClickTraj='(uid: string) => { if (lyric) { lyric.clickTraj(uid, false); lyric.openInline(); } }'
               :showPhonemes='showPhonemes'
               :phonemeRepresentation='phonemeRepresentation'
               :sargamRepresentation='sargamRepresentation'
@@ -204,14 +209,52 @@
               @selectAssemblagePhrase='$emit("selectAssemblagePhrase", $event)'
             />
         </div>
+        <!-- SPEC-provisional §7: the lyric lane, a sticky bottom row of the same
+             grid as the x axis, so it scrolls with the notes and never shears -->
+        <template v-if='laneHeight > 0 && xScale !== null && lyric'>
+          <div class='laneCorner'>lyrics</div>
+          <div class='lyricLaneContainer'>
+            <LyricLane
+              :piece='piece'
+              :lyric='lyric'
+              :xScale='xScale'
+              :width='scaledWidth'
+              :editingTrack='editingInstIdx'
+              :clickable='lyricMode'
+              @selectSyllable='lyric.clickSyllable($event)'
+              />
+            <div v-if='lyricMode && lyric.inlineOpen' class='inlineBox' :style='{ left: inlineLeft + "px", bottom: (laneHeight + 4) + "px" }'>
+              <input
+                ref='inlineInput'
+                :value='lyric.text'
+                spellcheck='false' autocomplete='off'
+                aria-label='Type the syllable'
+                @input='onInlineInput'
+                @keydown='onInlineKey'
+                />
+              <div class='palette'>
+                <button v-for='ch in inlinePalette' :key='ch' type='button' @mousedown.prevent @click='insertInline(ch)'>{{ ch }}</button>
+              </div>
+              <p v-if='lyric.textError' class='inlineError'>{{ lyric.textError }}</p>
+            </div>
+          </div>
+        </template>
         </div>
       </div>
     </div>
     <ContextMenu
+      class='rendererContextMenu'
       :x='contextMenuX'
       :y='contextMenuY'
       :closed='contextMenuClosed'
       :choices='contextMenuChoices'
+    />
+    <EditTradition
+      v-if='showEditTradition && piece._id'
+      :pieceId='String(piece._id)'
+      :unsavedChanges='unsavedChanges'
+      @updated='$emit("updatedSystem", $event)'
+      @close='showEditTradition = false'
     />
     <EditInstrumentation 
       v-if='showEditInstrumentation'
@@ -265,6 +308,10 @@ import {
 import { BrowserInfo } from 'detect-browser';
 import ContextMenu from '@/comps/ContextMenu.vue';
 import EditInstrumentation from '@/comps/EditInstrumentation.vue';
+import EditTradition from '@/comps/EditTradition.vue';
+import LyricLane, { laneHeights } from '@/comps/editor/renderer/LyricLane.vue';
+import { LyricController } from '@/comps/editor/lyric/lyricController';
+import { PALETTE, cycleBeforeCaret } from '@/comps/editor/lyric/pickerOptions';
 import { Meter } from '@/js/meter.ts';
 import { useStore } from 'vuex';
 
@@ -278,9 +325,24 @@ export default defineComponent({
     TranscriptionLayer,
     ModeSelector,
     ContextMenu,
-    EditInstrumentation
+    EditInstrumentation,
+    EditTradition,
+    LyricLane,
   },
   props: {
+    lyric: {
+      type: Object as PropType<LyricController | null>,
+      default: null
+    },
+    lyricMode: {
+      type: Boolean,
+      default: false
+    },
+    /** why lyric mode is unavailable (the L tile's tooltip), or undefined */
+    lyricUnavailable: {
+      type: String as PropType<string | undefined>,
+      default: undefined
+    },
     yAxWidth: {
       type: Number,
       required: true,
@@ -493,6 +555,7 @@ export default defineComponent({
     }
   },
   emits: [
+    'updatedSystem',
     'update:recomputeTrigger',
     'update:editingInstIdx',
     'update:currentStringIdx',
@@ -642,8 +705,60 @@ export default defineComponent({
       if (props.instTracks[props.editingInstIdx].inst !== Instrument.Sitar) {
         choices.splice(4, 1);
       }
+      choices.push(props.lyricUnavailable ? `Lyric Mode (L): ${props.lyricUnavailable}` : 'Lyric Mode (L): enter sung syllables');
       return choices;
     });
+
+    // ---------------------------------------------------------- lyric lane
+    const laneHeight = computed(() => {
+      void props.lyric?.version;
+      return props.piece.syllableTierEnabled
+        ? laneHeights(props.piece, props.editingInstIdx).reduce((a, b) => a + b.h, 0) : 0;
+    });
+    const lyricHighlight = computed(() => { void props.lyric?.version; return props.lyric ? props.lyric.highlightUids() : []; });
+    const inlineLeft = computed(() => {
+      void props.lyric?.version;
+      const L = props.lyric;
+      if (!L || !xScale.value) return 0;
+      const r = L.runRange();
+      const uid = L.sel.t === 'run' ? (r ? L.flat()[r[0]].traj.uniqueId : undefined)
+        : L.sel.t === 'syllable' ? L.sel.syl.anchor.traj : undefined;
+      const x = L.flat().find(y => y.traj.uniqueId === uid);
+      return x ? xScale.value(x.start) : 0;
+    });
+    const inlinePalette = computed(() => PALETTE[props.piece.resolvedSystem.phonology as string] ?? []);
+    const inlineInput = ref<HTMLInputElement | null>(null);
+    watch(() => props.lyric?.inlineOpen, open => { if (open) nextTick(() => inlineInput.value?.focus({ preventScroll: true })); });
+    const onInlineInput = (e: Event) => {
+      if ((e as InputEvent).isComposing) return;
+      props.lyric?.input((e.target as HTMLInputElement).value);
+    };
+    const insertInline = (ch: string) => {
+      const b = inlineInput.value; const L = props.lyric;
+      if (!b || !L) return;
+      const at = b.selectionStart ?? b.value.length;
+      const v = b.value.slice(0, at) + ch + b.value.slice(b.selectionEnd ?? at);
+      b.value = v; b.setSelectionRange(at + ch.length, at + ch.length); b.focus();
+      L.input(v);
+    };
+    const onInlineKey = (e: KeyboardEvent) => {
+      e.stopPropagation(); // box keys never reach the canvas handler
+      if (e.isComposing || e.keyCode === 229) return;
+      const L = props.lyric; const b = e.target as HTMLInputElement;
+      if (!L) return;
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        if (L.commitText()) { L.inlineOpen = false; L.version++; }
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        L.cancelInline();
+      } else if (e.key === '`') {
+        e.preventDefault();
+        const c = cycleBeforeCaret(props.piece.resolvedSystem.phonology as string, b.value, b.selectionStart ?? b.value.length);
+        if (c) { b.value = c.text; b.setSelectionRange(c.caret, c.caret); L.input(c.text); }
+      }
+    };
+    const showEditTradition = ref(false);
 
     let isXScrolling = false;
     let isYScrolling = false;
@@ -657,7 +772,8 @@ export default defineComponent({
       '--scrollBarWidth': `${scrollBarWidth.value}px`,
       '--scrollBarHeight': `${scrollBarHeight.value}px`,
       '--backgroundColor': props.backgroundColor,
-      '--modeSelectorHeight': `${modeSelectorHeight}px`
+      '--modeSelectorHeight': `${modeSelectorHeight}px`,
+      '--laneHeight': `${laneHeight.value}px`
     }));
 
     // The scroll container now also holds the sticky axes, so the part of its
@@ -665,7 +781,7 @@ export default defineComponent({
     // scrollLeft/scrollTop still map 1:1 onto layer pixels (the layers start
     // at the axis offsets, exactly where the container used to start).
     const viewWidth = () => scrollingContainer.value!.clientWidth - props.yAxWidth;
-    const viewHeight = () => scrollingContainer.value!.clientHeight - props.xAxHeight;
+    const viewHeight = () => scrollingContainer.value!.clientHeight - props.xAxHeight - laneHeight.value;
 
     const displayRange = computed(() => {
       const idx = scrollUpdateIdx.value;
@@ -804,6 +920,14 @@ export default defineComponent({
           contextMenuClosed.value = true;
         },
         enabled: true
+      }, {
+        // PROP-7: editors only (SPEC-provisional §3)
+        text: 'Edit Tradition',
+        action: () => {
+          showEditTradition.value = true;
+          contextMenuClosed.value = true;
+        },
+        enabled: props.editable
       }]
     };
     const handleKeydown = (e: KeyboardEvent) => {
@@ -811,6 +935,7 @@ export default defineComponent({
       if (e.key === 'Escape') {
         contextMenuClosed.value = true;
         showEditInstrumentation.value = false;
+        showEditTradition.value = false;
       }
       // NEW: 'J' key to toggle between strings for Sitar/Sarangi
       if (e.key === 'j' || e.key === 'J') {
@@ -967,6 +1092,15 @@ export default defineComponent({
       contextMenuChoices,
       handleShowTooltip,
       showEditInstrumentation,
+      showEditTradition,
+      laneHeight,
+      lyricHighlight,
+      inlineLeft,
+      inlinePalette,
+      inlineInput,
+      onInlineInput,
+      onInlineKey,
+      insertInline,
       handleUpdateInstrumentation,
       preZoomPlayheadPxl,
       curPlayheadPxl,
@@ -1032,7 +1166,7 @@ export default defineComponent({
   width: max-content;
   height: max-content;
   grid-template-columns: var(--yAxWidth) var(--scaledWidth);
-  grid-template-rows: var(--xAxHeight) var(--scaledHeight);
+  grid-template-rows: var(--xAxHeight) var(--scaledHeight) var(--laneHeight, 0px);
 }
 
 .axisCorner {
@@ -1201,4 +1335,52 @@ export default defineComponent({
   white-space: nowrap;          /* Prevent text wrapping */
 }
 
+.lyricLaneContainer {
+  grid-area: 2 / 2 / 4 / 3;
+  align-self: end;
+  position: sticky;
+  bottom: 0;
+  width: var(--scaledWidth);
+  height: var(--laneHeight);
+  z-index: 3;
+  transition: none !important;
+  animation: none !important;
+}
+.laneCorner {
+  grid-area: 2 / 1 / 4 / 2;
+  align-self: end;
+  position: sticky;
+  left: 0;
+  bottom: 0;
+  width: var(--yAxWidth);
+  height: var(--laneHeight);
+  z-index: 4;
+  background: #fbfaf6;
+  color: #6b665b;
+  font-size: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-top: 1px solid #b9b3a6;
+}
+.inlineBox {
+  position: absolute;
+  width: 300px;
+  background: #fbfaf6;
+  border: 1px solid #2463a8;
+  padding: 4px;
+  z-index: 5;
+  transition: none !important;
+  animation: none !important;
+}
+.inlineBox input { width: 100%; box-sizing: border-box; font-size: 15px; }
+.inlineBox .palette { display: flex; flex-wrap: wrap; gap: 2px; margin-top: 3px; }
+.inlineBox .palette button { font-size: 13px; padding: 0 5px; }
+.inlineError { color: #b3261e; margin: 2px 0 0 0; font-size: 12px; }
+/* the editor's context menu must sit above the plot's sticky axes and lane
+   (z-index 3-5); at its shared default of 2 only a first item above the plot
+   was clickable */
+.rendererContextMenu {
+  z-index: 20 !important;
+}
 </style>

@@ -143,6 +143,13 @@ export function packOf(piece: { system?: System | null }): Pack {
   return loadPack(resolveSystem(piece).phonology as string);
 }
 
+/** Pack keys are NFC (contract 0.3.1): look a stored key up in NFC; never rewrite it. */
+export function nfc<T>(x: T): T {
+  if (typeof x === 'string') return x.normalize('NFC') as unknown as T;
+  if (Array.isArray(x)) return x.map(y => nfc(y)) as unknown as T;
+  return x;
+}
+
 export function codasOf(pack: Pack): { [key: string]: PackEntry } {
   return pack.codas === 'consonants' ? pack.consonants : pack.codas;
 }
@@ -286,7 +293,8 @@ function legacyEntry(pack: Pack, table: 'consonants' | 'vowels' | 'codas', key: 
   if (key === null || key === undefined || Array.isArray(key)) return null;
   if (pack.id === LEGACY_PACK) {
     const map = table === 'codas' ? codasOf(pack) : pack[table];
-    const e = Object.prototype.hasOwnProperty.call(map, key) ? map[key] : undefined;
+    const k = nfc(key);
+    const e = Object.prototype.hasOwnProperty.call(map, k) ? map[k] : undefined;
     if (e === undefined) return [key, undefined, undefined, undefined]; // unknown string: kept as-is
     const leg = e.legacy;
     if (!leg) return null; // e.g. ṇa: no legacy form
@@ -426,7 +434,7 @@ function keys(x: PhonemeKey | undefined | null): string[] {
 /** final_key: key into pack.finals (nucleus + coda), or null for a coda cluster. */
 export function finalKey(syl: Syllable): string | null {
   if (Array.isArray(syl.coda)) return null;
-  return (syl.nucleus || '') + (syl.coda || '');
+  return nfc((syl.nucleus || '') + (syl.coda || ''));
 }
 
 const own = (m: object | undefined | null, k: string) => !!m && Object.prototype.hasOwnProperty.call(m, k);
@@ -434,7 +442,8 @@ const own = (m: object | undefined | null, k: string) => !!m && Object.prototype
 /** derive_ipa: onset IPA + the final's (or nucleus + coda) IPA. Never stored. null when a part is unknown. */
 export function deriveIpa(syl: Syllable, pack: Pack): string | null {
   const parts: string[] = [];
-  for (const k of keys(syl.onset)) {
+  for (const k0 of keys(syl.onset)) {
+    const k = nfc(k0);
     if (!own(pack.consonants, k)) return null;
     parts.push(pack.consonants[k].ipa as string);
   }
@@ -445,11 +454,13 @@ export function deriveIpa(syl: Syllable, pack: Pack): string | null {
     parts.push(f.ipa);
   } else {
     if (syl.nucleus !== undefined && syl.nucleus !== null) {
-      if (!own(pack.vowels, syl.nucleus)) return null;
-      parts.push(pack.vowels[syl.nucleus].ipa ?? '');
+      const n = nfc(syl.nucleus);
+      if (!own(pack.vowels, n)) return null;
+      parts.push(pack.vowels[n].ipa ?? '');
     }
     const codas = codasOf(pack);
-    for (const k of keys(syl.coda)) {
+    for (const k0 of keys(syl.coda)) {
+      const k = nfc(k0);
       if (!own(codas, k)) return null;
       parts.push(codas[k].ipa as string);
     }
@@ -511,15 +522,15 @@ export function checkInvariants(piece: PieceLike): Violation[] {
         for (const [f, table, flag] of [['onset', pack.consonants, 'onsetClusters'], ['coda', codas, 'codaClusters']] as const) {
           const x = s[f];
           if (Array.isArray(x) && !pack.flags[flag]) v.push(['cluster-not-allowed', where]);
-          for (const key of keys(x)) if (!own(table, key)) v.push(['key-unknown', where]);
+          for (const key of keys(x)) if (!own(table, nfc(key))) v.push(['key-unknown', where]);
         }
         const nuc = s.nucleus ?? null;
-        if (nuc !== null && !own(pack.vowels, nuc)) v.push(['key-unknown', where]);
+        if (nuc !== null && !own(pack.vowels, nfc(nuc))) v.push(['key-unknown', where]);
         const lyricVowel = (s.lyric || ({} as any)).vowel ?? null;
         if (nuc !== lyricVowel) v.push(['nucleus-lyric-mismatch', where]);
         for (const obs of ['lyric', 'sung'] as const) {
           const ov = ((s[obs] || {}) as any).vowel ?? null;
-          if (ov !== null && !own(pack.vowels, ov)) v.push(['key-unknown', where]);
+          if (ov !== null && !own(pack.vowels, nfc(ov))) v.push(['key-unknown', where]);
         }
         if (s.tone !== undefined && s.tone !== null) {
           if (!pack.flags.tones) v.push(['tone-not-allowed', where]);
@@ -606,7 +617,7 @@ export function legacySafe(piece: PieceLike): [boolean, string[]] {
             [s.onset, pack.consonants], [s.coda, codasOf(pack)],
             [s.nucleus, pack.vowels], [(s.lyric || ({} as any)).vowel, pack.vowels]];
           for (const [k, table] of checks) {
-            if (typeof k === 'string' && own(table, k) && !('legacy' in table[k])) reasons.add('key');
+            if (typeof k === 'string' && own(table, nfc(k)) && !('legacy' in table[nfc(k)])) reasons.add('key');
           }
         }
       }
@@ -690,4 +701,83 @@ export function semverLt(a: string, b: string): boolean {
 export function clientKnowsSyllables(h: string | undefined | null): boolean {
   const p = parseClientHeader(h);
   return !!p && p.version !== null && !semverLt(p.version, '0.3.0');
+}
+
+// ------------------------------------------------------------------ tradition switch
+/**
+ * May a piece's system change to `next`? (Lyric mode's Edit Tradition, Jon's
+ * provisional defaults of 2026-11-13.) Reads a stored document or a model piece.
+ * - The same phonology (e.g. Hindustani by default -> explicit hindi-urdu, which
+ *   turns the tier on) is always allowed: the legacy fields heal as usual.
+ * - Any other phonology is refused while a vocal track carries legacy phonetic
+ *   fields or a non-empty syllable tier: there is no conversion, and the new
+ *   pack's empty projection would erase the Hindi vowels.
+ * - Removing a system is not offered (one-way for now).
+ */
+const TRADITION_NAME: { [phonology: string]: string } = { 'hindi-urdu': 'Hindi', jyutping: 'Cantonese', kurmanji: 'Kurmanji' };
+
+/**
+ * A save may not put legacy phonetic fields (vowel, startConsonant,
+ * endConsonant) on a vocal track of a piece whose stored tradition is not
+ * hindi-urdu: that is a stale client writing Hindi vowels into, say, a
+ * Jyutping piece. -> a reason, or null.
+ */
+export function legacyPhoneticsIntoNonHindi(stored: PieceLike, sentPhraseGrid: unknown): string | null {
+  const ph = resolveSystem(stored).phonology as string;
+  if (ph === LEGACY_PACK || !Array.isArray(sentPhraseGrid)) return null;
+  const instr = (stored.instrumentation || []) as string[];
+  const hit = (sentPhraseGrid as any[]).some((track, k) => Array.isArray(track) && VOCAL_INSTRUMENTS.includes(instr[k])
+    && track.some(p => p && Array.isArray(p.trajectoryGrid) && (p.trajectoryGrid[0] || []).some((t: any) => t && hasPhonetics(t))));
+  return hit
+    ? `This piece's sung text is ${TRADITION_NAME[ph] ?? ph} and is entered in lyric mode; this save carries Hindi vowel or consonant fields (an out-of-date tab?). Reload the piece and try again.`
+    : null;
+}
+
+/** A `system` as the schema allows it, with a phonology some bundled pack provides. */
+export function validateSystem(next: unknown): { ok: true } | { ok: false; reason: string } {
+  if (!next || typeof next !== 'object' || Array.isArray(next)) return { ok: false, reason: 'system must be an object.' };
+  for (const [k, v] of Object.entries(next as object)) {
+    // the named components have fixed shapes; further ones are kept verbatim
+    if (['pitch', 'phonology', 'rhythm'].includes(k) && typeof v !== 'string') return { ok: false, reason: `system.${k} must be a string.` };
+    if (k === 'display' && !(Array.isArray(v) && v.every(x => typeof x === 'string'))) return { ok: false, reason: 'system.display must be a list of strings.' };
+    const okShape = typeof v === 'string' || (Array.isArray(v) && v.every(x => typeof x === 'string'));
+    if (!okShape) return { ok: false, reason: `system.${k} must be a string or a list of strings.` };
+  }
+  const ph = resolveSystem({ system: next as System }).phonology as string;
+  if (!Object.prototype.hasOwnProperty.call(PACKS, ph)) return { ok: false, reason: `No phoneme pack '${ph}' in this version.` };
+  return { ok: true };
+}
+
+export function systemChangeAllowed(piece: PieceLike, next: System | null | undefined): { ok: true } | { ok: false; reason: string } {
+  if (!next || typeof next !== 'object' || Array.isArray(next)) {
+    return { ok: false, reason: 'A tradition cannot be removed once set.' };
+  }
+  const valid = validateSystem(next);
+  if (!valid.ok) return valid;
+  const nextPh = resolveSystem({ system: next }).phonology as string;
+  const curPh = resolveSystem(piece).phonology as string;
+  if (curPh === nextPh) return { ok: true };
+  const grid = Array.isArray(piece.phraseGrid) ? piece.phraseGrid : [];
+  const named: string[] = [];
+  grid.forEach((track, k) => {
+    if (!Array.isArray(track) || !vocalTrack(piece, k)) return;
+    let phonetic = false;
+    for (const ph of track) {
+      if (!ph || typeof ph !== 'object') continue;
+      const syl = (ph as PhraseLike).syllables;
+      if (syl !== undefined && syl !== null && (!Array.isArray(syl) || syl.length > 0)) phonetic = true;
+      for (const t of row0(ph as PhraseLike)) if (t && hasPhonetics(t)) phonetic = true;
+    }
+    if (phonetic) {
+      const title = Array.isArray(piece.trackTitles) ? piece.trackTitles[k] : undefined;
+      named.push(title ? `${title} (${piece.instrumentation![k]})` : `track ${k + 1} (${piece.instrumentation![k]})`);
+    }
+  });
+  if (named.length) {
+    return {
+      ok: false,
+      reason: `This piece already has ${TRADITION_NAME[curPh] ?? curPh} vowels or syllables on ${named.join(', ')}. Switching would turn them into invalid keys and erase ${curPh === 'hindi-urdu' ? 'the Hindi vowels' : 'them'}, so it isn't allowed. Make a copy of the piece without them to use another tradition.`,
+    };
+  }
+  return { ok: true };
 }

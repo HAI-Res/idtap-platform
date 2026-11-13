@@ -530,6 +530,7 @@ type DrawDataType = {
 
 type NewPieceInfoType = {
   title: string;
+  system?: { phonology: string };
   transcriber?: string;
   raga: string | Raga;
   audioID: string;
@@ -560,6 +561,7 @@ type RuleSetType = {[key: string]: (boolean | BoolObj) };
 
 type RagaNewPieceInfoType = {
   title: string;
+  system?: { phonology: string };
   transcriber?: string;
   raga: Raga;
   audioID: string;
