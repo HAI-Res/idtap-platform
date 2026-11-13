@@ -101,7 +101,7 @@
       </div>
     </div>
     <div class='infoRow' v-if='selectedRaag !== undefined'>
-      <button @click='save' :disabled='pendingOverwrite'>save</button>
+      <button @click='save' :disabled='pendingOverwrite || !canSave'>save</button>
     </div>
     <div class='infoRow' v-if='selectedRaag !== undefined'>
       <span>{{savedMsg}}</span>
@@ -151,6 +151,7 @@ import {
 import { RuleProfileType } from '@shared/types';
 import cloneDeep from 'lodash/cloneDeep';
 import isEqual from 'lodash/isEqual';
+import { raagLoadState } from '@/js/raagRuleLoad.ts';
 
 
 type RaagEditorDataType = {
@@ -166,6 +167,10 @@ type RaagEditorDataType = {
   pendingOverwrite: boolean,
   variantName: string,
   usage: { total: number, legacy: number } | undefined,
+  /** A rule fetch for the selected raga is in flight. */
+  loading: boolean,
+  /** The last rule fetch failed; save stays disabled until one succeeds. */
+  loadFailed: boolean,
 }
 export default {
   name: 'RaagEditor',
@@ -228,6 +233,8 @@ export default {
       pendingOverwrite: false,
       variantName: '',
       usage: undefined,
+      loading: false,
+      loadFailed: false,
     }
   },
 
@@ -237,6 +244,10 @@ export default {
       return this.selectedRaag === 'Other (specify)' ?
         this.otherRaagName?.trim() :
         this.selectedRaag;
+    },
+    /** Save only once we know what the DB holds for the selected raga. */
+    canSave(): boolean {
+      return !this.loading && !this.loadFailed;
     },
     rulesChanged(): boolean {
       return this.loadedRules !== undefined &&
@@ -277,31 +288,40 @@ export default {
   
   watch: {
     async selectedRaag(newVal) {
-      console.log(newVal)
+      // Reset everything tied to the previous raga BEFORE the await: if the
+      // fetch fails, stale rules/loadedRules from raga A must never be
+      // saveable under raga B's name, and an open overwrite warning belongs
+      // to A.
+      this.pendingOverwrite = false;
+      this.variantName = '';
+      this.usage = undefined;
+      this.loadedRules = undefined;
+      this.loadFailed = false;
+      this.rules = cloneDeep(this.rulesTemplate);
+      this.savedMsg = 'loading…';
+      this.loading = true;
+      let res;
       try {
-        const rules = await getRaagRule(newVal);
-        this.pendingOverwrite = false;
-        if (rules && rules.rules) {
-          this.rules = rules.rules;
-          this.loadedRules = cloneDeep(rules.rules);
-          const date = new Date(rules.updatedDate);
-          this.savedMsg = 'Saved: ' + date.toLocaleString();
-        } else {
-          console.log('resetting rules')
-          this.rules = cloneDeep(this.rulesTemplate);
-          this.loadedRules = undefined;
-          this.savedMsg = 'unsaved'
-        }
+        res = await getRaagRule(newVal);
       } catch (err) {
-        console.error(err)
+        console.error(err);
+        res = undefined;
       }
-      
+      // A later selection superseded this one; its own watcher run owns state.
+      if (this.selectedRaag !== newVal) return;
+      const state = raagLoadState(res, this.rulesTemplate);
+      this.rules = state.rules;
+      this.loadedRules = state.loadedRules;
+      this.loadFailed = state.loadFailed;
+      this.savedMsg = state.savedMsg;
+      this.loading = false;
     }
   },
   
   methods: {
     
     async save() {
+      if (!this.canSave) return;
       const name = this.baseName;
       if (!name) {
         this.savedMsg = 'enter a raga name';
@@ -317,7 +337,9 @@ export default {
       // for legacy pieces without one — and the DB's "Yaman" already drifted
       // from every saved Yaman piece this way (2025-10-02).
       if (this.loadedRules !== undefined && this.rulesChanged) {
-        this.usage = await getRagaUsage(name);
+        const usage = await getRagaUsage(name);
+        if (this.baseName !== name) return; // selection changed meanwhile
+        this.usage = usage;
         this.variantName = this.suggestVariantName(name);
         this.pendingOverwrite = true;
         return;
@@ -332,7 +354,7 @@ export default {
     },
 
     async saveVariant() {
-      if (this.variantError !== undefined) return;
+      if (this.variantError !== undefined || !this.canSave) return;
       const name = this.variantName.trim();
       const ok = await this.commit(name);
       if (!ok) return;
@@ -345,7 +367,7 @@ export default {
 
     async overwrite() {
       const name = this.baseName;
-      if (!name) return;
+      if (!name || !this.canSave) return;
       const ok = await this.commit(name);
       if (ok) this.pendingOverwrite = false;
     },
