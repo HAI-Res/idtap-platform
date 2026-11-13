@@ -194,4 +194,35 @@ describe('playerTuningFreqs (audio player tuning table)', () => {
     expect(freqs[3]).toBeCloseTo(246 * 2 ** (5 / 12), 9);
     warn.mockRestore();
   });
+
+  test('misaligned raga: table stays in rule-set order when a variant is tuned above its neighbour', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    // tivra ma tuned ABOVE pa. Sorting by frequency (getPitches) would swap
+    // the M and P entries against sargamLetters.
+    const tuning = {
+      sa: 1, pa: 1.5,
+      re: { lowered: 2 ** (1 / 12), raised: 2 ** (2 / 12) },
+      ga: { lowered: 2 ** (3 / 12), raised: 2 ** (4 / 12) },
+      ma: { lowered: 2 ** (5 / 12), raised: 1.52 },
+      dha: { lowered: 2 ** (8 / 12), raised: 2 ** (9 / 12) },
+      ni: { lowered: 2 ** (10 / 12), raised: 2 ** (11 / 12) },
+    };
+    const raga = new Raga({
+      name: 'Yaman', fundamental: 246, ruleSet: yaman8, ratios: storedRatios, tuning,
+    });
+    expect(raga.sargamLetters).toEqual(['S', 'R', 'G', 'm', 'M', 'P', 'D', 'N']);
+    const { freqs, aligned } = playerTuningFreqs(raga);
+    expect(aligned).toBe(false);
+    expect(freqs[4]).toBeCloseTo(246 * 1.52, 9); // M
+    expect(freqs[5]).toBeCloseTo(246 * 1.5, 9);  // P
+    warn.mockRestore();
+  });
+
+  test('aligned raga with a variant tuned above its neighbour keeps stored order', () => {
+    const ratios = [1, 9 / 8, 5 / 4, 1.52, 3 / 2, 27 / 16, 15 / 8];
+    const raga = new Raga({ name: 'Yaman', fundamental: 246, ruleSet: yaman7, ratios });
+    const { freqs, aligned } = playerTuningFreqs(raga);
+    expect(aligned).toBe(true);
+    expect(freqs).toEqual(ratios.map(r => 246 * r));
+  });
 });

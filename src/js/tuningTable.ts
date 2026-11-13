@@ -1,4 +1,5 @@
 import type { Raga } from '@/ts/model';
+import type { BoolObj } from '@shared/types';
 
 export type PlayerTuning = {
   /** One frequency per rule-set pitch, in sargam order. Always finite. */
@@ -7,36 +8,51 @@ export type PlayerTuning = {
   aligned: boolean;
 };
 
+// Same walk as `Raga.sargamLetters` / `Raga.stratifiedRatios`.
+const SARGAM = ['sa', 're', 'ga', 'ma', 'pa', 'dha', 'ni'];
+
 /**
  * Frequencies for the editor's tuning table / tuning sines, one per pitch in
- * the raga's rule set (i.e. one per entry of `raga.sargamLetters`).
+ * the raga's rule set, in the same order as `raga.sargamLetters` (callers zip
+ * the two by index).
  *
- * When `raga.ratios` matches the rule set positionally this is simply
- * `fundamental * ratio`. When it does not — a transcription saved against an
- * older rule set for the same raga name — the stored ratios cannot be mapped
- * onto the current pitches by index, so we fall back to the raga's tuning
- * table via `getPitches`, which holds a value for every variant (and was
- * synced from those same ratios at save time, so existing pitches keep their
- * frequencies). PROP-1: `raga.ratios` itself is left untouched.
+ * The aligned/misaligned decision lives in the model: `raga.stratifiedRatios`
+ * uses `raga.ratios` positionally when `ratios.length ===
+ * ruleSetNumPitches`, and otherwise falls back to the raga's tuning table
+ * (synced from those same ratios at save time, so existing pitches keep their
+ * frequencies). We walk it in rule-set order rather than using
+ * `getPitches`/`getFrequencies`, which sort by frequency: a variant tuned
+ * above its neighbour (tivra ma above pa) would otherwise permute the table.
+ * PROP-1: `raga.ratios` itself is left untouched.
  */
 export const playerTuningFreqs = (raga: Raga): PlayerTuning => {
-  const n = raga.sargamLetters.length;
-  const stored = raga.ratios.map(r => raga.fundamental * r);
-  const aligned = stored.length === n && stored.every(Number.isFinite);
-  if (aligned) return { freqs: stored, aligned: true };
-
-  console.warn(
-    `tuningTable: raga "${raga.name}" has ${raga.ratios.length} stored ` +
-    `ratio(s) but its rule set has ${n} pitch(es); tuning falls back to the ` +
-    `raga tuning table (stored ratios are preserved, not regenerated)`,
-  );
   const fund = raga.fundamental;
-  const fallback = raga
-    .getPitches({ low: fund, high: fund * 1.999 })
-    .map(p => p.frequency);
-  const freqs = [...Array(n)].map((_, i) => {
-    const f = fallback[i];
+  const aligned = raga.ratios.length === raga.ruleSetNumPitches &&
+    raga.ratios.every(Number.isFinite);
+  if (!aligned) {
+    console.warn(
+      `tuningTable: raga "${raga.name}" has ${raga.ratios.length} stored ` +
+      `ratio(s) but its rule set has ${raga.ruleSetNumPitches} pitch(es); ` +
+      `tuning falls back to the raga tuning table (stored ratios are ` +
+      `preserved, not regenerated)`,
+    );
+  }
+  const stratified = raga.stratifiedRatios;
+  const ratios: number[] = [];
+  SARGAM.forEach((s, sIdx) => {
+    const rule = raga.ruleSet[s];
+    const r = stratified[sIdx];
+    if (typeof rule === 'boolean') {
+      if (rule) ratios.push(r as number);
+    } else if (rule) {
+      const [lowered, raised] = r as number[];
+      if ((rule as BoolObj).lowered) ratios.push(lowered);
+      if ((rule as BoolObj).raised) ratios.push(raised);
+    }
+  });
+  const freqs = ratios.map(r => {
+    const f = fund * r;
     return Number.isFinite(f) ? f : fund;
   });
-  return { freqs, aligned: false };
+  return { freqs, aligned };
 };
