@@ -2,7 +2,7 @@ import { expect, test, describe, vi } from 'vitest';
 import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
-import { Piece, Raga } from '@model';
+import { Piece, Raga, ruleSetNumPitches } from '@model';
 import { healLegacyRuleSet, hasStoredRuleSet } from '@/js/ruleSetHeal';
 import { playerTuningFreqs } from '@/js/tuningTable';
 
@@ -98,6 +98,53 @@ describe('healLegacyRuleSet', () => {
     await expect(healLegacyRuleSet(piece, async () => undefined)).resolves.toBe(piece);
     expect(piece.raga.ruleSet).toBeUndefined();
     warn.mockRestore();
+  });
+  test.each([
+    ['null', null],
+    ['{}', {}],
+  ])('stored ruleSet %s, DB has no rules → Raga default, piece loads', async (_label, rs) => {
+    const piece = loadFixture();
+    piece.raga = { name: 'Nonexistent', fundamental: 246, ruleSet: rs, ratios: storedRatios };
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const fetchRules = vi.fn(async () => null);
+    await healLegacyRuleSet(piece, fetchRules);
+    expect(fetchRules).toHaveBeenCalledTimes(1);
+    expect('ruleSet' in piece.raga).toBe(false);   // never null / {}
+    const loaded = Piece.fromJSON(piece);            // used to throw on null
+    expect(loaded.raga.ruleSetNumPitches).toBe(7);  // Raga's default (Yaman)
+    expect(loaded.raga.ratios).toEqual(storedRatios);
+    warn.mockRestore();
+  });
+
+  test.each([
+    ['null', null],
+    ['{}', {}],
+  ])('stored ruleSet %s is healed from the DB like a missing one', async (_label, rs) => {
+    const piece = loadFixture();
+    piece.raga = { name: 'Yaman', fundamental: 246, ruleSet: rs, ratios: storedRatios };
+    await healLegacyRuleSet(piece, async () => ({ rules: yaman7 }));
+    expect(piece.raga.ruleSet).toEqual(yaman7);
+    expect(Piece.fromJSON(piece).raga.ruleSetNumPitches).toBe(7);
+  });
+
+  test('DB rules of {} are treated as no rules, not injected', async () => {
+    const piece = loadFixture();
+    piece.raga = { name: 'Yaman', fundamental: 246, ratios: storedRatios };
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    await healLegacyRuleSet(piece, async () => ({ rules: {} }));
+    expect('ruleSet' in piece.raga).toBe(false);
+    expect(Piece.fromJSON(piece).raga.ruleSetNumPitches).toBe(7);
+    warn.mockRestore();
+  });
+});
+
+describe('ruleSetNumPitches', () => {
+  test('standalone function agrees with the Raga getter', () => {
+    expect(ruleSetNumPitches(yaman7)).toBe(7);
+    expect(ruleSetNumPitches(yaman8)).toBe(8);
+    expect(ruleSetNumPitches({})).toBe(0);
+    const raga = new Raga({ ruleSet: yaman8 });
+    expect(raga.ruleSetNumPitches).toBe(ruleSetNumPitches(yaman8));
   });
 });
 

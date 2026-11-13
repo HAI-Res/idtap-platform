@@ -1,4 +1,5 @@
 import type { RuleSetType } from '@shared/types';
+import { ruleSetNumPitches } from '@/ts/model';
 
 // Structural: accepts raw piece JSON as well as a (not-yet-hydrated) Piece.
 type RagaJson = { name: string; ruleSet?: RuleSetType | null };
@@ -14,12 +15,6 @@ export const hasStoredRuleSet = (raga: RagaJson | undefined | null): boolean => 
   const rs = raga?.ruleSet;
   return !!rs && typeof rs === 'object' && Object.keys(rs).length > 0;
 };
-
-const numPitches = (rules: RuleSetType): number =>
-  Object.values(rules).reduce<number>((n, v) => {
-    if (typeof v === 'boolean') return n + (v ? 1 : 0);
-    return n + (v.lowered ? 1 : 0) + (v.raised ? 1 : 0);
-  }, 0);
 
 /**
  * Legacy heal for pieces saved before `ruleSet` was serialized: fetch the
@@ -40,18 +35,26 @@ export const healLegacyRuleSet = async (
 ): Promise<PieceJson> => {
   if (!piece.raga) return piece;
   if (hasStoredRuleSet(piece.raga)) return piece;
+  // A `null` or `{}` ruleSet is as good as missing, but the Raga ctor only
+  // applies its default for `undefined`: left in place, `null` throws on the
+  // first getter (`Object.keys(null)`) and `{}` yields a zero-pitch raga.
+  // Drop it so the only outcomes are "DB rules" or "Raga default".
+  delete piece.raga.ruleSet;
   const rsRes = await fetchRules(piece.raga.name);
-  if (rsRes && rsRes.rules) {
-    piece.raga.ruleSet = rsRes.rules;
+  const dbRules = rsRes?.rules;
+  if (hasStoredRuleSet({ name: piece.raga.name, ruleSet: dbRules })) {
+    const rules = dbRules as RuleSetType;
+    piece.raga.ruleSet = rules;
+    const numPitches = ruleSetNumPitches(rules);
     const ratios = (piece.raga as { ratios?: unknown }).ratios;
-    if (Array.isArray(ratios) && ratios.length !== numPitches(rsRes.rules)) {
+    if (Array.isArray(ratios) && ratios.length !== numPitches) {
       // The DB rules for this name changed since the piece was saved. The
       // Raga ctor keeps the ratios (PROP-1) and the audio player degrades to
       // the tuning table; this warning is the breadcrumb for fixing the data.
       console.warn(
         `ruleSetHeal: legacy piece for raga "${piece.raga.name}" has ` +
         `${ratios.length} ratio(s) but the DB rule set has ` +
-        `${numPitches(rsRes.rules)} pitch(es); pitches will load from the ` +
+        `${numPitches} pitch(es); pitches will load from the ` +
         `tuning table. Consider assigning the piece to a raga variant.`,
       );
     }

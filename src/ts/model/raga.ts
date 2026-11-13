@@ -62,6 +62,24 @@ const etTuning: TuningType = {
   }
 };
 
+/**
+ * Number of pitches a rule set allows (one per `true` swara, one per allowed
+ * lowered/raised variant). This is the length `Raga.ratios` must have to map
+ * onto the rule set positionally.
+ */
+const ruleSetNumPitches = (ruleSet: RuleSetType): number => {
+  let numPitches = 0;
+  Object.values(ruleSet).forEach(rule => {
+	if (typeof rule === 'boolean') {
+	  if (rule) numPitches += 1;
+	} else {
+	  if (rule.lowered) numPitches += 1;
+	  if (rule.raised) numPitches += 1;
+	}
+  })
+  return numPitches
+};
+
 class Raga {
   name: string;
   fundamental: number;
@@ -154,20 +172,7 @@ class Raga {
   }
 
   get ruleSetNumPitches() {
-	let numPitches = 0;
-	const keys = Object.keys(this.ruleSet);
-	keys.forEach(key => {
-	  if (typeof(this.ruleSet[key]) === 'boolean') {
-		if (this.ruleSet[key]) {
-		  numPitches += 1;
-		}
-	  } else {
-		const ruleSet = this.ruleSet[key] as BoolObj;
-		if (ruleSet.lowered) numPitches += 1;
-		if (ruleSet.raised) numPitches += 1;
-	  }
-	})
-	return numPitches
+	return ruleSetNumPitches(this.ruleSet)
   }
 
   pitchNumberToSargamLetter(pitchNumber: number) {
@@ -510,4 +515,4 @@ class Raga {
   }
 }
 
-export { Raga };
+export { Raga, ruleSetNumPitches };
