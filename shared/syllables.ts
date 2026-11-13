@@ -194,8 +194,10 @@ export function wellFormedSyllable(s: unknown): s is Syllable {
   if (!s || typeof s !== 'object' || Array.isArray(s)) return false;
   const a = (s as any).anchor;
   if (!a || typeof a !== 'object' || typeof a.traj !== 'string' || a.traj === '') return false;
+  // as the reference: a lyric that is present must be an object (null is malformed)
+  if (!('lyric' in (s as object))) return true;
   const l = (s as any).lyric;
-  return l === undefined || l === null || (typeof l === 'object' && !Array.isArray(l));
+  return !!l && typeof l === 'object' && !Array.isArray(l);
 }
 
 // ------------------------------------------------------------------ heal
@@ -477,9 +479,16 @@ export function checkInvariants(piece: PieceLike): Violation[] {
   const v: Violation[] = [];
   piece.phraseGrid.forEach((track, k) => {
     const listOf = (ph: PhraseLike) => (Array.isArray(ph.syllables) ? ph.syllables : []);
-    const anySyl = track.some(ph => listOf(ph).length > 0);
+    // Python truthiness of the raw value, as the reference's any(ph.get("syllables"))
+    const truthy = (x: unknown) => Array.isArray(x) ? x.length > 0
+      : (x && typeof x === 'object') ? Object.keys(x).length > 0 : !!x;
+    const anySyl = track.some(ph => truthy(ph.syllables));
     const anchored = new Set<string>();
     track.forEach((ph, pi) => {
+      if (ph.syllables !== undefined && ph.syllables !== null && !Array.isArray(ph.syllables)) {
+        v.push(['syllable-malformed', `track ${k} phrase ${pi} syllables`]);
+        return; // as the reference: nothing else is checked on this phrase
+      }
       const idx = new Map<string, [number, TrajLike]>();
       row0(ph).forEach((t, i) => {
         const u = t.uniqueId;
@@ -487,9 +496,6 @@ export function checkInvariants(piece: PieceLike): Violation[] {
         else v.push(['traj-uid-missing', `track ${k} phrase ${pi} traj ${i}`]);
       });
       let last = -1;
-      if (ph.syllables !== undefined && ph.syllables !== null && !Array.isArray(ph.syllables)) {
-        v.push(['syllable-malformed', `track ${k} phrase ${pi} syllables`]);
-      }
       listOf(ph).forEach((s, si) => {
         const where = `track ${k} phrase ${pi} syllable ${si}`;
         if (!wellFormedSyllable(s)) { v.push(['syllable-malformed', where]); return; }
