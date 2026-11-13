@@ -73,7 +73,7 @@
        :disabled='true'
       />
     </div>
-    <div class='selectionRow checks' v-if='vocal && showTrajChecks'>
+    <div class='selectionRow checks' v-if='vocal && legacyPhonemes && showTrajChecks'>
       <label class='spaceLeft wide'>Start</label>
       <select 
         v-if='editable' 
@@ -100,7 +100,7 @@
         </option>
     </select>
     </div>
-    <div class='selectionRow checks' v-if='vocal && showTrajChecks'>
+    <div class='selectionRow checks' v-if='vocal && legacyPhonemes && showTrajChecks'>
       <label class='spaceLeft'>Vowel</label>
       <select
         v-if='editable'
@@ -129,7 +129,7 @@
         </option>
       </select>
     </div>
-    <div class='selectionRow checks' v-if='vocal && showTrajChecks'>
+    <div class='selectionRow checks' v-if='vocal && legacyPhonemes && showTrajChecks'>
       <label class='spaceLeft wide'>End</label>
       <select 
         v-if='editable' 
@@ -338,6 +338,7 @@ import {
   VibObjType,
 } from '@shared/types';
 import { Instrument, EditorMode } from '@shared/enums';
+import { LEGACY_PACK } from '@shared/syllables';
 
 type TrajSelectPanelDataType = {
   urls: string[],
@@ -595,6 +596,13 @@ export default defineComponent({
       const vox = [Instrument.Vocal_M, Instrument.Vocal_F];
       return this.instrument && vox.includes(this.instrument);
     },
+    // The per-trajectory vowel/consonant dropdowns edit the legacy hindi-urdu
+    // fields, so they show only on pieces whose phonology is hindi-urdu (absent
+    // system included). Jon, 2026-11-13: once the syllable UI ships they retire
+    // everywhere; until then other packs get no phoneme entry here.
+    legacyPhonemes(): boolean {
+      return !this.piece || this.piece.resolvedSystem.phonology === LEGACY_PACK;
+    },
     sitar() {
       return this.instrument === Instrument.Sitar;
     },
@@ -634,7 +642,7 @@ export default defineComponent({
         const slopeIdxs = [2, 3, 4, 5] 
         this.showSlope = slopeIdxs.includes(this.trajIdxs[newVal]);
         this.showVibObj = this.trajIdxs[newVal] === 12;
-        if (this.vocal && this.vowel === undefined) {
+        if (this.vocal && this.legacyPhonemes && this.vowel === undefined) {
           this.vowel = 'a'
         }
       } else {
