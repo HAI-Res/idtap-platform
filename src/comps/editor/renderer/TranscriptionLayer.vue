@@ -181,6 +181,15 @@ export default defineComponent({
       type: Object as PropType<Piece>,
       required: true
     },
+    // lyric mode (SPEC-provisional §4): clicks select notes, trajectory editing is off
+    lyricMode: {
+      type: Boolean,
+      default: false
+    },
+    lyricHighlight: {
+      type: Array as PropType<string[]>,
+      default: () => []
+    },
     lowOctOffset: {
       type: Number,
       required: true
@@ -342,6 +351,8 @@ export default defineComponent({
     }
   },
   emits: [
+    'lyricClickTraj',
+    'lyricDblClickTraj',
     'update:TrajSelStatus',
     'update:selPhraseDivUid',
     'update:insertPulses',
@@ -2274,6 +2285,7 @@ export default defineComponent({
           .attr('stroke-linejoin', 'round')
           .attr('stroke-linecap', 'round')
           .attr('class', `traj uId${traj.uniqueId!}`)
+      if (props.lyricMode && props.lyricHighlight.includes(traj.uniqueId!)) styleLyricSel(pathElement, true);
       
         g.append('path')
           .datum(trajData)
@@ -2288,6 +2300,7 @@ export default defineComponent({
           .on('mouseover', () => handleTrajMouseOver(traj, track))
           .on('mouseout', () => handleTrajMouseOut(traj, track))
           .on('click', (e: MouseEvent) => handleClickTraj(traj, track, e))
+          .on('dblclick', () => { if (props.lyricMode) emit('lyricDblClickTraj', traj.uniqueId!); })
           .on('contextmenu', (e: MouseEvent) => handleTrajContextMenu(traj, track, e))
     };
 
@@ -4174,7 +4187,23 @@ export default defineComponent({
 
     
 
+    // lyric mode's selection: a thicker stroke in the selection colour, set as a
+    // style (beats the stroke attribute), no transition (spec §4.1, §12)
+    const styleLyricSel = (sel: d3.Selection<any, any, any, any>, on: boolean) => {
+      sel.style('stroke-width', on ? '5px' : null).style('stroke', on ? '#2463a8' : null);
+    };
+    watch(() => [props.lyricMode, props.lyricHighlight] as const, ([on, uids], old) => {
+      const svg = d3.select(tranSvg.value);
+      const prev = (old?.[1] as string[] | undefined) ?? [];
+      prev.forEach(u => styleLyricSel(svg.selectAll(`path.traj.uId${u}`), false));
+      if (on) (uids as string[]).forEach(u => styleLyricSel(svg.selectAll(`path.traj.uId${u}`), true));
+    });
+
     const handleClickTraj = (traj: Trajectory, track: number, e?: MouseEvent) => {
+      if (props.lyricMode) {
+        emit('lyricClickTraj', traj.uniqueId!, shifted.value || !!e?.shiftKey);
+        return;
+      }
       if (props.selectedMode === EditorMode.Meter) return;
       if (props.selectedMode === EditorMode.Trajectory) return;
       if (props.selectedMode === EditorMode.Series) {
@@ -5455,6 +5484,15 @@ export default defineComponent({
       // Typing in a field (tempo, go-to-time, labels...) is not a shortcut.
       // Escape and modifiers still pass; Enter passes for the go-to-time box.
       if (isTypingInField(e, goToTimeModal.value ? ['Enter'] : [])) return;
+      // lyric mode owns the keys (EditorComponent hands them to the lyric
+      // controller); only modifiers, Cmd/Ctrl+S, the zoom keys and the mode
+      // keys that leave lyric mode get through (spec §11)
+      if (props.lyricMode) {
+        const modifier = ['Shift', 'Alt', 'Meta', 'Control'].includes(e.key);
+        const save = e.code === 'KeyS' && metad.value;
+        const modeKey = !metad.value && ['t', 'c', 'v', 'p', 'r', '[', ']'].includes(e.key);
+        if (!modifier && !save && !modeKey) return;
+      }
       const inst = props.instTracks[props.editingInstIdx].inst;
       if (e.key === 'Escape') {
         if (selectedPulse.value) {

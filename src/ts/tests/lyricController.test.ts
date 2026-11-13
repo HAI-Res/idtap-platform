@@ -186,3 +186,42 @@ describe('lyric controller (acceptance 3-11)', () => {
     expect(codes).toEqual(['tone-missing', 'unanchored-start']);
   });
 });
+
+import { optionsFor, cycleBeforeCaret } from '@/comps/editor/lyric/pickerOptions';
+import { PACKS } from '@shared/syllables';
+
+describe('picker options (spec §5.2-5.3)', () => {
+  it('Hindi onsets: none + 33 consonants in six groups, Devanagari script, key without the a, unverified hints', () => {
+    const g = optionsFor(PACKS['hindi-urdu'], 'onset');
+    expect(g.map(x => x.name)).toEqual([undefined, 'Back of the mouth', 'Middle of the tongue', 'Tongue tip curled back', 'Tongue on the teeth', 'Lips', 'Others']);
+    const all = g.flatMap(x => x.options);
+    expect(all.length).toBe(34);
+    expect(all.find(o => o.key === 'ka')).toMatchObject({ script: 'क', roman: 'k', ipa: 'k', unverified: true });
+    expect(g[6].options.map(o => o.key)).toEqual(['ya', 'ra', 'la', 'va', 'śa', 'ṣa', 'sa', 'ha']);
+  });
+  it('Hindi vowels: no vowel + 10 (not _), with the vowel sign', () => {
+    const o = optionsFor(PACKS['hindi-urdu'], 'nucleus')[0].options;
+    expect(o.length).toBe(11);
+    expect(o.find(x => x.key === 'ā')).toMatchObject({ script: 'आ', sub: '◌ा' });
+  });
+  it('Cantonese: example character as script; endings grouped; checked tones show short contours and 7/8/9', () => {
+    const P = PACKS.jyutping;
+    expect(optionsFor(P, 'onset').flatMap(x => x.options).find(o => o.key === 'b')).toMatchObject({ script: '爸', sub: 'baa1' });
+    expect(optionsFor(P, 'coda').map(x => x.name)).toEqual([undefined, 'Glides and nasals', 'Stopped (checked) endings']);
+    const t6 = optionsFor(P, 'tone', true)[0].options.find(o => o.key === '6')!;
+    expect(t6).toMatchObject({ chao: '2 short', nine: '= tone 9', script: '食' });
+    expect(optionsFor(P, 'tone', true)[0].options.find(o => o.key === '2')!.nine).toBeUndefined();
+  });
+  it("Kurmanji: no 'no vowel'; Thackston's extra letters last, in their own group", () => {
+    const P = PACKS.kurmanji;
+    expect(optionsFor(P, 'nucleus')[0].options.some(o => o.key === null)).toBe(false);
+    const g = optionsFor(P, 'onset');
+    expect(g[1].name).toMatch(/^Thackston/);
+    expect(g[1].options.map(o => o.key).sort()).toEqual(['ç̱', 'ḥ', 'ḵ', 'p̱', 'ṯ', 'x̱', 'ʿ'].map(x => x.normalize('NFC')).sort());
+  });
+  it('` cycles the letter before the caret', () => {
+    expect(cycleBeforeCaret('hindi-urdu', 'ba', 2)).toEqual({ text: 'bā', caret: 2 });
+    expect(cycleBeforeCaret('kurmanji', 'c', 1)).toEqual({ text: 'ç', caret: 1 });
+    expect(cycleBeforeCaret('kurmanji', 'ç', 1)!.text).toBe('ç̱'.normalize('NFC'));
+  });
+});
