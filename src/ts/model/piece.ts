@@ -24,6 +24,26 @@ import {
 import { Meter } from '@/js/meter';
 import { getStarts, getEnds } from '@/ts/utils';
 import { findLastIndex } from 'lodash';
+import {
+  Syllable,
+  System,
+  Pack,
+  Violation,
+  LegacyFields,
+  LEGACY_PACK,
+  packOf,
+  resolveSystem,
+  healTrajs,
+  trackIsPhonetic,
+  vocalTrack,
+  wellFormedSyllable,
+  projectTrack,
+  spansFromAnchors,
+  checkInvariants,
+  splitViolations,
+  legacyFormOf,
+  silent,
+} from '@shared/syllables';
 
 const initSecCategorization = (): SecCatType => {
   return {
@@ -113,6 +133,17 @@ const durationsOfFixedPitches = (trajs: Trajectory[], {
   }
 }
 
+/**
+ * PROVISIONAL: invariant errors that freeze a stored phrase. These are the ones
+ * where projecting the tier would overwrite legacy fields from data that does
+ * not describe the phrase (a dangling, misplaced or unreadable anchor). Key and
+ * coverage errors are not here: routine edits on non-Hindi pieces produce
+ * unanchored-start, and freezing for it would switch off re-homing.
+ */
+const FREEZE_CODES = new Set([
+  'syllable-malformed', 'anchor-missing', 'anchor-silence', 'anchor-order', 'traj-uid-missing',
+]);
+
 class Piece {
   // phrases: Phrase[];
   durTot?: number;
@@ -148,6 +179,43 @@ class Piece {
   excerptRange?: ExcerptRange;
   adHocSectionCatGrid: string[][][];
   assemblageDescriptors: AssemblageDescriptor[];
+  /**
+   * PROP-7: the transcription system. undefined = Hindustani. Its presence is
+   * the syllable-tier feature flag (see syllableTierEnabled).
+   */
+  system?: System;
+  /** PROP-8: per-track source text as given; reference only, never parsed. */
+  lyricsText?: (string | null)[];
+  /**
+   * PROP-8 in-memory syllable tier for every track: one pool, each syllable
+   * anchored to a row-0 trajectory uniqueId. Phrase membership is derived from
+   * the anchor at save time (Piece.syncSyllables), which IS re-homing: a
+   * syllable always lands in the phrase that holds its anchor trajectory, so
+   * phrase splits, merges and moved divisions need no bookkeeping here, and a
+   * merge cannot lose a deleted phrase's list. A syllable whose trajectory no
+   * longer exists is dropped.
+   */
+  syllablePool?: Syllable[];
+  /** Phrases / row-0 trajectories that arrived with (or were saved with) a stored tier. */
+  storedSyllablePhraseUids: Set<string> = new Set();
+  storedSyllableTrajUids: Set<string> = new Set();
+  /**
+   * PROVISIONAL (finding (a), awaiting Jon): phrases whose STORED tier is
+   * structurally broken on load (FREEZE_CODES). Such a phrase is frozen: its
+   * stored list is re-emitted verbatim, its legacy fields are never projected
+   * over or resynced, and the rest of the track treats it like a silence.
+   * Nothing is lost and nothing throws. Other errors (unknown keys,
+   * unanchored-start, ...) are reported and never block a save.
+   */
+  frozenSyllablePhraseUids: Set<string> = new Set();
+  /**
+   * 'auto' (default): persist the tier per the feature flag. 'all': persist
+   * every phrase's tier as if the flag were on; the dry-run harness and the
+   * conformance tests use it to exercise the full 0.3.0 save.
+   */
+  persistSyllables: 'auto' | 'all' = 'auto';
+  /** Load-time invariant violations (errors and the track-not-vocal warning). */
+  syllableViolations: Violation[] = [];
 
   constructor({
     phrases = [],
@@ -180,7 +248,9 @@ class Piece {
     sectionCatGrid = undefined,
     excerptRange = undefined,
     adHocSectionCatGrid = undefined,
-	assemblageDescriptors = undefined
+	assemblageDescriptors = undefined,
+    system = undefined,
+    lyricsText = undefined,
 
   }: {
     phrases?: Phrase[],
@@ -217,8 +287,14 @@ class Piece {
     sectionCatGrid?: SecCatType[][],
     excerptRange?: ExcerptRange,
     adHocSectionCatGrid?: string[][][],
-	assemblageDescriptors?: AssemblageDescriptor[]
+	assemblageDescriptors?: AssemblageDescriptor[],
+    system?: System | null,
+    lyricsText?: (string | null)[] | null,
   } = {}) {
+    this.system = system === null || system === undefined
+      ? undefined : JSON.parse(JSON.stringify(system));
+    this.lyricsText = lyricsText === null || lyricsText === undefined
+      ? undefined : [...lyricsText];
     this.meters = meters;
 
     // setting up grids so they can transform from non-grid specs
@@ -1451,6 +1527,8 @@ class Piece {
   }
 
   toJSON() {
+    // PROP-8: re-home, fold legacy edits into the tier, dual-write.
+    this.syncSyllables();
     return {
       raga: this.raga,
       durTot: this.durTot,
@@ -1481,7 +1559,334 @@ class Piece {
       excerptRange: this.excerptRange,
       adHocSectionCatGrid: this.adHocSectionCatGrid,
       assemblageDescriptors: this.assemblageDescriptors,
+      system: this.system,
+      lyricsText: this.lyricsText,
     }
+  }
+
+  // ------------------------------------------------------------ syllable tier
+  // idtap-contract 0.3.0, PROP-7/8/9. Rules live in shared/syllables.ts (a port
+  // of the contract's conformance/syllables.py); this is the model glue.
+
+  /**
+   * The feature flag: the tier is enabled only when the piece carries a
+   * `system`. Disabled: stored syllables are kept and re-emitted unchanged,
+   * healed ones are never persisted (PROP-8 "preserve, never create").
+   */
+  get syllableTierEnabled(): boolean {
+    return this.system !== undefined && this.system !== null;
+  }
+
+  get resolvedSystem(): System {
+    return resolveSystem(this);
+  }
+
+  /** The phoneme pack (PROP-9) of this piece, or undefined for an unknown id. */
+  get pack(): Pack | undefined {
+    try {
+      return packOf(this);
+    } catch {
+      return undefined;
+    }
+  }
+
+  private syllableLocations() {
+    const loc = new Map<string, { track: number, flat: number, phrase: Phrase, ti: number }>();
+    this.phraseGrid.forEach((track, k) => {
+      let flat = 0;
+      track.forEach(ph => {
+        (ph.trajectoryGrid[0] || []).forEach((t, ti) => {
+          loc.set(t.uniqueId!, { track: k, flat: flat++, phrase: ph, ti });
+        });
+      });
+    });
+    return loc;
+  }
+
+  /**
+   * Build the pool from the phrases: a phrase with a stored list keeps it (even
+   * []); a phrase without one is healed from its legacy fields (firstTrajIdxs
+   * rule), or gets [] when its track has no phonetic data. Then check the
+   * invariants of the tier as loaded and freeze every stored phrase that has an
+   * error (frozenSyllablePhraseUids): its syllables stay out of the pool.
+   * `uidMissing` adds traj-uid-missing for stored trajectories the loader had to
+   * give an id. Returns the violations.
+   */
+  private initSyllablePool(uidMissing: string[] = []): Violation[] {
+    this.storedSyllablePhraseUids = new Set();
+    this.storedSyllableTrajUids = new Set();
+    this.frozenSyllablePhraseUids = new Set();
+    const lists = this.phraseGrid.map((track, k) => {
+      const vocal = vocalTrack(this, k);
+      const phonetic = trackIsPhonetic(track.map(ph => ({ trajectoryGrid: [ph.trajectoryGrid[0] || []] })));
+      return track.map(ph => {
+        if (ph.syllables !== undefined) {
+          this.storedSyllablePhraseUids.add(ph.uniqueId);
+          (ph.trajectoryGrid[0] || []).forEach(t => this.storedSyllableTrajUids.add(t.uniqueId!));
+          return ph.syllables as any; // as stored, even if malformed: the check reports it
+        }
+        // non-vocal tracks: nothing is created, legacy fields stand as stored
+        return vocal && phonetic ? healTrajs(ph.trajectoryGrid[0] || []) : [];
+      });
+    });
+    const violations = [
+      ...this.invariantsOf(lists),
+      ...uidMissing.map(where => ['traj-uid-missing', where] as Violation),
+    ].sort((a, b) => (a[0] + '\u0000' + a[1] < b[0] + '\u0000' + b[1] ? -1 : 1));
+    const errorAt = new Set<string>();
+    violations.forEach(([code, where]) => {
+      const m = /^track (\d+) phrase (\d+)/.exec(where);
+      if (m && FREEZE_CODES.has(code)) errorAt.add(`${m[1]}/${m[2]}`);
+    });
+    const pool: Syllable[] = [];
+    this.phraseGrid.forEach((track, k) => track.forEach((ph, pi) => {
+      if (ph.syllables !== undefined && errorAt.has(`${k}/${pi}`)) {
+        this.frozenSyllablePhraseUids.add(ph.uniqueId);
+        return;
+      }
+      const list = lists[k][pi];
+      if (Array.isArray(list)) pool.push(...list.filter(wellFormedSyllable));
+    }));
+    this.syllablePool = pool;
+    return violations;
+  }
+
+  private isFrozen(ph: Phrase): boolean {
+    return this.frozenSyllablePhraseUids.has(ph.uniqueId);
+  }
+
+  /**
+   * A track's row-0 trajectories as the tier sees them: a frozen phrase becomes
+   * one silence, so no syllable spans into it and nothing is projected there.
+   */
+  private tierTrajs(track: Phrase[]): Trajectory[] {
+    return track.flatMap(ph => this.isFrozen(ph)
+      ? [{ id: 12, uniqueId: `__frozen:${ph.uniqueId}` } as unknown as Trajectory]
+      : (ph.trajectoryGrid[0] || []));
+  }
+
+  /** Called at the end of Piece.fromJSON: heal, check invariants, project stored tiers into memory. */
+  loadSyllables(uidMissing: string[] = []) {
+    this.syllableViolations = this.initSyllablePool(uidMissing);
+    const [errors] = splitViolations(this.syllableViolations);
+    if (errors.length > 0) {
+      console.warn(`syllable tier: ${errors.length} invariant violation(s) on load` +
+        (this.frozenSyllablePhraseUids.size ? `; ${this.frozenSyllablePhraseUids.size} phrase(s) kept as stored` : ''),
+        this.syllableViolations);
+    }
+    // Where a phrase carries syllables they are the source of truth: show their
+    // projection in the in-memory legacy fields (what the dropdowns edit).
+    // Frozen phrases keep their stored legacy fields.
+    const stored = new Set<Phrase>();
+    this.phraseGrid.forEach(track => track.forEach(ph => {
+      if (ph.syllables !== undefined && !this.isFrozen(ph)) stored.add(ph);
+    }));
+    if (stored.size > 0) this.projectSyllablesOnto(stored);
+  }
+
+  private invariantsOf(lists: Syllable[][][]): Violation[] {
+    const view = {
+      system: this.system,
+      instrumentation: this.instrumentation,
+      phraseGrid: this.phraseGrid.map((track, k) => track.map((ph, pi) => ({
+        trajectoryGrid: [ph.trajectoryGrid[0] || []],
+        syllables: lists[k][pi],
+      }))),
+    };
+    try {
+      return checkInvariants(view);
+    } catch (e) {
+      console.warn('syllable tier: invariants not checked', e);
+      return [];
+    }
+  }
+
+  /** The current tier, distributed to phrases by anchor: [track][phrase] lists. */
+  syllablesByPhrase(): Syllable[][][] {
+    if (this.syllablePool === undefined) this.initSyllablePool();
+    const loc = this.syllableLocations();
+    const lists = this.phraseGrid.map(track => track.map(() => [] as [number, Syllable][]));
+    this.syllablePool!.forEach(s => {
+      const l = loc.get(s.anchor.traj);
+      if (!l || this.isFrozen(l.phrase)) return;
+      const pi = this.phraseGrid[l.track].indexOf(l.phrase);
+      lists[l.track][pi].push([l.ti, s]);
+    });
+    return lists.map((track, k) => track.map((b, pi) => {
+      const ph = this.phraseGrid[k][pi];
+      // a frozen phrase's list is what was stored
+      if (this.isFrozen(ph)) return (Array.isArray(ph.syllables) ? ph.syllables : []) as Syllable[];
+      return b.sort((a, c) => a[0] - c[0]).map(x => x[1]);
+    }));
+  }
+
+  /**
+   * Move the syllable anchored on `fromUid` to `toUid`, for an edit that hands
+   * a trajectory's start (and its start consonant) to a new trajectory in front
+   * of it (TranscriptionLayer insertFixedTrajLeft). The syllable keeps all its
+   * fields. No-op when `fromUid` anchors nothing.
+   */
+  reanchorSyllable(fromUid: string, toUid: string) {
+    if (this.syllablePool === undefined) this.initSyllablePool();
+    const s = this.syllablePool!.find(x => x.anchor.traj === fromUid);
+    if (s) s.anchor = { ...s.anchor, traj: toUid };
+  }
+
+  /** Invariants of the current in-memory tier. */
+  checkSyllableInvariants(): Violation[] {
+    return this.invariantsOf(this.syllablesByPhrase());
+  }
+
+  private poolForTrack(trajs: Trajectory[]): Syllable[] {
+    const uids = new Set(trajs.map(t => t.uniqueId!));
+    return (this.syllablePool || []).filter(s => uids.has(s.anchor.traj));
+  }
+
+  /** Dual-write: project the tier into the legacy fields of the given phrases' row 0. */
+  private projectSyllablesOnto(phrases: Set<Phrase>) {
+    const pack = this.pack;
+    if (!pack) return; // unknown phonology id: leave the legacy fields alone
+    this.phraseGrid.forEach((track, k) => {
+      if (!vocalTrack(this, k)) return; // never projected: stored fields stand
+      if (!track.some(ph => phrases.has(ph))) return;
+      const trajs = this.tierTrajs(track);
+      const proj = projectTrack(pack, trajs, this.poolForTrack(trajs));
+      track.forEach(ph => {
+        if (!phrases.has(ph) || this.isFrozen(ph)) return;
+        (ph.trajectoryGrid[0] || []).forEach(t => t.applyLegacy(proj[t.uniqueId!]));
+      });
+    });
+  }
+
+  /**
+   * Legacy-field edits (the per-trajectory vowel / consonant dropdowns, or a
+   * hand-built trajectory) reach the tier here. A row-0 trajectory whose
+   * in-memory vowel / startConsonant / endConsonant differs from what the tier
+   * projects onto it was edited through the legacy surface. Around those
+   * trajectories the tier is re-derived from the legacy fields (the heal), over
+   * the smallest region closed under both the old and the new syllable spans;
+   * everything outside the region is kept as it is (a Swift-written melisma
+   * across a phrase boundary survives). A re-derived syllable on an existing
+   * anchor keeps that syllable's other fields (orthography, tone, sung, ...) and
+   * any key the legacy fields cannot carry; a changed vowel becomes
+   * lyric.source 'human'. hindi-urdu only: other packs have no legacy fields.
+   */
+  private resyncFromLegacy(pack: Pack) {
+    const norm = (v: string | null | undefined) => (v === undefined || v === null ? null : v);
+    const keyFields = ['vowel', 'startConsonant', 'endConsonant'] as const;
+    this.phraseGrid.forEach((track, k) => {
+      if (!vocalTrack(this, k)) return; // no tier is built on a non-vocal track
+      const trajs = this.tierTrajs(track);
+      const syls = this.poolForTrack(trajs);
+      const proj = projectTrack(pack, trajs, syls);
+      const region = new Set<string>();
+      trajs.forEach(t => {
+        if (silent(t)) return;
+        const p = proj[t.uniqueId!] as unknown as { [k: string]: string | undefined };
+        if (keyFields.some(k => norm(t[k]) !== norm(p[k]))) region.add(t.uniqueId!);
+      });
+      if (region.size === 0) return;
+
+      const phonetic = trackIsPhonetic(track.map(ph => ({ trajectoryGrid: [ph.trajectoryGrid[0] || []] })));
+      const healed = phonetic
+        ? track.filter(ph => !this.isFrozen(ph)).flatMap(ph => healTrajs(ph.trajectoryGrid[0] || []))
+        : [];
+      const byAnchor = (list: Syllable[]) => new Map(list.map(s => [s.anchor.traj, s]));
+      const oldSpans = spansFromAnchors(trajs, byAnchor(syls)).spans;
+      const newSpans = spansFromAnchors(trajs, byAnchor(healed)).spans;
+      const all = [...oldSpans, ...newSpans].map(([, ts]) => ts.map(t => t.uniqueId!));
+      let grew = true;
+      while (grew) {
+        grew = false;
+        for (const span of all) {
+          if (span.some(u => region.has(u)) && span.some(u => !region.has(u))) {
+            span.forEach(u => region.add(u));
+            grew = true;
+          }
+        }
+      }
+      const inRegion = (span: Trajectory[]) => span.some(t => region.has(t.uniqueId!));
+      const replaced = new Set(oldSpans.filter(([, ts]) => inRegion(ts)).map(([s]) => s));
+      const oldByAnchor = byAnchor(syls);
+      const fresh = newSpans.filter(([, ts]) => inRegion(ts)).map(([nw]) => {
+        const old = oldByAnchor.get(nw.anchor.traj);
+        if (!old || !replaced.has(old)) return { ...nw, lyric: { ...nw.lyric, source: 'human' } };
+        return Piece.mergeHealedSyllable(pack, old, nw);
+      });
+      const trackSet = new Set(syls);
+      this.syllablePool = (this.syllablePool || [])
+        .filter(s => !trackSet.has(s) || !replaced.has(s))
+        .concat(fresh);
+    });
+  }
+
+  private static mergeHealedSyllable(pack: Pack, old: Syllable, nw: Syllable): Syllable {
+    const out: Syllable = { ...old };
+    const tables = { onset: 'consonants', coda: 'codas', nucleus: 'vowels' } as const;
+    (['onset', 'nucleus', 'coda'] as const).forEach(f => {
+      if (nw[f] !== undefined) {
+        (out as any)[f] = nw[f];
+      } else if (old[f] !== undefined && legacyFormOf(pack, tables[f], old[f]) !== null) {
+        delete out[f]; // the legacy surface cleared it
+      } // else: a key the legacy fields cannot show (e.g. ṇa): keep it
+    });
+    const vowel = out.nucleus ?? null;
+    if ((old.lyric?.vowel ?? null) !== vowel) out.lyric = { vowel, source: 'human' };
+    return out;
+  }
+
+  /**
+   * Bring the tier and the wire up to date; runs before every save (toJSON).
+   * 1. Drop syllables whose anchor trajectory is gone (returned).
+   * 2. Fold legacy-field edits into the tier (resyncFromLegacy).
+   * 3. Re-home: give each phrase the syllables anchored in its row 0, in
+   *    trajectory order. A phrase whose list did not change keeps it as-is, so
+   *    a stored tier is re-emitted byte-identical.
+   * 4. Persist only where allowed: every phrase when the tier is enabled;
+   *    otherwise only phrases that arrived with a tier, or now hold
+   *    trajectories from one (a split keeps its key on both halves).
+   * 5. Dual-write: project the tier into the legacy fields of the persisted
+   *    phrases. Unpersisted phrases keep their legacy fields as they are.
+   */
+  syncSyllables(): { dropped: string[] } {
+    if (this.syllablePool === undefined) this.initSyllablePool();
+    const loc = this.syllableLocations();
+    const dropped: string[] = [];
+    this.syllablePool = this.syllablePool!.filter(s => {
+      if (loc.has(s.anchor.traj)) return true;
+      dropped.push(s.anchor.traj);
+      return false;
+    });
+    const pack = this.pack;
+    if (pack && pack.id === LEGACY_PACK) this.resyncFromLegacy(pack);
+    this.syllablePool.sort((a, b) => {
+      const la = loc.get(a.anchor.traj)!;
+      const lb = loc.get(b.anchor.traj)!;
+      return la.track - lb.track || la.flat - lb.flat;
+    });
+    const lists = this.syllablesByPhrase();
+    const persisted = new Set<Phrase>();
+    this.phraseGrid.forEach((track, k) => track.forEach((ph, pi) => {
+      const row = ph.trajectoryGrid[0] || [];
+      const create = (this.syllableTierEnabled || this.persistSyllables === 'all') && vocalTrack(this, k);
+      const keep = create
+        || this.storedSyllablePhraseUids.has(ph.uniqueId)
+        || row.some(t => this.storedSyllableTrajUids.has(t.uniqueId!));
+      if (!keep) {
+        ph.syllables = undefined;
+        return;
+      }
+      if (this.isFrozen(ph)) return; // PROVISIONAL: stored list and legacy fields left exactly as stored
+      const list = lists[k][pi];
+      const same = ph.syllables !== undefined && ph.syllables.length === list.length
+        && ph.syllables.every((s, i) => s === list[i]);
+      if (!same) ph.syllables = list;
+      this.storedSyllablePhraseUids.add(ph.uniqueId);
+      row.forEach(t => this.storedSyllableTrajUids.add(t.uniqueId!));
+      persisted.add(ph);
+    }));
+    if (persisted.size > 0) this.projectSyllablesOnto(persisted);
+    return { dropped };
   }
 
   static fromJSON(obj: any): Piece {
@@ -1506,6 +1911,19 @@ class Piece {
         obj.phraseGrid.push([]);
       }
     }
+
+    // PROP-8 traj-uid-missing: the loader assigns ids below, so note which
+    // stored row-0 trajectories lacked one for the load-time invariant report.
+    const uidMissing: string[] = [];
+    (obj.phraseGrid || []).forEach((phrases: any[], k: number) => {
+      (phrases || []).forEach((p: any, pi: number) => {
+        ((p?.trajectoryGrid || [])[0] || []).forEach((t: any, i: number) => {
+          if (typeof t?.uniqueId !== 'string' || t.uniqueId === '') {
+            uidMissing.push(`track ${k} phrase ${pi} traj ${i}`);
+          }
+        });
+      });
+    });
 
     obj.phraseGrid = (obj.phraseGrid || []).map((phrases: any[], instIdx: number) => {
       return phrases.map((p: any) => Phrase.fromJSON(p, ratios, fundamental));
@@ -1571,6 +1989,8 @@ class Piece {
     // No need to deduplicate sectionStartsGrid - it's now computed from phrase properties
     // Ensure string synchronization for polyphonic instruments
     piece.ensureStringSynchronization();
+    // PROP-8: heal on load (after uniqueIds exist and silences are consolidated).
+    piece.loadSyllables(uidMissing);
     return piece;
   }
 }

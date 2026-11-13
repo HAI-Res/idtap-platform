@@ -5,6 +5,7 @@ import fileUpload from 'express-fileupload';
 
 import { mediaPath, PYTHON_PATH, pythonEnv } from './mediaConfig';
 import { isOwner, canEdit, canView } from '../shared/authz';
+import { checkWriteGuard } from './writeGuard';
 
 // Function to run a Python script and return a Promise
 function runPythonScript(scriptPath: string, args: string[] = []): Promise<void> {
@@ -275,6 +276,10 @@ export default function apiRoutes(collections: Collections) {
           error: 'You do not have permission to edit this transcription'
         });
       }
+
+      // PROP-8 write guard (same rule as the web /updateTranscription route).
+      const guard = checkWriteGuard(existingTranscription, req.get('X-IDTAP-Client'), req.body._id);
+      if (!guard.ok) return res.status(guard.status).json(guard.body);
 
       // Content-only update: ownership/sharing changes go through their own
       // owner-gated endpoints (same rule as the web /updateTranscription route).

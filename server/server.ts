@@ -17,6 +17,8 @@ import { DN_ExtractorOptions } from '@shared/types';
 import 'dotenv/config';
 import { $push } from 'mongo-dot-notation';
 import apiRoutes from './apiRoutes';
+import packRoutes from './packRoutes';
+import { checkWriteGuard, validClientHeader } from './writeGuard';
 import oauthRoutes from './oauthRoutes';
 import authRoutes from './authRoutes';
 import cookieParser from 'cookie-parser';
@@ -249,8 +251,10 @@ const requireSession: express.RequestHandler = (req, res, next) => {
 // A cross-site attacker can't set a custom header without a CORS preflight we don't
 // grant, so this closes the residual gap left by SameSite=Lax. The SPA sends it via a
 // shared request wrapper.
+// Accepted values: bare 'web' (pre-0.3.0 tabs) or '<web|python|swift>/<contract
+// semver>' (PROP-8; the version also keys the write guard, see writeGuard.ts).
 const requireCsrfHeader: express.RequestHandler = (req, res, next) => {
-  if (req.get('X-IDTAP-Client') !== 'web') {
+  if (!validClientHeader(req.get('X-IDTAP-Client'))) {
     res.status(403).json({ error: 'missing client header' });
     return;
   }
@@ -302,6 +306,10 @@ const runServer = async () => {
 	const phonemes = db.collection('phonemes');
 	const collections = db.collection('collections');
         const gharanas = db.collection('gharanas');
+
+        // PROP-9 phoneme packs: public contract data, so mounted ahead of the
+        // Bearer check (session-cookie clients read them too).
+        app.use('/api/packs', packRoutes());
 
         // Authentication middleware for API routes
         app.use('/api', async (req, res, next) => {
@@ -390,6 +398,10 @@ const runServer = async () => {
 		const target = await transcriptions.findOne(query);
 		if (!target) { res.status(404).json({ error: 'not found' }); return; }
 		if (!canEdit(target, req.user!.uid)) { res.status(403).json({ error: 'forbidden' }); return; }
+		// PROP-8 write guard: a pre-0.3.0 client may not overwrite a piece whose
+		// syllable tier it would lose.
+		const guard = checkWriteGuard(target, req.get('X-IDTAP-Client'), req.body._id);
+		if (!guard.ok) { res.status(guard.status).json(guard.body); return; }
 		const result = await transcriptions.updateOne(query, update);
 		res.send(JSON.stringify({ ...result, dateModified: updateObj['dateModified'] }))
 	  } catch (err) {

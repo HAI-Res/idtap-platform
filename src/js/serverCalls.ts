@@ -4,6 +4,11 @@ import axios from 'axios';
 import { AxiosProgressEvent } from 'axios';
 import fetch from 'cross-fetch';
 import { Piece } from '@/ts/model';
+import { CONTRACT_VERSION } from '@shared/syllables';
+
+// X-IDTAP-Client: the CSRF header, and (PROP-8) the contract version this build
+// implements, which the server's write guard reads.
+const IDTAP_CLIENT = `web/${CONTRACT_VERSION}`;
 import { 
   MusicianDBType, 
   GharanaType,
@@ -25,7 +30,7 @@ const getPiece = async (id: string): Promise<Piece> => {
   const request = {
     method: "POST",
     headers: {
-      "Content-Type": "application/json", "X-IDTAP-Client": "web"
+      "Content-Type": "application/json", "X-IDTAP-Client": IDTAP_CLIENT
     },
     body: JSON.stringify({
       _id: id
@@ -45,7 +50,7 @@ const getPiece = async (id: string): Promise<Piece> => {
 const pieceExists = async (id: string) => {
   const request = {
     method: 'GET',
-    headers: { 'Content-Type': 'application/json', 'X-IDTAP-Client': 'web' }
+    headers: { 'Content-Type': 'application/json', 'X-IDTAP-Client': IDTAP_CLIENT }
   };
   const query = '?' + new URLSearchParams({ _id: id });
   try {
@@ -61,7 +66,7 @@ const pieceExists = async (id: string) => {
 const excelData = async (id: string) => {
   const request = {
     method: 'GET',
-    headers: { 'Content-Type': 'application/json', 'X-IDTAP-Client': 'web' }
+    headers: { 'Content-Type': 'application/json', 'X-IDTAP-Client': IDTAP_CLIENT }
   };
   const query = '?' + new URLSearchParams({ _id: id });
   try {
@@ -80,7 +85,7 @@ const excelData = async (id: string) => {
 const jsonData = async (id: string) => {
   const request = {
     method: 'GET',
-    headers: { 'Content-Type': 'application/json', 'X-IDTAP-Client': 'web' }
+    headers: { 'Content-Type': 'application/json', 'X-IDTAP-Client': IDTAP_CLIENT }
   };
   const query = '?' + new URLSearchParams({ _id: id });
   try {
@@ -100,7 +105,7 @@ const getAudioDBEntry = async (_id: string): Promise<RecType> => {
   let request = {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json', 'X-IDTAP-Client': 'web'
+      'Content-Type': 'application/json', 'X-IDTAP-Client': IDTAP_CLIENT
     },
     body: JSON.stringify({_id})
   };
@@ -114,16 +119,18 @@ const getAudioDBEntry = async (_id: string): Promise<RecType> => {
 
 const savePiece = async (piece: Piece) => {
   console.log(piece)
-  const data = JSON.stringify(piece);
   let result;
-  let request = {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json', 'X-IDTAP-Client': 'web'
-    },
-    body: data
-  };
   try {
+    // inside the try: serializing runs the syllable tier's dual-write, and a
+    // failure there must be reported like a failed request, not thrown past it
+    const data = JSON.stringify(piece);
+    const request = {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json', 'X-IDTAP-Client': IDTAP_CLIENT
+      },
+      body: data
+    };
     const res = await fetch(url + 'updateTranscription', request);
     if (res.ok) {
       result = await res.json()
@@ -150,7 +157,7 @@ const getAllPieces = async (
   let request = {
     method: "GET",
     headers: {
-      "Content-Type": "application/json", "X-IDTAP-Client": "web"
+      "Content-Type": "application/json", "X-IDTAP-Client": IDTAP_CLIENT
     },
   };
   const query = '?' + new URLSearchParams({
@@ -183,7 +190,7 @@ const updateVisibility = async (
     let request = {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json', 'X-IDTAP-Client': 'web'
+        'Content-Type': 'application/json', 'X-IDTAP-Client': IDTAP_CLIENT
       },
       body: JSON.stringify({
         artifactType: artifactType,
@@ -207,7 +214,7 @@ const createCollection = async (collection: CollectionType) => {
   const request = {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json', 'X-IDTAP-Client': 'web'
+      'Content-Type': 'application/json', 'X-IDTAP-Client': IDTAP_CLIENT
     },
     body: JSON.stringify(collection)
   };
@@ -230,7 +237,7 @@ const deleteCollection = async (colID: string) => {
   const request = {
     method: 'DELETE',
     headers: {
-      'Content-Type': 'application/json', 'X-IDTAP-Client': 'web'
+      'Content-Type': 'application/json', 'X-IDTAP-Client': IDTAP_CLIENT
     },
     body: JSON.stringify({ _id: colID })
   };
@@ -253,7 +260,7 @@ const updateCollection = async (collection: CollectionType) => {
   const request = {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json', 'X-IDTAP-Client': 'web'
+      'Content-Type': 'application/json', 'X-IDTAP-Client': IDTAP_CLIENT
     },
     body: JSON.stringify(collection)
   };
@@ -276,7 +283,7 @@ const getAllAudioRecordingMetadata = async (): Promise<RecType[]> => {
   let request = {
     method: 'GET',
     headers: {
-      'Content-Type': 'application/json', 'X-IDTAP-Client': 'web'
+      'Content-Type': 'application/json', 'X-IDTAP-Client': IDTAP_CLIENT
     },
   };
   await fetch(url + 'getAllAudioRecordingMetadata', request)
@@ -299,7 +306,7 @@ const getAllAEMetadata = async (): Promise<AudioEventMetadataType[]> => {
   const request = {
     method: 'GET',
     headers: {
-      'Content-Type': 'application/json', 'X-IDTAP-Client': 'web'
+      'Content-Type': 'application/json', 'X-IDTAP-Client': IDTAP_CLIENT
     },
   };
   try {
@@ -320,7 +327,7 @@ const getAudioEvent = async (_id: string) => {
   const request = {
     method: 'GET',
     headers: {
-      'Content-Type': 'application/json', 'X-IDTAP-Client': 'web'
+      'Content-Type': 'application/json', 'X-IDTAP-Client': IDTAP_CLIENT
     }
   };
   try {
@@ -340,7 +347,7 @@ const getAudioRecording = async (_id: string): Promise<RecType> => {
   const request = {
     method: 'GET',
     headers: {
-      'Content-Type': 'application/json', 'X-IDTAP-Client': 'web'
+      'Content-Type': 'application/json', 'X-IDTAP-Client': IDTAP_CLIENT
     }
   };
   try {
@@ -367,7 +374,7 @@ const getAllTransOfAudioFile = async (
   const request = {
     method: 'GET',
     headers: {
-      'Content-Type': 'application/json', 'X-IDTAP-Client': 'web'
+      'Content-Type': 'application/json', 'X-IDTAP-Client': IDTAP_CLIENT
     }
   };
   try {
@@ -388,7 +395,7 @@ const getAllMusicians = async (): Promise<MusicianDBType[]> => {
   let request = {
     method: 'GET',
     headers: {
-      'Content-Type': 'application/json', 'X-IDTAP-Client': 'web'
+      'Content-Type': 'application/json', 'X-IDTAP-Client': IDTAP_CLIENT
     },
   };
   try {
@@ -407,7 +414,7 @@ const getSortedMusicians = async (verbose=false): Promise<MusicianNameType[]> =>
   let request = {
     method: 'GET',
     headers: {
-      'Content-Type': 'application/json', 'X-IDTAP-Client': 'web'
+      'Content-Type': 'application/json', 'X-IDTAP-Client': IDTAP_CLIENT
     },
   };
   const query = verbose ? '?' + new URLSearchParams({ 
@@ -434,7 +441,7 @@ const getEventTypes = async () => {
   let request = {
     method: 'GET',
     headers: {
-      'Content-Type': 'application/json', 'X-IDTAP-Client': 'web'
+      'Content-Type': 'application/json', 'X-IDTAP-Client': IDTAP_CLIENT
     },
   };
   try {
@@ -454,7 +461,7 @@ const getGharana = async (initName: string) => {
   let request = {
     method: 'GET',
     headers: {
-      'Content-Type': 'application/json', 'X-IDTAP-Client': 'web'
+      'Content-Type': 'application/json', 'X-IDTAP-Client': IDTAP_CLIENT
     },
   };
   await fetch(url + 'getGharana?' + new URLSearchParams({ 
@@ -483,7 +490,7 @@ const addMusicianToDB = async (data: {
   let request = {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json', 'X-IDTAP-Client': 'web'
+      'Content-Type': 'application/json', 'X-IDTAP-Client': IDTAP_CLIENT
     },
     body: JSON.stringify({ 
       fullName: data.fullName, 
@@ -511,7 +518,7 @@ const addGharanaToDB = async (data: { name: string, members: string[] }) => {
   let request = {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json', 'X-IDTAP-Client': 'web'
+      'Content-Type': 'application/json', 'X-IDTAP-Client': IDTAP_CLIENT
     },
     body: JSON.stringify({ name: data.name, members: data.members })
   };
@@ -532,7 +539,7 @@ const addCountryToDB = async (continent: string, country: string) => {
   let request = {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json', 'X-IDTAP-Client': 'web'
+      'Content-Type': 'application/json', 'X-IDTAP-Client': IDTAP_CLIENT
     },
     body: JSON.stringify({ country: country, continent: continent })
   };
@@ -553,7 +560,7 @@ const addCityToDB = async (cont: string, country: string, city: string) => {
   let request = {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json', 'X-IDTAP-Client': 'web'
+      'Content-Type': 'application/json', 'X-IDTAP-Client': IDTAP_CLIENT
     },
     body: JSON.stringify({ continent: cont, country: country, city: city })
   };
@@ -574,7 +581,7 @@ const addRaagToDB = async (raag: string) => {
   let request = {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json', 'X-IDTAP-Client': 'web'
+      'Content-Type': 'application/json', 'X-IDTAP-Client': IDTAP_CLIENT
     },
     body: JSON.stringify({ raag: raag })
   };
@@ -605,7 +612,7 @@ const updateAudioRecording = async (
   let request = {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json', 'X-IDTAP-Client': 'web'
+      'Content-Type': 'application/json', 'X-IDTAP-Client': IDTAP_CLIENT
     },
     body: JSON.stringify({ 
       _id: recID, 
@@ -636,7 +643,7 @@ const getInstruments = async (melody: boolean = true): Promise<string[]> => {
   let request = {
     method: 'GET',
     headers: {
-      'Content-Type': 'application/json', 'X-IDTAP-Client': 'web'
+      'Content-Type': 'application/json', 'X-IDTAP-Client': IDTAP_CLIENT
     },
   };
 
@@ -659,7 +666,7 @@ const getNumberOfSpectrograms = async (id: string) => {
   const request = {
     method: 'GET',
     headers: {
-      'Content-Type': 'application/json', 'X-IDTAP-Client': 'web'
+      'Content-Type': 'application/json', 'X-IDTAP-Client': IDTAP_CLIENT
     },
   };
   try {
@@ -681,7 +688,7 @@ const verifySpectrogram = async (id: string) => {
   const request = {
     method: 'GET',
     headers: {
-      'Content-Type': 'application/json', 'X-IDTAP-Client': 'web'
+      'Content-Type': 'application/json', 'X-IDTAP-Client': IDTAP_CLIENT
     },
   };
   try {
@@ -703,7 +710,7 @@ const verifyMelograph = async (id: string) => {
   const request = {
     method: 'GET',
     headers: {
-      'Content-Type': 'application/json', 'X-IDTAP-Client': 'web'
+      'Content-Type': 'application/json', 'X-IDTAP-Client': IDTAP_CLIENT
     },
   };
   try {
@@ -723,7 +730,7 @@ const makeSpectrograms = async (recId: string, saEst: string | number) => {
   const request = {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json', 'X-IDTAP-Client': 'web'
+      'Content-Type': 'application/json', 'X-IDTAP-Client': IDTAP_CLIENT
     },
     body: JSON.stringify({ recId: recId, saEst: saEst })
   };
@@ -743,7 +750,7 @@ const makeMelograph = async (recId: string, saEst: string | number) => {
   const request = {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json', 'X-IDTAP-Client': 'web'
+      'Content-Type': 'application/json', 'X-IDTAP-Client': IDTAP_CLIENT
     },
     body: JSON.stringify({ recId: recId, saEst: saEst })
   };
@@ -765,7 +772,7 @@ const getRagaNames = async (): Promise<string[]> => {
   const request = {
     method: 'GET',
     headers: {
-      'Content-Type': 'application/json', 'X-IDTAP-Client': 'web'
+      'Content-Type': 'application/json', 'X-IDTAP-Client': IDTAP_CLIENT
     },
   };
   try {
@@ -784,7 +791,7 @@ const getRaagRule = async (name: string) => {
   const request = {
     method: 'GET',
     headers: {
-      'Content-Type': 'application/json', 'X-IDTAP-Client': 'web'
+      'Content-Type': 'application/json', 'X-IDTAP-Client': IDTAP_CLIENT
     }
   };
   const searchParams = new URLSearchParams({ name: name })
@@ -805,7 +812,7 @@ const getLocationObject = async (): Promise<LocationType> => {
   const request = {
     method: 'GET',
     headers: {
-      'Content-Type': 'application/json', 'X-IDTAP-Client': 'web'
+      'Content-Type': 'application/json', 'X-IDTAP-Client': IDTAP_CLIENT
     },
   };
   try {
@@ -825,7 +832,7 @@ const getPerformanceSections = async (): Promise<string[]> => {
   const request = {
     method: 'GET',
     headers: {
-      'Content-Type': 'application/json', 'X-IDTAP-Client': 'web'
+      'Content-Type': 'application/json', 'X-IDTAP-Client': IDTAP_CLIENT
     },
   };
   try {
@@ -847,7 +854,7 @@ const createNewPiece = async (obj: Piece): Promise<
   let request = {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json', 'X-IDTAP-Client': 'web'
+      'Content-Type': 'application/json', 'X-IDTAP-Client': IDTAP_CLIENT
     },
     body: data
   };
@@ -869,7 +876,7 @@ const deletePiece = async (piece: TransMetadataType) => {
   let request = {
     method: 'DELETE',
     headers: {
-      'Content-Type': 'application/json', 'X-IDTAP-Client': 'web'
+      'Content-Type': 'application/json', 'X-IDTAP-Client': IDTAP_CLIENT
     },
     body: JSON.stringify({
       '_id': piece._id,
@@ -893,7 +900,7 @@ const deleteAudioEvent = async (aeID: string) => {
   let request = {
     method: 'DELETE',
     headers: {
-      'Content-Type': 'application/json', 'X-IDTAP-Client': 'web'
+      'Content-Type': 'application/json', 'X-IDTAP-Client': IDTAP_CLIENT
     },
     body: JSON.stringify({
       '_id': aeID
@@ -916,7 +923,7 @@ const deleteRecording = async (recID: string) => {
   let request = {
     method: 'DELETE',
     headers: {
-      'Content-Type': 'application/json', 'X-IDTAP-Client': 'web'
+      'Content-Type': 'application/json', 'X-IDTAP-Client': IDTAP_CLIENT
     },
     body: JSON.stringify({
       '_id': recID
@@ -955,7 +962,7 @@ const initializeAudioEvent = async (
   const request = {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json', 'X-IDTAP-Client': 'web'
+      'Content-Type': 'application/json', 'X-IDTAP-Client': IDTAP_CLIENT
     },
     body: JSON.stringify(bodyObj)
   };
@@ -976,7 +983,7 @@ const cleanEmptyDoc = async (_id: string) => {
   const request = {
     method: 'DELETE',
     headers: {
-      'Content-Type': 'application/json', 'X-IDTAP-Client': 'web'
+      'Content-Type': 'application/json', 'X-IDTAP-Client': IDTAP_CLIENT
     }, 
     body: JSON.stringify({
       '_id': _id  
@@ -1000,7 +1007,7 @@ const saveAudioMetadata = async (
   const request = {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json', 'X-IDTAP-Client': 'web'
+      'Content-Type': 'application/json', 'X-IDTAP-Client': IDTAP_CLIENT
     },
     body: JSON.stringify({
       '_id': _id,
@@ -1032,7 +1039,7 @@ const updateSaEstimate = async (
   const request = {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json', 'X-IDTAP-Client': 'web'
+      'Content-Type': 'application/json', 'X-IDTAP-Client': IDTAP_CLIENT
     },
     body: JSON.stringify({
       'recID': recID,
@@ -1059,7 +1066,7 @@ const getVerifiedStatus = async (aeID: string, recIdx: string) => {
   const request = {
     method: 'GET',
     headers: {
-      'Content-Type': 'application/json', 'X-IDTAP-Client': 'web'
+      'Content-Type': 'application/json', 'X-IDTAP-Client': IDTAP_CLIENT
     },
   };
   let out;
@@ -1084,7 +1091,7 @@ const saveRaagRules = async (
   const request = {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json', 'X-IDTAP-Client': 'web'
+      'Content-Type': 'application/json', 'X-IDTAP-Client': IDTAP_CLIENT
     },
     body: JSON.stringify({ name, rules, date, newName })
   };
@@ -1105,7 +1112,7 @@ const getAllCollections = async (): Promise<CollectionType[]> => {
   const request = {
     method: 'GET',
     headers: {
-      'Content-Type': 'application/json', 'X-IDTAP-Client': 'web'
+      'Content-Type': 'application/json', 'X-IDTAP-Client': IDTAP_CLIENT
     }
   };
   try {
@@ -1125,7 +1132,7 @@ const getAllGharanas = async (): Promise<GharanaType[]> => {
   const request = {
     method: 'GET',
     headers: {
-      'Content-Type': 'application/json', 'X-IDTAP-Client': 'web'
+      'Content-Type': 'application/json', 'X-IDTAP-Client': IDTAP_CLIENT
     }
   };
   try {
@@ -1169,7 +1176,7 @@ const newUploadFile = async (file: File, onProgress: OnProgressType, {
     formData.append('userID', userID || '');
     const config = {
       headers: {
-        'Content-Type': 'multipart/form-data', 'X-IDTAP-Client': 'web'
+        'Content-Type': 'multipart/form-data', 'X-IDTAP-Client': IDTAP_CLIENT
       },
       onUploadProgress: (progEvent: AxiosProgressEvent) => {
         const progressPercent = 100 * progEvent.loaded / progEvent.total!;
@@ -1201,7 +1208,7 @@ const newUploadFile = async (file: File, onProgress: OnProgressType, {
     formData.append('userID', userID);
     const config = {
       headers: {
-        'Content-Type': 'multipart/form-data', 'X-IDTAP-Client': 'web'
+        'Content-Type': 'multipart/form-data', 'X-IDTAP-Client': IDTAP_CLIENT
       },
       onUploadProgress: (progEvent: AxiosProgressEvent) => {
         const progressPercent = 100 * progEvent.loaded / progEvent.total!;
@@ -1228,7 +1235,7 @@ const newUploadFile = async (file: File, onProgress: OnProgressType, {
     formData.append('userID', userID);
     const config = {
       headers: {
-        'Content-Type': 'multipart/form-data', 'X-IDTAP-Client': 'web'
+        'Content-Type': 'multipart/form-data', 'X-IDTAP-Client': IDTAP_CLIENT
       },
       onUploadProgress: (progEvent: AxiosProgressEvent) => {
         const progressPercent = 100 * progEvent.loaded / progEvent.total!;
@@ -1254,7 +1261,7 @@ const addRecordingToCollection = async (recordingID: string, colID: string) => {
   const request = {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json', 'X-IDTAP-Client': 'web'
+      'Content-Type': 'application/json', 'X-IDTAP-Client': IDTAP_CLIENT
     },
     body: JSON.stringify({ recordingID, colID })
   };
@@ -1275,7 +1282,7 @@ const getLooseRecordings = async (userID: string): Promise<RecType[]> => {
   const request = {
     method: 'GET',
     headers: {
-      'Content-Type': 'application/json', 'X-IDTAP-Client': 'web'
+      'Content-Type': 'application/json', 'X-IDTAP-Client': IDTAP_CLIENT
     }
   };
   try {
@@ -1295,7 +1302,7 @@ const addAEToCollection = async (audioEventID: string, colID: string) => {
   const request = {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json', 'X-IDTAP-Client': 'web'
+      'Content-Type': 'application/json', 'X-IDTAP-Client': IDTAP_CLIENT
     },
     body: JSON.stringify({ audioEventID, colID })
   };
@@ -1315,7 +1322,7 @@ const addTransToCollection = async (transcriptionID: string, colID: string) => {
   const request = {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json', 'X-IDTAP-Client': 'web'
+      'Content-Type': 'application/json', 'X-IDTAP-Client': IDTAP_CLIENT
     },
     body: JSON.stringify({ transcriptionID, colID })
   };
@@ -1335,7 +1342,7 @@ const removeRecFromColl = async (recordingID: string, colID: string) => {
   const request = {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json', 'X-IDTAP-Client': 'web'
+      'Content-Type': 'application/json', 'X-IDTAP-Client': IDTAP_CLIENT
     },
     body: JSON.stringify({ recordingID, colID })
   };
@@ -1355,7 +1362,7 @@ const removeAEfromColl = async (audioEventID: string, colID: string) => {
   const request = {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json', 'X-IDTAP-Client': 'web'
+      'Content-Type': 'application/json', 'X-IDTAP-Client': IDTAP_CLIENT
     },
     body: JSON.stringify({ audioEventID, colID })
   };
@@ -1375,7 +1382,7 @@ const removeTFromColl = async (transcriptionID: string, colID: string) => {
   const request = {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json', 'X-IDTAP-Client': 'web'
+      'Content-Type': 'application/json', 'X-IDTAP-Client': IDTAP_CLIENT
     },
     body: JSON.stringify({ transcriptionID, colID })
   };
@@ -1418,7 +1425,7 @@ const userLoginGoogle = async (userData: UserDataType) => {
   let request = {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json', 'X-IDTAP-Client': 'web'
+      'Content-Type': 'application/json', 'X-IDTAP-Client': IDTAP_CLIENT
     },
     body: data
   };
@@ -1438,7 +1445,7 @@ const agreeToWaiver = async (userID: string) => {
   const request = {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json', 'X-IDTAP-Client': 'web'
+      'Content-Type': 'application/json', 'X-IDTAP-Client': IDTAP_CLIENT
     },
     body: JSON.stringify({ userID: userID })
   };
@@ -1458,7 +1465,7 @@ const nameFromUserID = async (userID: string) => {
   const request = {
     method: 'GET',
     headers: {
-      'Content-Type': 'application/json', 'X-IDTAP-Client': 'web'
+      'Content-Type': 'application/json', 'X-IDTAP-Client': IDTAP_CLIENT
     }
   };
   try {
@@ -1478,7 +1485,7 @@ const handleGoogleAuthCode = async (code: string, redirectURL: string) => {
   const request = {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json', 'X-IDTAP-Client': 'web'
+      'Content-Type': 'application/json', 'X-IDTAP-Client': IDTAP_CLIENT
     },
     body: JSON.stringify({ 
       authCode: code,
@@ -1500,7 +1507,7 @@ const updateTranscriptionTitle = async (id: string, title: string) => {
   const request = {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json', 'X-IDTAP-Client': 'web'
+      'Content-Type': 'application/json', 'X-IDTAP-Client': IDTAP_CLIENT
     },
     body: JSON.stringify({
       id: id, 
@@ -1523,7 +1530,7 @@ const updateTranscriptionPermissions = async (id: string, perm: string) => {
   const request = {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json', 'X-IDTAP-Client': 'web'
+      'Content-Type': 'application/json', 'X-IDTAP-Client': IDTAP_CLIENT
     },
     body: JSON.stringify({
       id: id,
@@ -1552,7 +1559,7 @@ const saveMultiQuery = async (
   const request = {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json', 'X-IDTAP-Client': 'web'
+      'Content-Type': 'application/json', 'X-IDTAP-Client': IDTAP_CLIENT
     },
     body: JSON.stringify({ title, userID, transcriptionID, queries, options })
   };
@@ -1579,7 +1586,7 @@ const loadQueries = async (userID: string, transcriptionID: string): Promise<
   const request = {
     method: 'GET',
     headers: {
-      'Content-Type': 'application/json', 'X-IDTAP-Client': 'web'
+      'Content-Type': 'application/json', 'X-IDTAP-Client': IDTAP_CLIENT
     }
   };
   try {
@@ -1600,7 +1607,7 @@ const deleteQuery = async (userID: string, queryID: string) => {
   const request = {
     method: 'DELETE',
     headers: {
-      'Content-Type': 'application/json', 'X-IDTAP-Client': 'web'
+      'Content-Type': 'application/json', 'X-IDTAP-Client': IDTAP_CLIENT
     },
     body: JSON.stringify({ userID, queryID })
   };
@@ -1622,7 +1629,7 @@ const updateTranscriptionOwner = async (
   const request = {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json', 'X-IDTAP-Client': 'web'
+      'Content-Type': 'application/json', 'X-IDTAP-Client': IDTAP_CLIENT
     },
     body: JSON.stringify({
       transcriptionID: id,
@@ -1679,7 +1686,7 @@ const cloneTranscription = async ({
   const request = {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json', 'X-IDTAP-Client': 'web'
+      'Content-Type': 'application/json', 'X-IDTAP-Client': IDTAP_CLIENT
     },
     body: JSON.stringify({
       id: id, 
@@ -1710,7 +1717,7 @@ const getInstrumentation = async (audioID: string) => {
   const request = {
     method: 'GET',
     headers: {
-      'Content-Type': 'application/json', 'X-IDTAP-Client': 'web'
+      'Content-Type': 'application/json', 'X-IDTAP-Client': IDTAP_CLIENT
     }
   };
   try {
@@ -1730,7 +1737,7 @@ const getIpaVowels = async (): Promise<IpaVowelType[]> => {
   const request = {
     method: 'GET',
     headers: {
-      'Content-Type': 'application/json', 'X-IDTAP-Client': 'web'
+      'Content-Type': 'application/json', 'X-IDTAP-Client': IDTAP_CLIENT
     }
   };
   try {
@@ -1749,7 +1756,7 @@ const getConsonants = async (): Promise<IPAConsonantType[]> => {
   const request = {
     method: 'GET',
     headers: {
-      'Content-Type': 'application/json', 'X-IDTAP-Client': 'web'
+      'Content-Type': 'application/json', 'X-IDTAP-Client': IDTAP_CLIENT
     }
   };
   try {
@@ -1769,7 +1776,7 @@ const getAllUsers = async () => {
   const request = {
     method: 'GET',
     headers: {
-      'Content-Type': 'application/json', 'X-IDTAP-Client': 'web'
+      'Content-Type': 'application/json', 'X-IDTAP-Client': IDTAP_CLIENT
     }
   };
   try {
@@ -1803,7 +1810,7 @@ const getRecsFromIds = async (recIDs: string[]) => {
   const request = {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json', 'X-IDTAP-Client': 'web'
+      'Content-Type': 'application/json', 'X-IDTAP-Client': IDTAP_CLIENT
     },
     body: JSON.stringify({
       recIDs
@@ -1825,7 +1832,7 @@ const getAEsFromIds = async (aeIDs: string[]) => {
   const request = {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json', 'X-IDTAP-Client': 'web'
+      'Content-Type': 'application/json', 'X-IDTAP-Client': IDTAP_CLIENT
     },
     body: JSON.stringify({
       aeIDs
@@ -1847,7 +1854,7 @@ const getTranscriptionsFromIds = async (transIDs: string[], userID: string) => {
   const request = {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json', 'X-IDTAP-Client': 'web'
+      'Content-Type': 'application/json', 'X-IDTAP-Client': IDTAP_CLIENT
     },
     body: JSON.stringify({
       transIDs,
@@ -1870,7 +1877,7 @@ const getEditableCollections = async (userID: string): Promise<CollectionType[]>
   const request = {
     method: 'GET',
     headers: {
-      'Content-Type': 'application/json', 'X-IDTAP-Client': 'web'
+      'Content-Type': 'application/json', 'X-IDTAP-Client': IDTAP_CLIENT
     }
   };
   try {
@@ -1891,7 +1898,7 @@ const getSavedSettings = async (userID: string) => {
   const request = {
     method: 'GET',
     headers: {
-      'Content-Type': 'application/json', 'X-IDTAP-Client': 'web'
+      'Content-Type': 'application/json', 'X-IDTAP-Client': IDTAP_CLIENT
     }
   };
   try {
@@ -1911,7 +1918,7 @@ const saveDisplaySettings = async (userID: string, settings: DisplaySettings) =>
   const request = {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json', 'X-IDTAP-Client': 'web'
+      'Content-Type': 'application/json', 'X-IDTAP-Client': IDTAP_CLIENT
     },
     body: JSON.stringify({ userID, settings })
   };
@@ -1931,7 +1938,7 @@ const getDefaultSettings = async (userID: string) => {
   const request = {
     method: 'GET',
     headers: {
-      'Content-Type': 'application/json', 'X-IDTAP-Client': 'web'
+      'Content-Type': 'application/json', 'X-IDTAP-Client': IDTAP_CLIENT
     }
   };
   try {
@@ -1951,7 +1958,7 @@ const setDefaultSettings = async (userID: string, settingsID: string) => {
   const request = {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json', 'X-IDTAP-Client': 'web'
+      'Content-Type': 'application/json', 'X-IDTAP-Client': IDTAP_CLIENT
     },
     body: JSON.stringify({ userID, settingsID })
   };
@@ -1971,7 +1978,7 @@ const updateSavedDisplaySettings = async (userId: string, uniqueId: string, sett
   const request = {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json', 'X-IDTAP-Client': 'web'
+      'Content-Type': 'application/json', 'X-IDTAP-Client': IDTAP_CLIENT
     },
     body: JSON.stringify({ userId, uniqueId, settings })
   };
@@ -1991,7 +1998,7 @@ const deleteSavedDisplaySettings = async (userId: string, uniqueId: string) => {
   const request = {
     method: 'DELETE',
     headers: {
-      'Content-Type': 'application/json', 'X-IDTAP-Client': 'web'
+      'Content-Type': 'application/json', 'X-IDTAP-Client': IDTAP_CLIENT
     },
     body: JSON.stringify({ userId, uniqueId })
   };
@@ -2011,7 +2018,7 @@ const getTranscriptionInstrumentation = async (transcriptionID: string) => {
   const request = {
     method: 'GET',
     headers: {
-      'Content-Type': 'application/json', 'X-IDTAP-Client': 'web'
+      'Content-Type': 'application/json', 'X-IDTAP-Client': IDTAP_CLIENT
     }
   };
   try {
@@ -2031,7 +2038,7 @@ const updateInstrumentation = async (transcriptionID: string, instrumentation: I
   const request = {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json', 'X-IDTAP-Client': 'web'
+      'Content-Type': 'application/json', 'X-IDTAP-Client': IDTAP_CLIENT
     },
     body: JSON.stringify({ transcriptionID, instrumentation })
   };
@@ -2051,7 +2058,7 @@ const getTranscriptionInstrumentationAndTitles = async (transcriptionID: string)
   const request = {
     method: 'GET',
     headers: {
-      'Content-Type': 'application/json', 'X-IDTAP-Client': 'web'
+      'Content-Type': 'application/json', 'X-IDTAP-Client': IDTAP_CLIENT
     }
   };
   try {
@@ -2071,7 +2078,7 @@ const updateInstrumentationAndTitles = async (transcriptionID: string, instrumen
   const request = {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json', 'X-IDTAP-Client': 'web'
+      'Content-Type': 'application/json', 'X-IDTAP-Client': IDTAP_CLIENT
     },
     body: JSON.stringify({ transcriptionID, instrumentation, trackTitles })
   };
@@ -2091,7 +2098,7 @@ const updateCollectionInviteCode = async (id: string, inviteCode: string) => {
   const request = {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json', 'X-IDTAP-Client': 'web'
+      'Content-Type': 'application/json', 'X-IDTAP-Client': IDTAP_CLIENT
     },
     body: JSON.stringify({ id, inviteCode })
   };
@@ -2111,7 +2118,7 @@ const enrollUserInCollection = async (userID: string, inviteCode: string) => {
   const request = {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json', 'X-IDTAP-Client': 'web'
+      'Content-Type': 'application/json', 'X-IDTAP-Client': IDTAP_CLIENT
     },
     body: JSON.stringify({ userID, inviteCode })
   };
@@ -2134,7 +2141,7 @@ const updateTranscriptionViewed = async (
   const request = {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json', 'X-IDTAP-Client': 'web'
+      'Content-Type': 'application/json', 'X-IDTAP-Client': IDTAP_CLIENT
     },
     body: JSON.stringify({ userID, transcriptionID })
   };
@@ -2156,7 +2163,7 @@ const getUsersLastViewedTranscriptions = async (
   const request = {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json', 'X-IDTAP-Client': 'web'
+      'Content-Type': 'application/json', 'X-IDTAP-Client': IDTAP_CLIENT
     },
     body: JSON.stringify({ userId })
   }
@@ -2176,7 +2183,7 @@ const getDNExtractExcel = async (id: string, options: DN_ExtractorOptions) => {
   const request = {
     method: 'GET',
     headers: {
-      'Content-Type': 'application/json', 'X-IDTAP-Client': 'web'
+      'Content-Type': 'application/json', 'X-IDTAP-Client': IDTAP_CLIENT
     }
   };
   try {
