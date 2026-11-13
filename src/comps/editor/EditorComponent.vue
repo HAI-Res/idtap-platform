@@ -1946,6 +1946,19 @@ export default defineComponent({
       if (this.piece.instrumentation) {
         trajObj.instrumentation = this.piece.instrumentation[track];
       }
+      // Phonemes belong to vocal tracks only (PROP-8, Jon 2026-11-13). The panel
+      // keeps its last vowel ('a' by default) across track switches, which used to
+      // stamp a vowel on every new instrumental trajectory.
+      const vocalTrack = [Instrument.Vocal_M, Instrument.Vocal_F]
+        .includes(this.piece.instrumentation?.[track] as Instrument);
+      // ...and the legacy fields are hindi-urdu only: on another pack the panel
+      // hides its dropdowns but may still hold a value from an earlier piece
+      const legacyPack = this.piece.resolvedSystem.phonology === 'hindi-urdu';
+      if (!vocalTrack || !legacyPack || stringIdx !== 0) {
+        trajObj.vowel = undefined;
+        trajObj.startConsonant = undefined;
+        trajObj.endConsonant = undefined;
+      }
       const newTraj = new Trajectory(trajObj);
 
       // Ensure trajectoryGrid exists for this string

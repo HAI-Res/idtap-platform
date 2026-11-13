@@ -13,6 +13,7 @@ import { Instrument } from '@shared/enums';
 import { getStarts } from '@/ts/utils';
 import { v4 as uuidv4 } from 'uuid';
 import { findLastIndex } from 'lodash';
+import type { LegacyFields } from '@shared/syllables';
 
 
 class Trajectory {
@@ -379,7 +380,9 @@ class Trajectory {
     this.vHindis = ['अ', 'आ', 'इ', 'ई', 'उ', 'ऊ', 'ए', 'ऐ', 'ओ', 'औ', '_'];
     this.vEngTrans = ['a', 'ā', 'i', 'ī', 'u', 'ū', 'ē', 'ai', 'ō', 'au', '_'];
     this.uniqueId = uniqueId;
-    if (this.uniqueId === undefined) {
+    // PROP-8: syllable anchors are trajectory uniqueIds, so every trajectory
+    // needs one before heal/projection. A stored null or '' counts as missing.
+    if (typeof this.uniqueId !== 'string' || this.uniqueId === '') {
       this.uniqueId = uuidv4();
     }
 
@@ -916,12 +919,66 @@ class Trajectory {
     const vibObj = obj.vibObj === undefined || obj.vibObj === null
       ? undefined
       : Trajectory.healVibObj(obj.vibObj, obj.durTot ?? 1.0);
+    // SYL-1 (contract 0.3.0): null == absent for the phonetic fields. A stored
+    // null used to survive the spread, count as present in firstTrajIdxs and
+    // build a consonant articulation with a null stroke.
+    const phonetic: { [k: string]: undefined } = {};
+    Trajectory.phoneticFields.forEach(k => {
+      if (obj[k] === null) phonetic[k] = undefined;
+    });
     return new Trajectory({
       ...obj,
+      ...phonetic,
       pitches,
       articulations,
       automation,
       vibObj,
+    });
+  }
+
+  /** The twelve in-memory phonetic fields (nine on the wire + vowel copies). */
+  static phoneticFields = [
+    'vowel', 'vowelIpa', 'vowelHindi', 'vowelEngTrans',
+    'startConsonant', 'startConsonantHindi', 'startConsonantIpa', 'startConsonantEngTrans',
+    'endConsonant', 'endConsonantHindi', 'endConsonantIpa', 'endConsonantEngTrans',
+  ] as const;
+
+  /**
+   * Write a projected legacy block (PROP-8 dual-write, shared/syllables.ts
+   * projectTrack) onto this trajectory: the nine wire fields, the in-memory vowel
+   * copies, and the 'consonant' articulations at '0.00' / '1.00'. Fields the
+   * projection leaves absent are cleared; a '0.00'/'1.00' articulation that is
+   * not a consonant is kept.
+   */
+  applyLegacy(p: LegacyFields) {
+    if (p.vowel !== undefined) {
+      this.updateVowel(p.vowel);
+    } else {
+      this.vowel = undefined;
+      this.vowelHindi = undefined;
+      this.vowelIpa = undefined;
+      this.vowelEngTrans = undefined;
+    }
+    (['start', 'end'] as const).forEach(which => {
+      const pre = which === 'start' ? 'startConsonant' : 'endConsonant';
+      const key = which === 'start' ? '0.00' : '1.00';
+      const art = p[which === 'start' ? 'art0' : 'art1'];
+      const lp = p as unknown as { [k: string]: string | undefined };
+      const self = this as unknown as { [k: string]: string | undefined };
+      ['', 'Hindi', 'Ipa', 'EngTrans'].forEach(suffix => {
+        self[pre + suffix] = lp[pre + suffix];
+      });
+      const existing = this.articulations[key];
+      if (existing && existing.name === 'consonant') delete this.articulations[key];
+      if (art) {
+        this.articulations[key] = new Articulation({
+          name: 'consonant',
+          stroke: art.stroke,
+          hindi: art.hindi,
+          ipa: art.ipa,
+          engTrans: art.engTrans,
+        });
+      }
     });
   }
 

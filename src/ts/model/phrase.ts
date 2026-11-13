@@ -7,6 +7,7 @@ import { PhraseCatType, ChikariDisplayType } from '@shared/types';
 import { v4 as uuidv4 } from 'uuid';
 import  findLastIndex  from 'lodash/findLastIndex';
 import { getStarts } from '@/ts/utils';
+import type { Syllable } from '@shared/syllables';
 
 export const initPhraseCategorization = (): PhraseCatType => {
   return {
@@ -70,6 +71,13 @@ class Phrase {
   adHocCategorizationGrid: string[];
   uniqueId: string;
   isSectionStart?: boolean;
+  /**
+   * PROP-8: this phrase's syllable list as it goes on the wire. undefined = the
+   * key is absent (not healed / tier not persisted for this phrase). The Piece
+   * owns the in-memory tier (Piece.syllablePool) and refreshes this field in
+   * Piece.syncSyllables before every save; edit the pool, not this list.
+   */
+  syllables?: Syllable[];
   
   constructor({
     trajectories = [],
@@ -86,6 +94,7 @@ class Phrase {
     uniqueId = undefined,
     adHocCategorizationGrid = undefined,
     isSectionStart = undefined,
+    syllables = undefined,
   }: {
     trajectories?: Trajectory[],
     durTot?: number,
@@ -101,6 +110,7 @@ class Phrase {
     uniqueId?: string,
     adHocCategorizationGrid?: string[],
     isSectionStart?: boolean,
+    syllables?: Syllable[] | null,
   } = {}) {
     if (uniqueId === undefined) {
       this.uniqueId = uuidv4();
@@ -178,6 +188,9 @@ class Phrase {
       this.adHocCategorizationGrid = [];
     }
     this.isSectionStart = isSectionStart;
+    this.syllables = syllables === null || syllables === undefined
+      ? undefined
+      : JSON.parse(JSON.stringify(syllables));
   }
 
   updateFundamental(fundamental: number) {
@@ -593,15 +606,16 @@ class Phrase {
       if (traj.id !== 12) {
         const c1 = ct === 0;
         const c2 = silentTrigger;
-        const c3 = traj.startConsonant !== undefined;
+        // SYL-1: null == absent ('' is a stored value and counts).
+        const c3 = traj.startConsonant !== undefined && traj.startConsonant !== null;
         const c4 = endConsonantTrigger;
-        const c5 = traj.vowel !== lastVowel;
+        const c5 = (traj.vowel ?? undefined) !== lastVowel;
         if (c1 || c2 || c3 || c4 || c5) {
           idxs.push(tIdx);
         }
         ct += 1;
-        endConsonantTrigger = traj.endConsonant !== undefined;
-        lastVowel = traj.vowel;
+        endConsonantTrigger = traj.endConsonant !== undefined && traj.endConsonant !== null;
+        lastVowel = traj.vowel ?? undefined;
       }
       silentTrigger = traj.id === 12;
     });
@@ -638,6 +652,7 @@ class Phrase {
       uniqueId: this.uniqueId,
       adHocCategorizationGrid: this.adHocCategorizationGrid,
       isSectionStart: this.isSectionStart,
+      syllables: this.syllables,
     }
   }
 
