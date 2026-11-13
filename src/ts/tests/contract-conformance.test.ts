@@ -158,7 +158,8 @@ function legacyByUid(json: any) {
   return out;
 }
 
-const syllableGrid = (json: any) => json.phraseGrid.map((tr: any[]) => tr.map(ph => ph.syllables));
+// as the reference syllable_grid: an absent key is null (None)
+const syllableGrid = (json: any) => json.phraseGrid.map((tr: any[]) => tr.map(ph => ph.syllables ?? null));
 const loadViolations = (piece: Piece) => splitViolations(piece.syllableViolations);
 
 function expectGuardAndViolations(json: any, violations: [string[], string[]], exp: any) {
@@ -176,10 +177,13 @@ describe('syllable conformance (PROP-8)', () => {
         // stored, carrying the tier the loader built (healed, not yet projected).
         const loaded = clone(fx.pieceJson);
         const tier = piece.syllablesByPhrase();
-        loaded.phraseGrid.forEach((tr: any[], k: number) => tr.forEach((ph, pi) => {
-          ph.syllables = clone(tier[k][pi]);
-        }));
         const out = save(piece, true);
+        // as heal_piece: only phrases that carry the key after the heal (none on a
+        // non-vocal track)
+        loaded.phraseGrid.forEach((tr: any[], k: number) => tr.forEach((ph, pi) => {
+          if (out.phraseGrid[k]?.[pi] && 'syllables' in out.phraseGrid[k][pi]) ph.syllables = clone(tier[k][pi]);
+          else delete ph.syllables;
+        }));
         expect(syllableGrid(out)).toEqual(exp.syllables);
         const after = legacyByUid(out);
         if (exp.legacyRoundTrip) {
