@@ -7,6 +7,7 @@ import { mediaPath, PYTHON_PATH, pythonEnv } from './mediaConfig';
 import { isOwner, canEdit, canView } from '../shared/authz';
 import { checkWriteGuard } from './writeGuard';
 import { systemChangeError } from './systemRoutes';
+import { unsafeUpdateKeys, UNSAFE_KEYS_ERROR } from './updateKeys';
 
 // Function to run a Python script and return a Promise
 function runPythonScript(scriptPath: string, args: string[] = []): Promise<void> {
@@ -241,6 +242,10 @@ export default function apiRoutes(collections: Collections) {
     if (!actorId) {
       return res.status(401).json({ error: 'User not authenticated' });
     }
+    // a dotted key ("explicitPermissions.edit") or "$op" would bypass the
+    // owner-only exclusions below; refused for inserts and updates alike
+    const badKeys = unsafeUpdateKeys(req.body);
+    if (badKeys.length) return res.status(400).json(UNSAFE_KEYS_ERROR(badKeys));
 
     // No _id -> insert a new transcription owned by the caller (the Bearer
     // counterpart of the session-guarded web /insertNewTranscription route).
