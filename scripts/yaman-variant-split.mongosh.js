@@ -14,10 +14,16 @@
 //
 // APPLY mode first writes an undo file (/tmp/yaman-split-undo-<ts>.json) with
 // the untouched ragas doc and every transcription it is about to rename.
-// Idempotent: re-running after APPLY changes nothing.
+// Idempotent: re-running after APPLY writes nothing (no undo file, no fresh
+// updatedDate/updatedBy/note) — each write is skipped when its target state
+// already holds. APPLY refuses to run without UPDATED_BY.
 
 const APPLY = process.env.APPLY === '1';
 const UPDATED_BY = process.env.UPDATED_BY || null;
+if (APPLY && !UPDATED_BY) {
+  print('APPLY=1 requires UPDATED_BY=<users._id> (recorded as ragas.updatedBy). Nothing written.');
+  quit(1);
+}
 const BASE = 'Yaman';
 const VARIANT = 'Yaman_both_mas';
 
@@ -35,6 +41,14 @@ const yaman8 = Object.assign({}, yaman7, { ma: { lowered: true, raised: true } }
 const swara = db.getSiblingDB('swara');
 const numPitches = rules => Object.values(rules).reduce((a, v) =>
   a + (typeof v === 'boolean' ? (v ? 1 : 0) : (v.lowered ? 1 : 0) + (v.raised ? 1 : 0)), 0);
+
+// Rule-set equality on the seven swaras, independent of key order.
+const SARGAM = ['sa', 're', 'ga', 'ma', 'pa', 'dha', 'ni'];
+const sameRules = (a, b) => !!a && !!b && SARGAM.every(s => {
+  const x = a[s], y = b[s];
+  if (typeof x === 'boolean' || typeof y === 'boolean') return x === y;
+  return !!x && !!y && !!x.lowered === !!y.lowered && !!x.raised === !!y.raised;
+});
 
 const users = {};
 swara.users.find({}, { name: 1, email: 1 }).forEach(u => { users[String(u._id)] = u.name || u.email; });
@@ -69,8 +83,16 @@ if (odd.length) {
 const embedded = yamanPieces.filter(t => t.raga.ruleSet != null);
 if (embedded.length) print(`  note: ${embedded.length} piece(s) already embed a ruleSet; the rename does not touch it`);
 
+const variantDone = !!variant && sameRules(variant.rules, yaman8);
+const baseDone = !!base && sameRules(base.rules, yaman7);
+print(`\nto do: ${variantDone ? '' : `write ragas.${VARIANT}; `}` +
+  `${baseDone ? '' : `reset ragas.${BASE} to 7 pitches; `}` +
+  `rename ${toMove.length} transcription(s)`);
+
 if (!APPLY) {
   print('\nDRY RUN — nothing written. Re-run with APPLY=1 UPDATED_BY=<uid> to apply.');
+} else if (variantDone && baseDone && toMove.length === 0) {
+  print('\nalready applied — nothing to write.');
 } else {
   // --- undo file -----------------------------------------------------------
   const fs = require('fs');
@@ -84,21 +106,33 @@ if (!APPLY) {
 
   const now = new Date();
   // 1. variant: carries the 8-pitch rules that were on Yaman since 2025-10-02
-  const v = swara.ragas.updateOne({ name: VARIANT }, {
-    $set: { rules: yaman8, updatedDate: now, updatedBy: UPDATED_BY,
-      note: `split from ${BASE} on ${now.toISOString()}: the 8-pitch (both Ma) rules ` +
-            `${BASE} carried from ${base ? base.updatedDate : '?'}; see idtap-contract RAGA-4` },
-  }, { upsert: true });
-  print(`ragas.${VARIANT}: matched ${v.matchedCount}, upserted ${v.upsertedCount ? 1 : 0}`);
+  if (variantDone) {
+    print(`ragas.${VARIANT}: already has the 8-pitch rules — skipped`);
+  } else {
+    const v = swara.ragas.updateOne({ name: VARIANT }, {
+      $set: { rules: yaman8, updatedDate: now, updatedBy: UPDATED_BY,
+        note: `split from ${BASE} on ${now.toISOString()}: the 8-pitch (both Ma) rules ` +
+              `${BASE} carried from ${base ? base.updatedDate : '?'}; see idtap-contract RAGA-4` },
+    }, { upsert: true });
+    print(`ragas.${VARIANT}: matched ${v.matchedCount}, upserted ${v.upsertedCount ? 1 : 0}`);
+  }
   // 2. base back to 7 pitches (matches every code default and the 7-ratio pieces)
-  const b = swara.ragas.updateOne({ name: BASE }, {
-    $set: { rules: yaman7, updatedDate: now, updatedBy: UPDATED_BY },
-  }, { upsert: true });
-  print(`ragas.${BASE}: matched ${b.matchedCount}, modified ${b.modifiedCount}`);
+  if (baseDone) {
+    print(`ragas.${BASE}: already has the 7-pitch rules — skipped`);
+  } else {
+    const b = swara.ragas.updateOne({ name: BASE }, {
+      $set: { rules: yaman7, updatedDate: now, updatedBy: UPDATED_BY },
+    }, { upsert: true });
+    print(`ragas.${BASE}: matched ${b.matchedCount}, modified ${b.modifiedCount}`);
+  }
   // 3. 8-ratio pieces → variant
-  const t = swara.transcriptions.updateMany(
-    { _id: { $in: toMove.map(r => new ObjectId(r._id)) } },
-    { $set: { 'raga.name': VARIANT } },
-  );
-  print(`transcriptions renamed to ${VARIANT}: ${t.modifiedCount}/${toMove.length}`);
+  if (toMove.length === 0) {
+    print(`transcriptions: none left to rename — skipped`);
+  } else {
+    const t = swara.transcriptions.updateMany(
+      { _id: { $in: toMove.map(r => new ObjectId(r._id)) } },
+      { $set: { 'raga.name': VARIANT } },
+    );
+    print(`transcriptions renamed to ${VARIANT}: ${t.modifiedCount}/${toMove.length}`);
+  }
 }
