@@ -4093,6 +4093,9 @@ export default defineComponent({
       }
       phrase.trajectoryGrid[stringIdx].splice(tIdx, 0, newTraj);
       phrase.reset();
+      // PROP-8: the new trajectory now starts the syllable (it took the start
+      // consonant), so its anchor moves with it and keeps the syllable's fields.
+      if (stringIdx === 0) props.piece.reanchorSyllable(traj.uniqueId!, newTraj.uniqueId!);
       trajRenderStatus.value[track].push({
         uniqueId: newTraj.uniqueId!,
         renderStatus: false,

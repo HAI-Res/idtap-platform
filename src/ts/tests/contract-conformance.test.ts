@@ -12,6 +12,10 @@ import { expect, describe, it } from 'vitest';
 import { readFileSync, readdirSync } from 'fs';
 import path from 'path';
 import { Pitch, Raga, Trajectory, Phrase, Piece } from '../model';
+import {
+  PACKS, legacySafe, legacyOfTraj, splitViolations, checkInvariants, deriveIpa,
+  derivedTone, stripSyllables, trackFlat, uidOf, CONTRACT_VERSION as SHARED_CONTRACT_VERSION,
+} from '@shared/syllables';
 
 const CONTRACT = process.env.IDTAP_CONTRACT_DIR
   || path.resolve(process.cwd(), '..', 'idtap-contract');
@@ -19,7 +23,7 @@ const CONTRACT = process.env.IDTAP_CONTRACT_DIR
 // The contract version this model was built against. contract.json `version` must
 // match it exactly (idtap-contract README "Versioning"): a minor bump changes wire
 // semantics and needs the matching heal here before the assertion is moved.
-const CONTRACT_VERSION = '0.2.0';
+const CONTRACT_VERSION = '0.3.0';
 
 // The fixtures live in the (private) sibling idtap-contract repo. When it isn't
 // present — e.g. a plain `pnpm test` in CI without the contract checkout — degrade
@@ -133,6 +137,148 @@ describe('piece conformance', () => {
       got.forEach((g, i) => expect(rel(g, fx.expected.allPitchFrequencies[i], r)).toBe(true));
     });
   }
+});
+
+// ---------------------------------------------------------------- PROP-7/8/9 (0.3.0)
+// conformance/README.md "Syllable tier, system, packs". Every case runs the real
+// model: Piece.fromJSON (heal on load) and Piece.toJSON (re-home + dual-write).
+
+const clone = <T>(x: T): T => JSON.parse(JSON.stringify(x));
+
+/** Serialize as a 0.3.0 save does; `all` persists the tier on every phrase. */
+function save(piece: Piece, all = false): any {
+  if (all) piece.persistSyllables = 'all';
+  return JSON.parse(JSON.stringify(piece));
+}
+
+/** {uid: legacy fields} over row 0 of a serialized piece. */
+function legacyByUid(json: any) {
+  const out: { [uid: string]: any } = {};
+  for (const tr of json.phraseGrid) for (const [, , t] of trackFlat(tr)) out[uidOf(t)] = legacyOfTraj(t);
+  return out;
+}
+
+const syllableGrid = (json: any) => json.phraseGrid.map((tr: any[]) => tr.map(ph => ph.syllables));
+const loadViolations = (piece: Piece) => splitViolations(piece.syllableViolations);
+
+function expectGuardAndViolations(json: any, violations: [string[], string[]], exp: any) {
+  expect(legacySafe(json)).toEqual([exp.legacySafe, exp.legacySafeReasons]);
+  expect(violations).toEqual([exp.violations, exp.warnings ?? []]);
+}
+
+describe('syllable conformance (PROP-8)', () => {
+  for (const { name, fx } of fixtures('syllable')) {
+    const exp = fx.expected;
+    if (fx.kind === 'heal') {
+      it(`${name} (heal)`, () => {
+        const piece = Piece.fromJSON(clone(fx.pieceJson));
+        // The guard reads the stored legacy fields: evaluate it on the piece as
+        // stored, carrying the tier the loader built (healed, not yet projected).
+        const loaded = clone(fx.pieceJson);
+        const tier = piece.syllablesByPhrase();
+        loaded.phraseGrid.forEach((tr: any[], k: number) => tr.forEach((ph, pi) => {
+          ph.syllables = clone(tier[k][pi]);
+        }));
+        const out = save(piece, true);
+        expect(syllableGrid(out)).toEqual(exp.syllables);
+        const after = legacyByUid(out);
+        if (exp.legacyRoundTrip) {
+          // Over the input's trajectories: today's loader also appends a trailing
+          // silence where a track is shorter than the piece (A does the same).
+          const want = legacyByUid(fx.pieceJson);
+          expect(Object.fromEntries(Object.keys(want).map(u => [u, after[u]]))).toEqual(want);
+        }
+        for (const [uid, want] of Object.entries(exp.legacyAfterProjection ?? {})) {
+          expect(after[uid]).toEqual(want);
+        }
+        expectGuardAndViolations(loaded, loadViolations(piece), exp);
+        // ...and once a 0.3.0 client has saved it (dual-write), the stored legacy
+        // fields are the projection: a Hindi piece without non-legacy fields is safe.
+        if (exp.legacySafeReasons.every((r: string) => r === 'boundary')) {
+          expect(legacySafe(out)).toEqual([true, []]);
+        }
+      });
+    } else if (fx.kind === 'project') {
+      it(`${name} (project)`, () => {
+        const piece = Piece.fromJSON(clone(fx.pieceJson));
+        const out = save(piece);
+        expect(legacyByUid(out)).toEqual(exp.legacy);
+        const syls = out.phraseGrid.flatMap((tr: any[]) => tr.flatMap(ph => ph.syllables));
+        expect(syls.map((s: any) => deriveIpa(s, piece.pack!))).toEqual(exp.derivedIpa);
+        if (exp.nineTone !== undefined) {
+          expect(syls.map((s: any) => derivedTone(s, piece.pack!))).toEqual(exp.nineTone);
+        }
+        expectGuardAndViolations(out, loadViolations(piece), exp);
+      });
+    } else if (fx.kind === 'rehome') {
+      it(`${name} (rehome)`, () => {
+        // The edit as the editor makes it: the trajectories are regrouped into
+        // new phrases in memory; the tier (the piece's pool) is untouched.
+        const before = Piece.fromJSON(clone(fx.pieceJson));
+        const beforeOut = save(before);
+        const after = Piece.fromJSON(stripSyllables(clone(fx.pieceAfterEdit)));
+        after.syllablePool = before.syllablePool;
+        after.storedSyllablePhraseUids = new Set(before.storedSyllablePhraseUids);
+        after.storedSyllableTrajUids = new Set(before.storedSyllableTrajUids);
+        const { dropped } = after.syncSyllables();
+        const out = save(after);
+        expect(syllableGrid(out)).toEqual(exp.syllables);
+        expect(dropped).toEqual(exp.dropped);
+        if (exp.legacyUnchanged) expect(legacyByUid(out)).toEqual(legacyByUid(beforeOut));
+        expectGuardAndViolations(out, splitViolations(checkInvariants(out)), exp);
+      });
+    } else if (fx.kind === 'invariants') {
+      for (const c of fx.cases) {
+        it(`${name}: ${c.name}`, () => {
+          const piece = Piece.fromJSON(clone(c.pieceJson));
+          expect(loadViolations(piece)).toEqual([c.expected.violations, c.expected.warnings ?? []]);
+        });
+      }
+    } else if (fx.kind === 'guard') {
+      for (const c of fx.cases) {
+        it(`${name}: ${c.name}`, () => {
+          expect(legacySafe(c.pieceJson)).toEqual([c.expected.legacySafe, c.expected.legacySafeReasons]);
+        });
+      }
+    } else {
+      it(`${name}: unknown kind ${fx.kind}`, () => { expect.fail(`unknown kind ${fx.kind}`); });
+    }
+  }
+});
+
+describe('system conformance (PROP-7)', () => {
+  for (const { name, fx } of fixtures('system')) {
+    it(name, () => {
+      const exp = fx.expected;
+      const piece = Piece.fromJSON(clone(fx.pieceJson));
+      expect(piece.resolvedSystem).toEqual(exp.resolved);
+      expect(piece.pack?.id).toBe(exp.pack);
+      expect(piece.syllableTierEnabled).toBe(exp.syllableUi);
+      expect(loadViolations(piece)).toEqual([exp.violations, exp.warnings ?? []]);
+      const out = save(piece);
+      // unknown ids and components are kept verbatim
+      if ('system' in fx.pieceJson) expect(out.system).toEqual(fx.pieceJson.system);
+      else expect('system' in out).toBe(false);
+      if (exp.derivedIpa !== undefined) {
+        const syls = piece.syllablesByPhrase()[0][0];
+        expect(syls.map(s => deriveIpa(s, piece.pack!))).toEqual(exp.derivedIpa);
+      }
+    });
+  }
+});
+
+describe('phoneme packs (PROP-9)', () => {
+  it.runIf(HAVE_CONTRACT)('bundled packs equal the contract packs', () => {
+    const dir = path.join(CONTRACT, 'packs');
+    const ids = readdirSync(dir).filter(f => f.endsWith('.json')).map(f => f.replace(/\.json$/, ''));
+    expect(Object.keys(PACKS).sort()).toEqual(ids.sort());
+    for (const id of ids) {
+      expect(PACKS[id]).toEqual(JSON.parse(readFileSync(path.join(dir, `${id}.json`), 'utf8')));
+    }
+  });
+  it('the header version and the conformance version agree', () => {
+    expect(SHARED_CONTRACT_VERSION).toBe(CONTRACT_VERSION);
+  });
 });
 
 // When CI sets REQUIRE_CONTRACT=1, the idtap-contract fixtures MUST be present — fail
