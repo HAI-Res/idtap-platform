@@ -1802,14 +1802,19 @@ const runServer = async () => {
 		  res.status(400).json({ error: 'name required' });
 		  return;
 		}
-		const total = await transcriptions.countDocuments({ 'raga.name': name });
-		const legacy = await transcriptions.countDocuments({
-		  'raga.name': name,
-		  $or: [
-			{ 'raga.ruleSet': { $exists: false } },
-			{ 'raga.ruleSet': null },
-		  ],
-		});
+		// "Legacy" must match the client's hasStoredRuleSet (src/js/ruleSetHeal.ts):
+		// a missing, null or empty-object ruleSet all load with the DB rules.
+		const [total, legacy] = await Promise.all([
+		  transcriptions.countDocuments({ 'raga.name': name }),
+		  transcriptions.countDocuments({
+			'raga.name': name,
+			$or: [
+			  { 'raga.ruleSet': { $exists: false } },
+			  { 'raga.ruleSet': null },
+			  { 'raga.ruleSet': {} },
+			],
+		  }),
+		]);
 		res.json({ name, total, legacy });
 	  } catch (err) {
 		console.error(err);
