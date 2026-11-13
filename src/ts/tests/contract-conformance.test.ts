@@ -23,7 +23,7 @@ const CONTRACT = process.env.IDTAP_CONTRACT_DIR
 // The contract version this model was built against. contract.json `version` must
 // match it exactly (idtap-contract README "Versioning"): a minor bump changes wire
 // semantics and needs the matching heal here before the assertion is moved.
-const CONTRACT_VERSION = '0.3.0';
+const CONTRACT_VERSION = '0.3.1';
 
 // The fixtures live in the (private) sibling idtap-contract repo. When it isn't
 // present — e.g. a plain `pnpm test` in CI without the contract checkout — degrade

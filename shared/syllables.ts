@@ -590,15 +590,14 @@ export function legacySafe(piece: PieceLike): [boolean, string[]] {
   const reasons = new Set<string>();
   let pack: Pack;
   try { pack = packOf(piece); } catch { return [false, ['pack']]; }
+  // As the reference (contract 0.3.1): a tier the rules cannot read is refused
+  // rather than let an old client drop it.
+  if (checkInvariants(piece).some(([code]) => code === 'syllable-malformed')) return [false, ['unreadable']];
   if (pack.id !== LEGACY_PACK) reasons.add('pack');
   for (const track of piece.phraseGrid || []) {
     for (const ph of track) {
       const syls = ph.syllables;
-      if (syls !== undefined && syls !== null && (!Array.isArray(syls) || !syls.every(wellFormedSyllable))) {
-        // the server's guard turns this into 'unreadable' (fail closed)
-        throw new Error('stored syllable tier is malformed');
-      }
-      for (const s of syls || []) {
+      for (const s of (Array.isArray(syls) ? syls : [])) {
         for (const f of Object.keys(s)) if (!LEGACY_HOLDABLE.has(f)) reasons.add(f);
         if ((s.anchor.t ?? 0) !== 0) reasons.add('anchorT');
         for (const f of ['onset', 'coda'] as const) if (Array.isArray(s[f])) reasons.add('cluster');
@@ -664,7 +663,7 @@ export function rehome<P extends PieceLike>(before: PieceLike, after: P): [P, st
 
 // ------------------------------------------------------------------ client header
 /** Contract version this build implements; sent as `web/<version>` in X-IDTAP-Client. */
-export const CONTRACT_VERSION = '0.3.0';
+export const CONTRACT_VERSION = '0.3.1';
 export const KNOWN_CLIENTS = ['web', 'python', 'swift'];
 
 /**
