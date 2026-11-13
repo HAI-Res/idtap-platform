@@ -59,14 +59,26 @@ function* documents(dir: string): Generator<{ file: string; doc: any }> {
     } else if (Array.isArray(parsed)) {
       let n = 0;
       for (const d of parsed) yield { file: `${f}[${n++}]`, doc: d };
-    } else if (parsed && Array.isArray(parsed.phraseGrid)) yield { file: f, doc: parsed };
+    } else if (parsed && (Array.isArray(parsed.phraseGrid) || Array.isArray(parsed.phrases))) {
+      yield { file: f, doc: parsed };
+    } else {
+      // never drop a file silently: an unreadable shape is reported as a failure
+      yield { file: f, doc: parsed, unrecognized: true } as any;
+    }
   }
+}
+
+/** The track grid of a stored document; the oldest documents have only `phrases` (track 0). */
+function gridOf(doc: any): any[][] {
+  if (Array.isArray(doc?.phraseGrid)) return doc.phraseGrid;
+  if (Array.isArray(doc?.phrases)) return [doc.phrases];
+  return [];
 }
 
 /** The legacy fields of every row-0 trajectory, by position, as emitted (bytes). */
 function legacyByPosition(json: any): Map<string, { [k: string]: string | undefined }> {
   const out = new Map();
-  (json.phraseGrid || []).forEach((track: any[], k: number) => (track || []).forEach((ph: any, pi: number) => {
+  gridOf(json).forEach((track: any[], k: number) => (track || []).forEach((ph: any, pi: number) => {
     ((ph?.trajectoryGrid || [])[0] || []).forEach((t: any, ti: number) => {
       const r: { [k: string]: string | undefined } = {};
       for (const f of WIRE_FIELDS) {
@@ -113,7 +125,7 @@ function main() {
   const totals = {
     pieces: 0, trajectories: 0,
     gateFailPieces: 0, gateFailPiecesWithStoredTier: 0, gateDiffs: 0, gateDiffsByField: {} as { [k: string]: number },
-    aFailed: 0, bFailed: 0,
+    aFailed: 0, bFailed: 0, unrecognized: 0,
     aVsRawDiffsByField: {} as { [k: string]: number }, aVsRawPieces: 0,
     flagOffVsADiffs: 0, flagOffVsAPieces: 0, flagOffSyllableKeys: 0,
     emptyString: {} as { [k: string]: number }, nulls: {} as { [k: string]: number },
@@ -123,12 +135,18 @@ function main() {
   const examples: any = { gate: [], aVsRaw: [], flagOff: [], failures: [], nonVocal: [], violations: [] };
   const push = (k: string, x: any) => { if (examples[k].length < maxEx) examples[k].push(x); };
 
-  for (const { file, doc } of documents(opt.dir)) {
+  for (const item of documents(opt.dir)) {
+    const { file, doc } = item;
     totals.pieces++;
+    if ((item as any).unrecognized) {
+      totals.unrecognized++;
+      push('failures', { id: file, side: 'input', error: 'not a piece document (no phraseGrid or phrases array)' });
+      continue;
+    }
     const id = `${file} (${String(doc._id?.$oid ?? doc._id ?? "-")})`;
 
     // raw-input statistics
-    (doc.phraseGrid || []).forEach((track: any[], k: number) => {
+    gridOf(doc).forEach((track: any[], k: number) => {
       let phonetic = false;
       (track || []).forEach((ph: any) => ((ph?.trajectoryGrid || [])[0] || []).forEach((t: any) => {
         for (const f of PHONETIC) {
@@ -143,7 +161,7 @@ function main() {
         push('nonVocal', { id, track: k, instrumentation: instr });
       }
     });
-    if ((doc.phraseGrid || []).some((track: any[], k: number) => {
+    if (gridOf(doc).some((track: any[], k: number) => {
       const instr = (doc.instrumentation || [])[k];
       return instr !== undefined && !VOCAL_INSTRUMENTS.includes(instr) && (track || []).some((ph: any) =>
         ((ph?.trajectoryGrid || [])[0] || []).some((t: any) => PHONETIC.some(f => t[f] !== undefined && t[f] !== null)));
@@ -174,7 +192,7 @@ function main() {
         // A piece that already carries a stored tier (written by a 0.3.0 client)
         // is projected from it by design, so stale legacy fields there differ
         // from A on purpose. Legacy-only pieces must show none.
-        const tiered = (doc.phraseGrid || []).some((tr: any[]) => (tr || []).some((ph: any) => ph && Array.isArray(ph.syllables)));
+        const tiered = gridOf(doc).some((tr: any[]) => (tr || []).some((ph: any) => ph && Array.isArray(ph.syllables)));
         if (tiered) totals.gateFailPiecesWithStoredTier++;
         totals.gateDiffs += gate.length;
         gate.forEach(d => inc(totals.gateDiffsByField, d.field));
@@ -185,7 +203,7 @@ function main() {
       const off = compare(a, bOff);
       if (off.length) { totals.flagOffVsAPieces++; totals.flagOffVsADiffs += off.length; push('flagOff', { id, diffs: off.slice(0, 5) }); }
       const keyed = (bOff.phraseGrid || []).flat().filter((ph: any) => ph && 'syllables' in ph).length;
-      const stored = (doc.phraseGrid || []).flat().filter((ph: any) => ph && 'syllables' in ph).length;
+      const stored = gridOf(doc).flat().filter((ph: any) => ph && 'syllables' in ph).length;
       // the flag is "system present": without it, a save must not create the tier
       if (!doc.system && keyed > stored) totals.flagOffSyllableKeys += keyed - stored;
     }
@@ -204,6 +222,7 @@ function main() {
     process.exit(2);
   }
   const gatePass = totals.gateFailPieces === 0 && totals.bFailed === 0 && totals.aFailed === 0
+    && totals.unrecognized === 0
     && totals.flagOffSyllableKeys === 0;
   const report = { gatePass, totals, examples };
   if (opt.report) writeFileSync(opt.report, JSON.stringify(report, null, 2));
@@ -218,6 +237,7 @@ function main() {
   line('diffs by field', totals.gateDiffsByField);
   line('A failed to load/save', totals.aFailed);
   line('B failed to load/save', totals.bFailed);
+  line('files that are not piece documents', totals.unrecognized);
   line('flag off: phrases that gained syllables', totals.flagOffSyllableKeys);
   console.log('REPORTED (not gated)');
   line('A vs raw: pieces changed by load->save', totals.aVsRawPieces);
