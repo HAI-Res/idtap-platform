@@ -19,6 +19,7 @@ import { $push } from 'mongo-dot-notation';
 import apiRoutes from './apiRoutes';
 import packRoutes from './packRoutes';
 import { checkWriteGuard, validClientHeader } from './writeGuard';
+import { unsafeUpdateKeys, UNSAFE_KEYS_ERROR } from './updateKeys';
 import oauthRoutes from './oauthRoutes';
 import authRoutes from './authRoutes';
 import cookieParser from 'cookie-parser';
@@ -376,6 +377,8 @@ const runServer = async () => {
 
 	app.post('/updateTranscription', requireSession, requireCsrfHeader, async (req, res) => {
 	  // updates a transcription
+	  const badKeys = unsafeUpdateKeys(req.body);
+	  if (badKeys.length) { res.status(400).json(UNSAFE_KEYS_ERROR(badKeys)); return; }
 	  const updateObj: { [key: string]: any } = {};
 	  Object.keys(req.body).forEach(key => {
 		// content only — ownership/sharing changes use their own owner-gated endpoints
@@ -1439,6 +1442,8 @@ const runServer = async () => {
 		const rec = await audioRecordings.findOne(query);
 		if (!rec) { res.status(404).json({ error: 'not found' }); return; }
 		if (!canEdit(rec, req.user!.uid)) { res.status(403).json({ error: 'forbidden' }); return; }
+		const badKeys = unsafeUpdateKeys(req.body.updates);
+		if (badKeys.length) { res.status(400).json(UNSAFE_KEYS_ERROR(badKeys)); return; }
 		const isoDateString = new Date().toISOString();
 		const update = { $set: {
 		  ...req.body.updates,
