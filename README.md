@@ -53,6 +53,16 @@ This project has been supported by grants from the National Endowment for the Hu
 
 This project is tested with BrowserStack
 
+## Local staging
+
+> **⚠️ Merging to `main` deploys straight to production** (idtap.csail.mit.edu, no
+> staging server). Try branches on real data locally first.
+
+`pnpm staging:up` restores the newest nightly backup into a throwaway local MongoDB
+and runs the current checkout against it at http://127.0.0.1:4000/, isolated from
+production. `pnpm staging:down` wipes it. See
+[scripts/staging/README.md](scripts/staging/README.md).
+
 ## Python API
 
 The `python/api` package provides data classes and a small client for
