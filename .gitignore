@@ -50,3 +50,10 @@ python/auto_transcribe/melodic_contours/*.png
 
 *egg-info
 server/build/
+
+# Local staging (scripts/staging): restored production data lives in
+# ~/Library/Caches/idtap-staging, never in the repo. Backstop in case a copy lands here.
+*.archive.gz
+*.archive.gz.part
+.idtap-staging/
+dry-run-data/
