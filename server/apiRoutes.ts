@@ -6,6 +6,7 @@ import fileUpload from 'express-fileupload';
 import { mediaPath, PYTHON_PATH, pythonEnv } from './mediaConfig';
 import { isOwner, canEdit, canView } from '../shared/authz';
 import { checkWriteGuard } from './writeGuard';
+import { systemChangeError } from './systemRoutes';
 
 // Function to run a Python script and return a Promise
 function runPythonScript(scriptPath: string, args: string[] = []): Promise<void> {
@@ -244,6 +245,10 @@ export default function apiRoutes(collections: Collections) {
     // No _id -> insert a new transcription owned by the caller (the Bearer
     // counterpart of the session-guarded web /insertNewTranscription route).
     if (!req.body._id) {
+      if (req.body.system !== undefined && req.body.system !== null) {
+        const sysErr = systemChangeError({}, req.body.system);
+        if (sysErr) return res.status(sysErr.status).json({ error: sysErr.error });
+      }
       try {
         const insert = { ...req.body };
         insert.userID = actorId; // owner is the authenticated user, not client-supplied
@@ -280,6 +285,8 @@ export default function apiRoutes(collections: Collections) {
       // PROP-8 write guard (same rule as the web /updateTranscription route).
       const guard = checkWriteGuard(existingTranscription, req.get('X-IDTAP-Client'), req.body._id);
       if (!guard.ok) return res.status(guard.status).json(guard.body);
+      const sysErr = systemChangeError(existingTranscription, req.body.system);
+      if (sysErr) return res.status(sysErr.status).json({ error: sysErr.error });
 
       // Content-only update: ownership/sharing changes go through their own
       // owner-gated endpoints (same rule as the web /updateTranscription route).

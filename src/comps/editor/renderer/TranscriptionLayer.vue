@@ -2296,9 +2296,14 @@ export default defineComponent({
     //   g.selectAll(`.uId${traj.uniqueId}.consonantSymbol`).remove();
     // };
 
+    // SPEC-provisional §10: on a piece with a system, the lyric lane carries the
+    // sung text; the legacy vowel / consonant labels are not drawn.
+    const legacyLabelsHidden = () => props.piece.syllableTierEnabled;
+
     const renderConsonantSymbols = (traj: Trajectory, track: number) => {
       const g = tracks[track].select('.trajG');
       g.selectAll(`.uId${traj.uniqueId}.consonantSymbol`).remove();
+      if (legacyLabelsHidden()) return;
       const arts = traj.articulations;
       const a = arts['0.00'];
       const c1 = a !== undefined && a.name === 'consonant';
@@ -2653,6 +2658,7 @@ export default defineComponent({
     };
 
     const renderVowel = (v: VowelDisplayType) => {
+      if (legacyLabelsHidden()) return;
       const svg = d3.select(tranSvg.value);
       const verticalOffset = 14;
       const y = props.yScale(v.logFreq) - verticalOffset;
@@ -2698,6 +2704,7 @@ export default defineComponent({
         .text(v.englishText)
     };
     const renderEndingConsonant = (c: ConsonantDisplayType) => {
+      if (legacyLabelsHidden()) return;
       const svg = d3.select(tranSvg.value);
       const verticalOffset = 14;
       const y = props.yScale(c.logFreq) - verticalOffset;

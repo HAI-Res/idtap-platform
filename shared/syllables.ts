@@ -714,16 +714,25 @@ export function clientKnowsSyllables(h: string | undefined | null): boolean {
  *   pack's empty projection would erase the Hindi vowels.
  * - Removing a system is not offered (one-way for now).
  */
+/** A `system` as the schema allows it, with a phonology some bundled pack provides. */
+export function validateSystem(next: unknown): { ok: true } | { ok: false; reason: string } {
+  if (!next || typeof next !== 'object' || Array.isArray(next)) return { ok: false, reason: 'system must be an object.' };
+  for (const [k, v] of Object.entries(next as object)) {
+    const okShape = typeof v === 'string' || (Array.isArray(v) && v.every(x => typeof x === 'string'));
+    if (!okShape) return { ok: false, reason: `system.${k} must be a string or a list of strings.` };
+  }
+  const ph = resolveSystem({ system: next as System }).phonology as string;
+  if (!Object.prototype.hasOwnProperty.call(PACKS, ph)) return { ok: false, reason: `No phoneme pack '${ph}' in this version.` };
+  return { ok: true };
+}
+
 export function systemChangeAllowed(piece: PieceLike, next: System | null | undefined): { ok: true } | { ok: false; reason: string } {
   if (!next || typeof next !== 'object' || Array.isArray(next)) {
     return { ok: false, reason: 'A tradition cannot be removed once set.' };
   }
+  const valid = validateSystem(next);
+  if (!valid.ok) return valid;
   const nextPh = resolveSystem({ system: next }).phonology as string;
-  if (!PACKS[nextPh]) return { ok: false, reason: `No phoneme pack '${nextPh}' in this version.` };
-  for (const [k, v] of Object.entries(next)) {
-    const okShape = typeof v === 'string' || (Array.isArray(v) && v.every(x => typeof x === 'string'));
-    if (!okShape) return { ok: false, reason: `system.${k} must be a string or a list of strings.` };
-  }
   const curPh = resolveSystem(piece).phonology as string;
   if (curPh === nextPh) return { ok: true };
   const grid = Array.isArray(piece.phraseGrid) ? piece.phraseGrid : [];
@@ -740,7 +749,7 @@ export function systemChangeAllowed(piece: PieceLike, next: System | null | unde
   if (phonetic) {
     return {
       ok: false,
-      reason: `This piece already has ${curPh} vowels or syllables on a vocal track. Switching to ${nextPh} would erase them, so it is not allowed; there is no conversion between traditions.`,
+      reason: `This piece already has ${curPh === 'hindi-urdu' ? 'Hindi' : curPh} vowels or syllables on a vocal track. Switching would turn them into invalid keys and erase the Hindi vowels, so it isn't allowed. Make a copy of the piece without them to use another tradition.`,
     };
   }
   return { ok: true };

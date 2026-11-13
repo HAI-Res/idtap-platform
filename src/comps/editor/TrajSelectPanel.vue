@@ -597,11 +597,11 @@ export default defineComponent({
       return this.instrument && vox.includes(this.instrument);
     },
     // The per-trajectory vowel/consonant dropdowns edit the legacy hindi-urdu
-    // fields, so they show only on pieces whose phonology is hindi-urdu (absent
-    // system included). Jon, 2026-11-13: once the syllable UI ships they retire
-    // everywhere; until then other packs get no phoneme entry here.
+    // fields. On a piece with a system (any tradition, Hindustani included)
+    // lyric mode is the way to enter sung text, so they are hidden
+    // (SPEC-provisional Q6).
     legacyPhonemes(): boolean {
-      return !this.piece || this.piece.resolvedSystem.phonology === LEGACY_PACK;
+      return !this.piece || (!this.piece.syllableTierEnabled && this.piece.resolvedSystem.phonology === LEGACY_PACK);
     },
     sitar() {
       return this.instrument === Instrument.Sitar;

@@ -11,6 +11,7 @@ enum EditorMode {
   Chikari = 'Chikari',
   Region = 'Region',
   AssemblagePhrasePick = 'AssemblagePhrasePick',
+  Lyric = 'Lyric',
   None = 'None',
 }
 

@@ -1953,7 +1953,8 @@ export default defineComponent({
         .includes(this.piece.instrumentation?.[track] as Instrument);
       // ...and the legacy fields are hindi-urdu only: on another pack the panel
       // hides its dropdowns but may still hold a value from an earlier piece
-      const legacyPack = this.piece.resolvedSystem.phonology === 'hindi-urdu';
+      // with a system set, sung text is entered in lyric mode (SPEC-provisional Q6)
+      const legacyPack = !this.piece.syllableTierEnabled;
       if (!vocalTrack || !legacyPack || stringIdx !== 0) {
         trajObj.vowel = undefined;
         trajObj.startConsonant = undefined;
