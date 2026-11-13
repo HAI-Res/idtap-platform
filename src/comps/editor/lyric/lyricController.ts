@@ -259,6 +259,17 @@ export class LyricController {
     if (reason) { this.say(`(${reason})`, true); return; }
     const { parts, note } = this.compose(slot, key, this.currentParts());
     if (this.sel.t === 'run') {
+      const any = (['onset', 'nucleus', 'coda', 'tone'] as const).some(x => {
+        const v = (parts as any)[x]; return v !== undefined && !(Array.isArray(v) && !v.length);
+      });
+      if (!any) {
+        // "none" on a new run creates nothing (spec: no syllable without parts)
+        const i = this.slots.indexOf(slot);
+        if (i < this.slots.length - 1) this.openSlot = this.slots[i + 1];
+        this.say('Nothing picked yet: choose a sound to create the syllable.');
+        this.touch();
+        return;
+      }
       this.createOnRun(parts, note);
     } else {
       const r = this.piece.setSyllableParts(this.track(), this.sel.syl, parts);
@@ -360,13 +371,9 @@ export class LyricController {
   /** Esc in the inline box: restore the syllable as it was when the box opened (not undo). */
   cancelInline() {
     if (this.sel.t === 'syllable' && this.inlineSnapshot) {
-      const orig = JSON.parse(this.inlineSnapshot);
-      const s = this.sel.syl as any;
-      Object.keys(s).forEach(k => delete s[k]);
-      Object.assign(s, orig);
-      this.piece.setSyllableParts(this.track(), this.sel.syl, { ...this.partsOf(this.sel.syl), wordStart: !!orig.wordStart });
+      // exactly as it was: no source flip, and nothing new to save
+      this.piece.restoreSyllable(this.track(), this.sel.syl, JSON.parse(this.inlineSnapshot));
       this.text = this.sel.syl.romanization ?? '';
-      this.changed();
     }
     this.inlineSnapshot = null;
     this.inlineOpen = false;

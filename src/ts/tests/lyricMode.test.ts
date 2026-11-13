@@ -4,7 +4,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { Piece } from '../model';
-import { PACKS, derivedTone, systemChangeAllowed, checkInvariants, splitViolations } from '@shared/syllables';
+import { PACKS, derivedTone, systemChangeAllowed, checkInvariants, splitViolations, legacyPhoneticsIntoNonHindi } from '@shared/syllables';
 import { parseSyllableText, romanizationOf, devanagariOf } from '@shared/syllableText';
 
 const clone = <T>(x: T): T => JSON.parse(JSON.stringify(x));
@@ -228,9 +228,60 @@ describe('Edit Tradition rule (spec §3, Q1/Q2)', () => {
     // phonetics on an instrumental track do not count
     expect(systemChangeAllowed(doc('a', { instrumentation: ['Sitar'] }), { phonology: 'kurmanji' })).toEqual({ ok: true });
   });
+  it('6. strict shapes: phonology a string, display a list', () => {
+    expect(systemChangeAllowed(doc(), { phonology: ['jyutping'] } as any).ok).toBe(false);
+    expect(systemChangeAllowed(doc(), { phonology: 'jyutping', display: 'Hant' } as any).ok).toBe(false);
+    expect(systemChangeAllowed(doc(), { phonology: 'jyutping', display: ['jyutping', 'Hant'], 'x-notes': 'kept' } as any)).toEqual({ ok: true });
+  });
+  it('the refusal names the current tradition', () => {
+    const k = { ...doc(), system: { phonology: 'kurmanji' },
+      phraseGrid: [[{ trajectoryGrid: [[{ id: 0, uniqueId: 'a' }]], syllables: [{ anchor: { traj: 'a', t: 0 }, nucleus: 'a', lyric: { vowel: 'a', source: 'human' } }] }]] };
+    const r: any = systemChangeAllowed(k as any, { phonology: 'jyutping' });
+    expect(r.reason).toMatch(/^This piece already has Kurmanji vowels or syllables on track 1 \(Vocal \(F\)\)/);
+    expect(r.reason).not.toMatch(/Hindi/);
+  });
+  it('7. a stale save putting Hindi vowels into a non-Hindi piece is refused', () => {
+    const stored = { instrumentation: ['Vocal (F)', 'Sitar'], system: { phonology: 'jyutping' }, phraseGrid: [] as any[] };
+    const withVowel = [[{ trajectoryGrid: [[{ id: 0, uniqueId: 'a', vowel: 'a' }]] }]];
+    const sitarOnly = [[{ trajectoryGrid: [[{ id: 0, uniqueId: 'a' }]] }], [{ trajectoryGrid: [[{ id: 0, uniqueId: 'b', vowel: 'a' }]] }]];
+    expect(legacyPhoneticsIntoNonHindi(stored, withVowel)).toMatch(/lyric mode/);
+    expect(legacyPhoneticsIntoNonHindi(stored, sitarOnly)).toBeNull(); // instrumental leftovers don't count
+    expect(legacyPhoneticsIntoNonHindi({ ...stored, system: { phonology: 'hindi-urdu' } }, withVowel)).toBeNull();
+  });
   it('a tradition cannot be removed; unknown packs and bad shapes are refused', () => {
     expect(systemChangeAllowed(doc(), null).ok).toBe(false);
     expect(systemChangeAllowed(doc(), { phonology: 'klingon' }).ok).toBe(false);
     expect(systemChangeAllowed(doc(), { phonology: 'kurmanji', display: [1] as any }).ok).toBe(false);
+  });
+});
+
+describe('review of #68', () => {
+  it('1. split note here refuses a note in a group (groups must stay contiguous)', () => {
+    const p = piece('kurmanji', [[T('n1'), T('n2', { groupId: 'g1' }), T('n3', { groupId: 'g1' })]]);
+    const r: any = p.setSyllableOnRun(0, 'n1', 'n3', { nucleus: 'a' });
+    expect(p.splitNoteHere(0, r.syllable, 'n2', 0.5)).toEqual({ ok: false, reason: 'This note is in a group; ungroup it before splitting it.' });
+    expect(p.phraseGrid[0][0].trajectoryGrid[0]).toHaveLength(3);
+  });
+
+  it('3. no syllable without a sound: setSyllableOnRun refuses empty parts', () => {
+    const p = piece('kurmanji', [[T('n1')]]);
+    expect(p.setSyllableOnRun(0, 'n1', 'n1', {}).ok).toBe(false);
+    expect(p.setSyllableOnRun(0, 'n1', 'n1', { orthography: 'x' }).ok).toBe(false);
+    expect(p.syllableSpans(0)).toEqual([]);
+  });
+
+  it('5. split note here refuses vibrato (it would restart the cycle)', () => {
+    const vib = { rate: 5.5, extentStart: 0.05, extentEnd: 0.05, vertOffset: 0, phase: Math.PI };
+    const p = piece('kurmanji', [[T('n1', { id: 13, vibObj: vib })]]);
+    const r: any = p.setSyllableOnRun(0, 'n1', 'n1', { nucleus: 'a' });
+    const res: any = p.splitNoteHere(0, r.syllable, 'n1', 0.5);
+    expect(res.ok).toBe(false);
+    expect(res.reason).toMatch(/vibrato/);
+  });
+
+  it('run-on warning: a syllable that holds on past the run says so', () => {
+    const p = piece('kurmanji', [[T('n1'), T('n2'), T('n3')]]);
+    const r: any = p.setSyllableOnRun(0, 'n1', 'n1', { nucleus: 'a' });
+    expect(r.warning).toBe('“a” is held on to note 3 until the next syllable starts.');
   });
 });

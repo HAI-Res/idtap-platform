@@ -1421,7 +1421,8 @@ export default defineComponent({
     
 
     clearTSP() {
-      const tsp = this.$refs.trajSelectPanel as TSPType;
+      const tsp = this.$refs.trajSelectPanel as TSPType | undefined;
+      if (!tsp) return; // lyric mode shows the picker instead
       tsp.startConsonant = undefined;
       tsp.endConsonant = undefined;
     },

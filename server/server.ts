@@ -416,7 +416,8 @@ const runServer = async () => {
 		// syllable tier it would lose.
 		const guard = checkWriteGuard(target, req.get('X-IDTAP-Client'), req.body._id);
 		if (!guard.ok) { res.status(guard.status).json(guard.body); return; }
-		const sysErr = systemChangeError(target, req.body.system);
+		if (req.body.system === null) delete updateObj.system; // a $set of null would clear the tradition
+		const sysErr = systemChangeError(target, req.body.system ?? undefined, req.body.phraseGrid);
 		if (sysErr) { res.status(sysErr.status).json({ error: sysErr.error }); return; }
 		const result = await transcriptions.updateOne(query, update);
 		res.send(JSON.stringify({ ...result, dateModified: updateObj['dateModified'] }))

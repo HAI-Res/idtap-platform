@@ -2005,6 +2005,10 @@ class Piece {
     let k = a;
     while (k <= b && silent(f[k].traj)) k++;
     if (k > b) return { ok: false, reason: 'A syllable cannot start on a silence.' };
+    const hasSound = (['onset', 'nucleus', 'coda', 'tone'] as const).some(x => {
+      const v = parts[x]; return v !== undefined && v !== null && !(Array.isArray(v) && v.length === 0);
+    });
+    if (!hasSound) return { ok: false, reason: 'Pick or type a sound first: a syllable needs at least one.' };
     const spans = this.syllableSpans(track).filter(x => !x.frozen);
     const idxOf = new Map(f.map((x, i) => [x.traj.uniqueId!, i]));
     const inside = spans.filter(x => { const i = idxOf.get(x.syllable.anchor.traj)!; return i >= a && i <= b; });
@@ -2023,10 +2027,16 @@ class Piece {
     this.writeParts(syl, { wordStart: true, ...parts });
     this.syllablePool!.push(syl);
     this.reprojectTrack(track);
-    // spec §8.1 step 5: the syllable stops at the first silence in the run
+    // spec §8.1 step 5: the syllable stops at the first silence in the run;
+    // §7.2: or it runs on past the run, to the next start or silence
     const sil = f.slice(k, b + 1).findIndex(x => silent(x.traj));
-    const warning = sil >= 0
-      ? `${Piece.syllableLabel(syl)} stops at the silence at note ${k + sil + 1}.` : undefined;
+    let warning: string | undefined;
+    if (sil >= 0) warning = `${Piece.syllableLabel(syl)} stops at the silence at note ${k + sil + 1}.`;
+    else {
+      const mine = this.syllableSpans(track).find(x => x.syllable === syl);
+      const endK = mine ? f.findIndex(x => x.traj.uniqueId === mine.trajs[mine.trajs.length - 1].uniqueId) : b;
+      if (endK > b) warning = `${Piece.syllableLabel(syl)} is held on to note ${endK + 1} until the next syllable starts.`;
+    }
     return { ok: true, syllable: syl, warning };
   }
 
@@ -2039,6 +2049,15 @@ class Piece {
     if (a > b) [a, b] = [b, a];
     const inRun = new Set(f.slice(a, b + 1).map(x => x.traj.uniqueId!));
     return this.syllableSpans(track).filter(x => !x.frozen && inRun.has(x.syllable.anchor.traj)).map(x => x.syllable);
+  }
+
+  /** Put a syllable back exactly as `snapshot` (the inline box's Esc): no source change. */
+  restoreSyllable(track: number, syl: Syllable, snapshot: Syllable) {
+    if (!this.syllablePool!.includes(syl)) return;
+    const s = syl as any;
+    Object.keys(s).forEach(k => delete s[k]);
+    Object.assign(s, JSON.parse(JSON.stringify(snapshot)));
+    this.reprojectTrack(track);
   }
 
   /** Picked or typed parts for an existing syllable (lyric.source becomes human). */
@@ -2100,9 +2119,11 @@ class Piece {
   /**
    * Spec §8.3 "Split note here": split a row-0 trajectory at `fraction` (0..1,
    * exclusive) and anchor `syl` on the second part at t = 0. The first part
-   * keeps its uniqueId, so other anchors on it stay put. Held notes (fixed,
-   * id 0) and vibrato (id 13) split exactly; bends would change shape, so they
-   * are refused in this build.
+   * keeps its uniqueId, so other anchors on it stay put. Only held notes
+   * (fixed, id 0) split without changing what is heard: a glide or a vibrato
+   * would be reshaped (two vibratos restart their cycle at the split), so they
+   * are refused in this build, as is a note in a group (groups must stay
+   * contiguous).
    */
   splitNoteHere(track: number, syl: Syllable, trajUid: string, fraction: number): SyllableEditResult {
     const allowed = this.syllableEditingAllowed(track);
@@ -2114,8 +2135,11 @@ class Piece {
     if (x.frozen) return { ok: false, reason: `Phrase ${this.phraseGrid[track].indexOf(x.phrase) + 1} is frozen.` };
     if (!this.syllablePool!.includes(syl)) return { ok: false, reason: 'That syllable cannot be edited here.' };
     const t = x.traj;
-    if (t.id !== 0 && t.id !== 13) {
-      return { ok: false, reason: 'Split note here works on held notes and vibrato in this build; this note is a glide, which a split would reshape.' };
+    if (t.groupId !== undefined && t.groupId !== null) {
+      return { ok: false, reason: 'This note is in a group; ungroup it before splitting it.' };
+    }
+    if (t.id !== 0) {
+      return { ok: false, reason: `Split note here works on held notes in this build; this note is ${t.id === 13 ? 'a vibrato' : 'a glide'}, which a split would reshape.` };
     }
     const row = x.phrase.trajectoryGrid[0];
     const idx = row.indexOf(t);
@@ -2127,7 +2151,6 @@ class Piece {
       durTot: total * (1 - fraction),
       durArray: [1],
       articulations: {},
-      vibObj: t.id === 13 ? { ...t.vibObj } : undefined,
       instrumentation: t.instrumentation,
       uniqueId: undefined, num: undefined, groupId: undefined, automation: undefined,
       vowel: undefined, startConsonant: undefined, endConsonant: undefined,
@@ -2192,7 +2215,11 @@ class Piece {
       return true;
     });
     const pack = this.pack;
-    if (pack && pack.id === LEGACY_PACK) this.resyncFromLegacy(pack);
+    // Legacy-field edits only exist where the legacy surface is editable: a
+    // piece with no system (the dropdowns show). With a system set, the tier is
+    // the only entry point; a new note has no legacy fields on purpose and must
+    // not read as an edit (it joins the syllable it falls in, then projects).
+    if (pack && pack.id === LEGACY_PACK && !this.syllableTierEnabled) this.resyncFromLegacy(pack);
     this.syllablePool.sort((a, b) => {
       const la = loc.get(a.anchor.traj)!;
       const lb = loc.get(b.anchor.traj)!;

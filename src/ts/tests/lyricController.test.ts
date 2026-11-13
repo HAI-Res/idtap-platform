@@ -225,3 +225,30 @@ describe('picker options (spec §5.2-5.3)', () => {
     expect(cycleBeforeCaret('kurmanji', 'ç', 1)!.text).toBe('ç̱'.normalize('NFC'));
   });
 });
+
+describe('review of #68 (controller)', () => {
+  it('3. picking "none" first on a new run creates nothing', () => {
+    const { c, piece, changes } = setup('kurmanji', notes(2));
+    c.clickTraj('n1', false);
+    c.pick('onset', null);
+    expect(piece.syllableSpans(0)).toEqual([]);
+    expect(c.sel.t).toBe('run');
+    expect(changes()).toBe(0);
+    c.pick('nucleus', 'a');
+    expect(piece.syllableSpans(0)).toHaveLength(1);
+  });
+  it('Esc in the inline box restores exactly: no source flip, nothing new to save', () => {
+    const { c, changes } = setup('kurmanji', notes(1));
+    c.clickTraj('n1', false); c.pick('nucleus', 'a');
+    const syl = (c.sel as any).syl;
+    syl.lyric.source = 'model'; // as if a model had written it
+    const snap = JSON.stringify(syl);
+    const before = changes();
+    c.openInline();
+    c.input('e');
+    expect(syl.nucleus).toBe('e');
+    c.cancelInline();
+    expect(JSON.stringify(syl)).toBe(snap);
+    expect(changes()).toBe(before + 1); // only the typed edit marked the piece; the restore did not
+  });
+});

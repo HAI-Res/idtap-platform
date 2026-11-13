@@ -16,18 +16,19 @@ const hindiDoc = (extra: any = {}) => ({
 });
 const blankDoc = (extra: any = {}) => hindiDoc({ phraseGrid: [[{ trajectoryGrid: [[{ id: 0, uniqueId: 'a' }]] }]], ...extra });
 
-function app(doc: any, uid = OWNER) {
+function app(doc: any, uid = OWNER, matched = 1) {
   const updates: any[] = [];
+  const queries: any[] = [];
   const transcriptions = {
     findOne: async () => doc,
-    updateOne: async (_q: any, u: any) => { updates.push(u); return { acknowledged: true }; },
+    updateOne: async (q: any, u: any) => { updates.push(u); queries.push(q); return { acknowledged: true, matchedCount: matched }; },
   };
   const a = express();
   a.use(express.json());
   a.use((req, _res, next) => { (req as any).user = { uid }; next(); });
   const pass: express.RequestHandler = (_req, _res, next) => next();
   a.use(systemRoutes(transcriptions, { requireSession: pass, requireCsrfHeader: pass }));
-  return { a, updates };
+  return { a, updates, queries };
 }
 
 describe('POST /transcriptionSystemOptions', () => {
@@ -78,5 +79,20 @@ describe('systemChangeError (the save routes)', () => {
     expect(systemChangeError(tiered, { phonology: 'kurmanji' })?.status).toBe(409);
     expect(systemChangeError(tiered, null)?.status).toBe(400);
     expect(systemChangeError(blankDoc(), { phonology: 'kurmanji' })).toBeNull();
+  });
+});
+
+describe('review of #68 (routes)', () => {
+  test('the tradition update is conditional: 409 when it changed meanwhile', async () => {
+    const { a, queries } = app(blankDoc(), OWNER, 0);
+    const r = await request(a).post('/updateTranscriptionSystem').send({ id: ID, system: { phonology: 'kurmanji' } });
+    expect(r.status).toBe(409);
+    expect(JSON.stringify(queries[0])).toMatch(/\$exists/);
+  });
+  test('the save routes refuse a stale Hindi-vowel save into a non-Hindi piece', () => {
+    const stored = blankDoc({ system: { phonology: 'kurmanji' } });
+    const grid = [[{ trajectoryGrid: [[{ id: 0, uniqueId: 'a', vowel: 'a' }]] }]];
+    expect(systemChangeError(stored, undefined, grid)?.status).toBe(409);
+    expect(systemChangeError(stored, undefined, [[{ trajectoryGrid: [[{ id: 0, uniqueId: 'a' }]] }]])).toBeNull();
   });
 });

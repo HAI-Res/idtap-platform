@@ -7,7 +7,7 @@
 import express from 'express';
 import { ObjectId } from 'mongodb';
 import { canEdit, canView } from '../shared/authz';
-import { PACKS, systemChangeAllowed, validateSystem } from '../shared/syllables';
+import { PACKS, systemChangeAllowed, validateSystem, legacyPhoneticsIntoNonHindi } from '../shared/syllables';
 
 /** The `system` each modal option writes (spec §3 table). */
 export const TRADITION_SYSTEMS: { [phonology: string]: { phonology: string; display: string[] } } = {
@@ -59,7 +59,12 @@ export default function systemRoutes(
       if (!valid.ok) { res.status(400).json({ error: valid.reason }); return; }
       const allowed = systemChangeAllowed(doc, next);
       if (!allowed.ok) { res.status(409).json({ error: allowed.reason }); return; }
-      await transcriptions.updateOne({ _id: doc._id }, { $set: { system: next } });
+      // conditional: only if nobody changed the tradition since we read it
+      const query = doc.system === undefined || doc.system === null
+        ? { _id: doc._id, $or: [{ system: { $exists: false } }, { system: null }] }
+        : { _id: doc._id, system: doc.system };
+      const r = await transcriptions.updateOne(query, { $set: { system: next } });
+      if (r && r.matchedCount === 0) { res.status(409).json({ error: 'The tradition was changed meanwhile; reload and try again.' }); return; }
       res.json({ ok: true, system: next });
     } catch (err) {
       console.error(err);
@@ -74,7 +79,9 @@ export default function systemRoutes(
  * For the save routes: a save may not change `system` past the rule either.
  * Unchanged (or not sent, which a $set leaves in place) passes. -> null or an error body.
  */
-export function systemChangeError(stored: any, sent: unknown): { status: 400 | 409; error: string } | null {
+export function systemChangeError(stored: any, sent: unknown, sentPhraseGrid?: unknown): { status: 400 | 409; error: string } | null {
+  const stale = legacyPhoneticsIntoNonHindi(stored ?? {}, sentPhraseGrid);
+  if (stale) return { status: 409, error: stale };
   if (sent === undefined) return null;
   if (JSON.stringify(sent ?? null) === JSON.stringify(stored?.system ?? null)) return null;
   const valid = validateSystem(sent);

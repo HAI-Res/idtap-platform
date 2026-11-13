@@ -714,10 +714,32 @@ export function clientKnowsSyllables(h: string | undefined | null): boolean {
  *   pack's empty projection would erase the Hindi vowels.
  * - Removing a system is not offered (one-way for now).
  */
+const TRADITION_NAME: { [phonology: string]: string } = { 'hindi-urdu': 'Hindi', jyutping: 'Cantonese', kurmanji: 'Kurmanji' };
+
+/**
+ * A save may not put legacy phonetic fields (vowel, startConsonant,
+ * endConsonant) on a vocal track of a piece whose stored tradition is not
+ * hindi-urdu: that is a stale client writing Hindi vowels into, say, a
+ * Jyutping piece. -> a reason, or null.
+ */
+export function legacyPhoneticsIntoNonHindi(stored: PieceLike, sentPhraseGrid: unknown): string | null {
+  const ph = resolveSystem(stored).phonology as string;
+  if (ph === LEGACY_PACK || !Array.isArray(sentPhraseGrid)) return null;
+  const instr = (stored.instrumentation || []) as string[];
+  const hit = (sentPhraseGrid as any[]).some((track, k) => Array.isArray(track) && VOCAL_INSTRUMENTS.includes(instr[k])
+    && track.some(p => p && Array.isArray(p.trajectoryGrid) && (p.trajectoryGrid[0] || []).some((t: any) => t && hasPhonetics(t))));
+  return hit
+    ? `This piece's sung text is ${TRADITION_NAME[ph] ?? ph} and is entered in lyric mode; this save carries Hindi vowel or consonant fields (an out-of-date tab?). Reload the piece and try again.`
+    : null;
+}
+
 /** A `system` as the schema allows it, with a phonology some bundled pack provides. */
 export function validateSystem(next: unknown): { ok: true } | { ok: false; reason: string } {
   if (!next || typeof next !== 'object' || Array.isArray(next)) return { ok: false, reason: 'system must be an object.' };
   for (const [k, v] of Object.entries(next as object)) {
+    // the named components have fixed shapes; further ones are kept verbatim
+    if (['pitch', 'phonology', 'rhythm'].includes(k) && typeof v !== 'string') return { ok: false, reason: `system.${k} must be a string.` };
+    if (k === 'display' && !(Array.isArray(v) && v.every(x => typeof x === 'string'))) return { ok: false, reason: 'system.display must be a list of strings.' };
     const okShape = typeof v === 'string' || (Array.isArray(v) && v.every(x => typeof x === 'string'));
     if (!okShape) return { ok: false, reason: `system.${k} must be a string or a list of strings.` };
   }
@@ -754,7 +776,7 @@ export function systemChangeAllowed(piece: PieceLike, next: System | null | unde
   if (named.length) {
     return {
       ok: false,
-      reason: `This piece already has ${curPh === 'hindi-urdu' ? 'Hindi' : curPh} vowels or syllables on ${named.join(', ')}. Switching would turn them into invalid keys and erase the Hindi vowels, so it isn't allowed. Make a copy of the piece without them to use another tradition.`,
+      reason: `This piece already has ${TRADITION_NAME[curPh] ?? curPh} vowels or syllables on ${named.join(', ')}. Switching would turn them into invalid keys and erase ${curPh === 'hindi-urdu' ? 'the Hindi vowels' : 'them'}, so it isn't allowed. Make a copy of the piece without them to use another tradition.`,
     };
   }
   return { ok: true };

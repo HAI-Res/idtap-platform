@@ -250,7 +250,8 @@ export default function apiRoutes(collections: Collections) {
     // No _id -> insert a new transcription owned by the caller (the Bearer
     // counterpart of the session-guarded web /insertNewTranscription route).
     if (!req.body._id) {
-      if (req.body.system !== undefined && req.body.system !== null) {
+      if (req.body.system === null) delete req.body.system;
+      if (req.body.system !== undefined) {
         const sysErr = systemChangeError({}, req.body.system);
         if (sysErr) return res.status(sysErr.status).json({ error: sysErr.error });
       }
@@ -290,7 +291,8 @@ export default function apiRoutes(collections: Collections) {
       // PROP-8 write guard (same rule as the web /updateTranscription route).
       const guard = checkWriteGuard(existingTranscription, req.get('X-IDTAP-Client'), req.body._id);
       if (!guard.ok) return res.status(guard.status).json(guard.body);
-      const sysErr = systemChangeError(existingTranscription, req.body.system);
+      if (req.body.system === null) delete updateObj.system; // a $set of null would clear the tradition
+      const sysErr = systemChangeError(existingTranscription, req.body.system ?? undefined, req.body.phraseGrid);
       if (sysErr) return res.status(sysErr.status).json({ error: sysErr.error });
 
       // Content-only update: ownership/sharing changes go through their own
