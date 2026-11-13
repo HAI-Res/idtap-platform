@@ -69038,6 +69038,18 @@ var etTuning = {
     raised: 2 ** (11 / 12)
   }
 };
+var ruleSetNumPitches = (ruleSet) => {
+  let numPitches = 0;
+  Object.values(ruleSet).forEach((rule) => {
+    if (typeof rule === "boolean") {
+      if (rule) numPitches += 1;
+    } else {
+      if (rule.lowered) numPitches += 1;
+      if (rule.raised) numPitches += 1;
+    }
+  });
+  return numPitches;
+};
 var Raga = class _Raga {
   name;
   fundamental;
@@ -69112,20 +69124,7 @@ var Raga = class _Raga {
     return pitches.map((p) => westernPitches[p.chroma]);
   }
   get ruleSetNumPitches() {
-    let numPitches = 0;
-    const keys = Object.keys(this.ruleSet);
-    keys.forEach((key) => {
-      if (typeof this.ruleSet[key] === "boolean") {
-        if (this.ruleSet[key]) {
-          numPitches += 1;
-        }
-      } else {
-        const ruleSet = this.ruleSet[key];
-        if (ruleSet.lowered) numPitches += 1;
-        if (ruleSet.raised) numPitches += 1;
-      }
-    });
-    return numPitches;
+    return ruleSetNumPitches(this.ruleSet);
   }
   pitchNumberToSargamLetter(pitchNumber) {
     const oct = Math.floor(pitchNumber / 12);
@@ -74572,12 +74571,40 @@ var getRaagRule = async (name) => {
   }
 };
 
+// src/js/ruleSetHeal.ts
+var hasStoredRuleSet = (raga) => {
+  const rs = raga == null ? void 0 : raga.ruleSet;
+  return !!rs && typeof rs === "object" && Object.keys(rs).length > 0;
+};
+var healLegacyRuleSet = async (piece, fetchRules) => {
+  if (!piece.raga) return piece;
+  if (hasStoredRuleSet(piece.raga)) return piece;
+  delete piece.raga.ruleSet;
+  const rsRes = await fetchRules(piece.raga.name);
+  const dbRules = rsRes == null ? void 0 : rsRes.rules;
+  if (hasStoredRuleSet({ name: piece.raga.name, ruleSet: dbRules })) {
+    const rules = dbRules;
+    piece.raga.ruleSet = rules;
+    const numPitches = ruleSetNumPitches(rules);
+    const ratios = piece.raga.ratios;
+    if (Array.isArray(ratios) && ratios.length !== numPitches) {
+      console.warn(
+        `ruleSetHeal: legacy piece for raga "${piece.raga.name}" has ${ratios.length} ratio(s) but the DB rule set has ${numPitches} pitch(es); pitches will load from the tuning table. Consider assigning the piece to a raga variant.`
+      );
+    }
+  } else {
+    console.warn(
+      `ruleSetHeal: no stored ruleSet on piece and no DB rules for raga "${piece.raga.name}"; Raga will fall back to its default rule set`
+    );
+  }
+  return piece;
+};
+
 // src/js/analysis.ts
 var testQueryId = "63445d13dc8b9023a09747a6";
 var instantiatePiece = async (queryId = testQueryId) => {
   let piece = await getPiece(queryId);
-  const rsRes = await getRaagRule(piece.raga.name);
-  piece.raga.ruleSet = rsRes.rules;
+  await healLegacyRuleSet(piece, getRaagRule);
   return Piece.fromJSON(piece);
 };
 var PitchTimes = (trajs, {
