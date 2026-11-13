@@ -27,7 +27,7 @@ export default function systemRoutes(
     if (typeof id !== 'string' || !ObjectId.isValid(id)) return null;
     return transcriptions.findOne(
       { _id: new ObjectId(id) },
-      { projection: { system: 1, instrumentation: 1, phraseGrid: 1, userID: 1, explicitPermissions: 1, permissions: 1 } },
+      { projection: { system: 1, instrumentation: 1, trackTitles: 1, phraseGrid: 1, userID: 1, explicitPermissions: 1, permissions: 1 } },
     );
   };
 

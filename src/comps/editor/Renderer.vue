@@ -243,6 +243,7 @@
       </div>
     </div>
     <ContextMenu
+      class='rendererContextMenu'
       :x='contextMenuX'
       :y='contextMenuY'
       :closed='contextMenuClosed'
@@ -1376,4 +1377,10 @@ export default defineComponent({
 .inlineBox .palette { display: flex; flex-wrap: wrap; gap: 2px; margin-top: 3px; }
 .inlineBox .palette button { font-size: 13px; padding: 0 5px; }
 .inlineError { color: #b3261e; margin: 2px 0 0 0; font-size: 12px; }
+/* the editor's context menu must sit above the plot's sticky axes and lane
+   (z-index 3-5); at its shared default of 2 only a first item above the plot
+   was clickable */
+.rendererContextMenu {
+  z-index: 20 !important;
+}
 </style>

@@ -96,7 +96,7 @@
       @updatedSystem='onUpdatedSystem'
       />
     <div class='controlBox'>
-      <div class='scrollingControlBox'>
+      <div class='scrollingControlBox' :class='{ compact: lyricMode }'>
         <div class='cbRow'>
           <label for='loop'>Loop</label>
           <input id='loop' type='checkbox' v-model='loop' @click='updateLoop'>
@@ -3081,4 +3081,10 @@ input[type='checkbox'] {
 }
 
 
+.scrollingControlBox.compact {
+  /* lyric mode: the picker gets most of the column (SPEC-provisional §5) */
+  height: auto;
+  max-height: 35%;
+  flex: 0 0 auto;
+}
 </style>

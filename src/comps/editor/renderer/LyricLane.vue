@@ -200,6 +200,6 @@ export default defineComponent({
 .clickable { cursor: pointer; }
 .han { font-family: 'Noto Sans HK', 'PingFang HK', 'Hiragino Sans', sans-serif; }
 .deva { font-family: 'Noto Sans Devanagari', 'Kohinoor Devanagari', 'Devanagari Sangam MN', sans-serif; }
-.lat { font-family: 'Charis SIL', 'Gentium Plus', 'Times New Roman', serif; }
+.lat { font-family: 'Charis SIL', 'Doulos SIL', 'Gentium Plus', 'Noto Serif', 'DejaVu Serif', 'Arial Unicode MS', 'Times New Roman', serif; }
 .trackLabel { font-family: system-ui, sans-serif; }
 </style>

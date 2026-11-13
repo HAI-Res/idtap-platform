@@ -86,6 +86,7 @@
         <button
           v-for='o in g.options' :key='String(o.key)'
           class='opt'
+          :data-key='o.key ?? ""'
           :aria-pressed='isOn(o.key)'
           :disabled='!!disabled(o.key)'
           @click='lyric.pick(lyric.openSlot, o.key)'
@@ -94,7 +95,7 @@
             <template v-if='o.glyph'><svg width='22' height='16' aria-hidden='true'><polyline :points='o.glyph' fill='none' stroke='currentColor' stroke-width='1.6' /></svg></template>
             {{ o.script }}<small v-if='o.sub' class='sub'>{{ o.sub }}</small>
           </span>
-          <span class='oRoman'>{{ o.roman }}<small v-if='o.ipa' class='muted'> [{{ o.ipa }}]</small><small v-if='o.chao' class='muted'> {{ o.chao }}</small></span>
+          <span class='oRoman'>{{ o.roman }}<small v-if='o.ipa' class='muted'> [{{ o.ipa }}]</small><small v-if='o.chao' class='muted'>&nbsp;{{ o.chao }}</small></span>
           <span class='oHint'>
             <span v-if='o.nine' class='muted'>{{ o.nine }} · </span>
             {{ o.hint }}<span v-if='o.example' class='muted'> e.g. {{ o.example }}</span>
@@ -105,6 +106,7 @@
       </section>
     </div>
 
+    <div class='tail'>
     <!-- syllable bar (§8.6) -->
     <div v-if='lyric.sel.t === "syllable"' class='sylBar'>
       <p class='muted small'>Starts on note {{ sylInfo.k }} (<code>{{ sylInfo.uid }}</code>, phrase {{ sylInfo.phrase }}) · spans {{ sylInfo.notes }} notes · {{ sylInfo.dur }} s<span v-if='sylInfo.crosses'> · runs over a phrase line</span></p>
@@ -134,6 +136,7 @@
 
     <!-- 7. source note -->
     <p class='source muted small'>Script, romanization and IPA: {{ packId }} pack. Hints: unverified drafts.</p>
+    </div>
   </aside>
 </template>
 
@@ -266,10 +269,13 @@ export default defineComponent({
 * { transition: none !important; animation: none !important; }
 .picker {
   width: 100%;
-  height: 100%;
-  overflow-y: auto;
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden !important;
   box-sizing: border-box;
-  padding: 8px 10px 12px 10px;
+  padding: 8px 10px 8px 10px;
   color: #f1efe8;
   font-size: 13px;
   font-family: system-ui, sans-serif;
@@ -284,7 +290,7 @@ export default defineComponent({
 .unverified { color: #e3b341; font-size: 11px; }
 .preview { margin: 6px 0; min-height: 26px; display: flex; gap: 8px; align-items: baseline; }
 .pvScript { font-size: 22px; }
-.pvRoman { font-size: 18px; font-family: 'Charis SIL', 'Gentium Plus', serif; }
+.pvRoman { font-size: 18px; font-family: 'Charis SIL', 'Doulos SIL', 'Gentium Plus', 'Noto Serif', 'DejaVu Serif', 'Arial Unicode MS', 'Times New Roman', serif; }
 .typing { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
 .typeBox { flex: 1; min-width: 120px; font-size: 15px; padding: 3px 5px; }
 .charBox { width: 48px; font-size: 18px; text-align: center; }
@@ -306,7 +312,7 @@ export default defineComponent({
 .opt:disabled { color: #7d786d; cursor: default; }
 .oScript { font-size: 18px; display: flex; flex-direction: column; align-items: center; line-height: 1.1; }
 .sub { font-size: 10.5px; color: #b8b3a6; }
-.oRoman { font-family: 'Charis SIL', 'Gentium Plus', serif; font-size: 14px; }
+.oRoman { font-family: 'Charis SIL', 'Doulos SIL', 'Gentium Plus', 'Noto Serif', 'DejaVu Serif', 'Arial Unicode MS', 'Times New Roman', serif; font-size: 14px; }
 .oHint { font-size: 12px; line-height: 1.3; }
 .confirm { background: #3d3424; border: 1px solid #e3b341; padding: 6px; margin: 6px 0; }
 .confirm p { margin: 0 0 6px 0; }
@@ -322,5 +328,10 @@ export default defineComponent({
 .source { margin-top: 10px; }
 .han { font-family: 'Noto Sans HK', 'PingFang HK', 'Hiragino Sans', sans-serif; }
 .deva { font-family: 'Noto Sans Devanagari', 'Kohinoor Devanagari', 'Devanagari Sangam MN', sans-serif; }
-.lat { font-family: 'Charis SIL', 'Gentium Plus', 'Times New Roman', serif; }
+.lat { font-family: 'Charis SIL', 'Doulos SIL', 'Gentium Plus', 'Noto Serif', 'DejaVu Serif', 'Arial Unicode MS', 'Times New Roman', serif; }
+/* header, preview, typing and slots stay put; the option list scrolls on its
+   own; the syllable bar, status and checks sit below it (spec §5.1 order) */
+.pkHead, .preview, .typing, .confirm, .slots, .cluster { flex: 0 0 auto; }
+.list { flex: 1 1 auto; min-height: 120px; overflow-y: auto; scroll-behavior: auto; }
+.tail { flex: 0 1 auto; max-height: 38%; overflow-y: auto; scroll-behavior: auto; }
 </style>

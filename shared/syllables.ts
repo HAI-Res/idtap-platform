@@ -736,20 +736,25 @@ export function systemChangeAllowed(piece: PieceLike, next: System | null | unde
   const curPh = resolveSystem(piece).phonology as string;
   if (curPh === nextPh) return { ok: true };
   const grid = Array.isArray(piece.phraseGrid) ? piece.phraseGrid : [];
-  let phonetic = false;
+  const named: string[] = [];
   grid.forEach((track, k) => {
     if (!Array.isArray(track) || !vocalTrack(piece, k)) return;
+    let phonetic = false;
     for (const ph of track) {
       if (!ph || typeof ph !== 'object') continue;
       const syl = (ph as PhraseLike).syllables;
       if (syl !== undefined && syl !== null && (!Array.isArray(syl) || syl.length > 0)) phonetic = true;
       for (const t of row0(ph as PhraseLike)) if (t && hasPhonetics(t)) phonetic = true;
     }
+    if (phonetic) {
+      const title = Array.isArray(piece.trackTitles) ? piece.trackTitles[k] : undefined;
+      named.push(title ? `${title} (${piece.instrumentation![k]})` : `track ${k + 1} (${piece.instrumentation![k]})`);
+    }
   });
-  if (phonetic) {
+  if (named.length) {
     return {
       ok: false,
-      reason: `This piece already has ${curPh === 'hindi-urdu' ? 'Hindi' : curPh} vowels or syllables on a vocal track. Switching would turn them into invalid keys and erase the Hindi vowels, so it isn't allowed. Make a copy of the piece without them to use another tradition.`,
+      reason: `This piece already has ${curPh === 'hindi-urdu' ? 'Hindi' : curPh} vowels or syllables on ${named.join(', ')}. Switching would turn them into invalid keys and erase the Hindi vowels, so it isn't allowed. Make a copy of the piece without them to use another tradition.`,
     };
   }
   return { ok: true };
