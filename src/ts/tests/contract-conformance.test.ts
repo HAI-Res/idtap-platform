@@ -212,6 +212,12 @@ describe('syllable conformance (PROP-8)', () => {
         if (exp.nineTone !== undefined) {
           expect(syls.map((s: any) => derivedTone(s, piece.pack!))).toEqual(exp.nineTone);
         }
+        if (exp.appliedArticulations !== undefined) {
+          // every articulation of the trajectory after the save, not only the consonant mirrors
+          const arts: { [uid: string]: any } = {};
+          for (const tr of out.phraseGrid) for (const [, , t] of trackFlat(tr)) arts[uidOf(t)] = t.articulations;
+          for (const [uid, want] of Object.entries(exp.appliedArticulations)) expect(arts[uid]).toEqual(want);
+        }
         expectGuardAndViolations(out, loadViolations(piece), exp);
       });
     } else if (fx.kind === 'rehome') {
