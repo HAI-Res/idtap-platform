@@ -5,7 +5,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
-import { Piece, Phrase } from '../model';
+import { Piece, Phrase, Trajectory } from '../model';
 import {
   parseClientHeader, clientKnowsSyllables, legacySafe, legacyOfTraj, trackFlat, Syllable,
 } from '@shared/syllables';
@@ -363,4 +363,129 @@ describe('vocal tracks only (Jon, 2026-11-13)', () => {
     expect(row0(out)[0].vowel).toBe('a');
     expect(legacySafe(out)).toEqual([false, ['boundary']]);
   });
+});
+
+describe('robustness: malformed stored tiers (review of #64)', () => {
+  const quiet = () => vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+  it('a stored syllable without an anchor loads, is reported, carried through unchanged, and does not overwrite legacy fields', () => {
+    const w = quiet();
+    const bad = [{ nucleus: 'a', lyric: { vowel: 'a', source: 'human' } }];
+    const src = pieceJson([phrase('p0', [traj({ uid: 'a', v: 'ā', s: 'ba' })], bad as any)]);
+    const piece = Piece.fromJSON(clone(src)); // must not throw
+    expect(piece.syllableViolations.map(v => v[0])).toContain('syllable-malformed');
+    const out = save(piece); // must not throw
+    expect(out.phraseGrid[0][0].syllables).toEqual(bad);
+    // the stored values stand (the loader fills display copies from the tables, as main does)
+    expect([row0(out)[0].vowel, row0(out)[0].startConsonant, row0(out)[0].articulations['0.00']?.stroke]).toEqual(['ā', 'ba', 'ba']);
+    w.mockRestore();
+  });
+
+  it('a non-array or null-entry tier loads and saves without throwing', () => {
+    const w = quiet();
+    for (const bad of [{ oops: true }, [null], ['x'], [{ anchor: null, lyric: { vowel: null, source: 'pack' } }]]) {
+      const src = pieceJson([phrase('p0', [traj({ uid: 'a', v: 'ā' })], bad as any)]);
+      const piece = Piece.fromJSON(clone(src));
+      expect(piece.syllableViolations.map(v => v[0])).toContain('syllable-malformed');
+      expect(save(piece).phraseGrid[0][0].syllables).toEqual(bad);
+    }
+    w.mockRestore();
+  });
+
+  it('PROVISIONAL: a phrase whose stored tier has a dangling anchor keeps its stored legacy fields', () => {
+    const w = quiet();
+    const src = pieceJson([phrase('p0', [traj({ uid: 'a', v: 'ā', s: 'ba' }), traj({ uid: 'b', v: 'ā' })],
+      [syl('gone', 'ī')])]);
+    const piece = Piece.fromJSON(clone(src));
+    expect(piece.syllableViolations.map(v => v[0])).toContain('anchor-missing');
+    const out = save(piece);
+    expect(row0(out).map((t: any) => [t.vowel, t.startConsonant ?? null])).toEqual([['ā', 'ba'], ['ā', null]]);
+    expect(out.phraseGrid[0][0].syllables).toEqual([syl('gone', 'ī')]);
+    w.mockRestore();
+  });
+
+  it('the write guard fails closed on an unreadable tiered document and stays open on an untiered one', () => {
+    const w = quiet();
+    // a Jyutping piece with a stored syllable that has no anchor
+    const noAnchor = pieceJson([phrase('p0', [traj({ uid: 'a' })], [{ nucleus: 'i', lyric: { vowel: 'i', source: 'human' } }] as any)],
+      { system: { phonology: 'jyutping' } });
+    expect(checkWriteGuard(noAnchor, 'web')).toEqual({
+      ok: false, status: 409, body: { error: 'write-guard', reasons: ['unreadable'], minContract: '0.3.0' } });
+    // a null track next to a tiered one
+    const nullTrack = pieceJson([phrase('p0', [traj({ uid: 'a', v: 'a' })], [{ ...syl('a', 'a'), orthography: 'अ' }])]);
+    (nullTrack.phraseGrid as any).push(null);
+    expect(checkWriteGuard(nullTrack, 'web')).toMatchObject({ ok: false, body: { reasons: ['unreadable'] } });
+    // a null track with nothing tiered anywhere: nothing to protect
+    const untiered = pieceJson([phrase('p0', [traj({ uid: 'a', v: 'a' })])]);
+    (untiered.phraseGrid as any).push(null);
+    expect(checkWriteGuard(untiered, 'web').ok).toBe(true);
+    // a non-Hindi phonology with no tier is still refused when unreadable
+    const nonHindi = { ...untiered, system: { phonology: 'kurmanji' } };
+    expect(checkWriteGuard(nonHindi, 'web')).toMatchObject({ ok: false, body: { reasons: ['unreadable'] } });
+    expect(checkWriteGuard(noAnchor, 'web/0.3.0').ok).toBe(true);
+    expect(w.mock.calls.some(c => String(c[0]).includes('reasons=unreadable'))).toBe(true);
+    w.mockRestore();
+  });
+});
+
+describe('Swift review cases, in TS (flag on)', () => {
+  const HINDUSTANI = { phonology: 'hindi-urdu' };
+  const silence = (dur: number) => new Trajectory({ id: 12, durTot: dur, pitches: [] });
+
+  it('1. deleting the trajectory that anchors the only syllable keeps the rest of it (ā ā la)', () => {
+    const piece = Piece.fromJSON(clone(pieceJson([phrase('p0', [
+      traj({ uid: 't1', v: 'ā', s: 'ba' }), traj({ uid: 't2', v: 'ā' }), traj({ uid: 't3', v: 'ā', e: 'la' }),
+    ])], { system: HINDUSTANI })));
+    const ph = piece.phraseGrid[0][0];
+    ph.trajectoryGrid[0].splice(0, 1);
+    ph.reset();
+    const out = save(piece);
+    expect(row0(out).map((t: any) => [t.vowel ?? null, t.startConsonant ?? null, t.endConsonant ?? null]))
+      .toEqual([['ā', null, null], ['ā', null, 'la']]);
+    expect(out.phraseGrid[0][0].syllables).toEqual([
+      { anchor: { traj: 't2', t: 0 }, nucleus: 'ā', coda: 'la', lyric: { vowel: 'ā', source: 'human' } }]);
+  });
+
+  it('2. a trajectory drawn onto the end of a sounding one starts its own syllable (i ka), t1 keeps la', () => {
+    const piece = Piece.fromJSON(clone(pieceJson([phrase('p0', [
+      traj({ uid: 't1', v: 'ā', s: 'ba', e: 'la' }), traj({ uid: 's', id: 12 }), traj({ uid: 't5', v: 'ī' }),
+    ])], { system: HINDUSTANI })));
+    const ph = piece.phraseGrid[0][0];
+    // what drawing at 0.5-0.8 s does: the silence after t1 becomes [new, shorter silence]
+    const drawn = new Trajectory({ id: 0, durTot: 0.3, pitches: ph.trajectories[0].pitches, vowel: 'i', startConsonant: 'ka' });
+    ph.trajectoryGrid[0].splice(1, 1, drawn, silence(0.2));
+    ph.reset();
+    const out = save(piece);
+    const r = row0(out);
+    expect([r[0].vowel, r[0].startConsonant, r[0].endConsonant]).toEqual(['ā', 'ba', 'la']);
+    expect([r[1].vowel, r[1].startConsonant, r[1].endConsonant ?? null]).toEqual(['i', 'ka', null]);
+    expect(out.phraseGrid[0][0].syllables.map((x: any) => [x.anchor.traj === 't1' ? 't1' : x.anchor.traj === drawn.uniqueId ? 'drawn' : x.anchor.traj,
+      x.onset ?? null, x.nucleus, x.coda ?? null]))
+      .toEqual([['t1', 'ba', 'ā', 'la'], ['drawn', 'ka', 'i', null], ['t5', null, 'ī', null]]);
+  });
+
+  for (const [phonology, nucleus] of [['jyutping', 'i'], ['kurmanji', 'e']] as const) {
+    it(`3. routine edits on a ${phonology} piece never block or break a save; errors are reported`, () => {
+      const w = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const tier = [syl('y1', nucleus)];
+      const piece = Piece.fromJSON(clone(pieceJson([phrase('p0', [
+        traj({ uid: 'y1' }), traj({ uid: 'y2' }), traj({ uid: 's', id: 12 }), traj({ uid: 'y4' }),
+      ], [...tier, syl('y4', nucleus)])], { system: { phonology } })));
+      expect(piece.syllableViolations).toEqual([]);
+      const ph = piece.phraseGrid[0][0];
+      // draw into the silence (no phonemes: the dropdowns are hidden here)
+      ph.trajectoryGrid[0].splice(2, 1, new Trajectory({ id: 0, durTot: 0.2, pitches: ph.trajectories[0].pitches }), silence(0.3));
+      // insert a silence inside the melisma y1-y2
+      ph.trajectoryGrid[0].splice(1, 0, silence(0.1));
+      ph.reset();
+      const out = save(piece); // must not throw
+      expect(out.phraseGrid[0][0].syllables.map((x: any) => x.anchor.traj)).toEqual(['y1', 'y4']);
+      // the next load reports the gaps the edits opened, as violations, and saves again
+      const again = Piece.fromJSON(clone(out));
+      expect([...new Set(again.syllableViolations.map(v => v[0]))]).toEqual(['unanchored-start']);
+      expect(again.frozenSyllablePhraseUids.size).toBe(0);
+      expect(save(again).phraseGrid[0][0].syllables.map((x: any) => x.anchor.traj)).toEqual(['y1', 'y4']);
+      w.mockRestore();
+    });
+  }
 });

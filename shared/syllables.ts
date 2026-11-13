@@ -184,6 +184,20 @@ export function trackFlat<T extends TrajLike>(track: { trajectoryGrid?: T[][] | 
 
 const clone = <T>(x: T): T => JSON.parse(JSON.stringify(x));
 
+/**
+ * A stored syllable the rules can read: an object with an anchor naming a
+ * trajectory. Anything else (no anchor, a null entry, a string) is carried
+ * through unchanged by the model and reported as `syllable-malformed`; it never
+ * makes a load throw.
+ */
+export function wellFormedSyllable(s: unknown): s is Syllable {
+  if (!s || typeof s !== 'object' || Array.isArray(s)) return false;
+  const a = (s as any).anchor;
+  if (!a || typeof a !== 'object' || typeof a.traj !== 'string' || a.traj === '') return false;
+  const l = (s as any).lyric;
+  return l === undefined || l === null || (typeof l === 'object' && !Array.isArray(l));
+}
+
 // ------------------------------------------------------------------ heal
 /** first_traj_idxs (Phrase.firstTrajIdxs with null == absent). */
 export function firstTrajIdxs(trajs: TrajLike[]): number[] {
@@ -293,7 +307,9 @@ function clusterHead(key: PhonemeKey | undefined, onset: boolean): string | unde
 export function spans<T extends TrajLike>(track: { trajectoryGrid?: T[][] | null; syllables?: Syllable[] | null }[]):
   { spans: [Syllable, T[]][]; uncovered: T[] } {
   const anchors = new Map<string, Syllable>();
-  for (const ph of track) for (const s of ph.syllables || []) anchors.set(s.anchor.traj, s);
+  for (const ph of track) {
+    for (const s of Array.isArray(ph.syllables) ? ph.syllables : []) if (wellFormedSyllable(s)) anchors.set(s.anchor.traj, s);
+  }
   return spansFromAnchors(trackFlat(track).map(x => x[2]), anchors);
 }
 
@@ -320,7 +336,7 @@ export function projectTrack(pack: Pack, trajs: TrajLike[], syllables: Syllable[
   const res: { [uid: string]: LegacyFields } = {};
   for (const t of trajs) res[uidOf(t)] = { art0: null, art1: null };
   const anchors = new Map<string, Syllable>();
-  for (const s of syllables) anchors.set(s.anchor.traj, s);
+  for (const s of syllables) if (wellFormedSyllable(s)) anchors.set(s.anchor.traj, s);
   const sp = spansFromAnchors(trajs, anchors).spans;
   for (const [syl, ts] of sp) {
     const v = legacyEntry(pack, 'vowels', (syl.lyric || ({} as any)).vowel);
@@ -460,7 +476,8 @@ export function checkInvariants(piece: PieceLike): Violation[] {
   const codas = codasOf(pack);
   const v: Violation[] = [];
   piece.phraseGrid.forEach((track, k) => {
-    const anySyl = track.some(ph => (ph.syllables || []).length > 0);
+    const listOf = (ph: PhraseLike) => (Array.isArray(ph.syllables) ? ph.syllables : []);
+    const anySyl = track.some(ph => listOf(ph).length > 0);
     const anchored = new Set<string>();
     track.forEach((ph, pi) => {
       const idx = new Map<string, [number, TrajLike]>();
@@ -470,8 +487,12 @@ export function checkInvariants(piece: PieceLike): Violation[] {
         else v.push(['traj-uid-missing', `track ${k} phrase ${pi} traj ${i}`]);
       });
       let last = -1;
-      (ph.syllables || []).forEach((s, si) => {
+      if (ph.syllables !== undefined && ph.syllables !== null && !Array.isArray(ph.syllables)) {
+        v.push(['syllable-malformed', `track ${k} phrase ${pi} syllables`]);
+      }
+      listOf(ph).forEach((s, si) => {
         const where = `track ${k} phrase ${pi} syllable ${si}`;
+        if (!wellFormedSyllable(s)) { v.push(['syllable-malformed', where]); return; }
         const a = s.anchor;
         const hit = idx.get(a.traj);
         if (!hit) { v.push(['anchor-missing', where]); return; }
@@ -566,7 +587,12 @@ export function legacySafe(piece: PieceLike): [boolean, string[]] {
   if (pack.id !== LEGACY_PACK) reasons.add('pack');
   for (const track of piece.phraseGrid || []) {
     for (const ph of track) {
-      for (const s of ph.syllables || []) {
+      const syls = ph.syllables;
+      if (syls !== undefined && syls !== null && (!Array.isArray(syls) || !syls.every(wellFormedSyllable))) {
+        // the server's guard turns this into 'unreadable' (fail closed)
+        throw new Error('stored syllable tier is malformed');
+      }
+      for (const s of syls || []) {
         for (const f of Object.keys(s)) if (!LEGACY_HOLDABLE.has(f)) reasons.add(f);
         if ((s.anchor.t ?? 0) !== 0) reasons.add('anchorT');
         for (const f of ['onset', 'coda'] as const) if (Array.isArray(s[f])) reasons.add('cluster');

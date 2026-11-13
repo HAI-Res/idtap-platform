@@ -9,7 +9,8 @@
  *
  * A save from a pre-0.3.0 client is refused (HTTP 409) when the STORED piece is
  * not legacy-safe: that client would drop the syllable tier, or keep only
- * legacy fields that cannot rebuild it. Reasons come from legacySafe().
+ * legacy fields that cannot rebuild it. Reasons come from legacySafe(), plus
+ * 'unreadable' when the stored tier cannot be read at all (fail closed).
  */
 import { legacySafe, clientKnowsSyllables, parseClientHeader } from '../shared/syllables';
 
@@ -25,29 +26,58 @@ export type GuardResult =
   | { ok: false; status: 409; body: { error: 'write-guard'; reasons: string[]; minContract: string } };
 
 /**
+ * Whether a stored document carries anything a pre-0.3.0 save could destroy:
+ * a non-empty (or unreadable) syllable list on any phrase, or a phonology
+ * other than hindi-urdu. Tolerates any shape (null tracks, null phrases).
+ */
+export function storedTierPresent(stored: any): boolean {
+  const ph = stored?.system?.phonology;
+  if (ph !== undefined && ph !== null && ph !== 'hindi-urdu') return true;
+  const grid = Array.isArray(stored?.phraseGrid) ? stored.phraseGrid : [];
+  return grid.some((track: any) => Array.isArray(track) && track.some((p: any) => {
+    const syl = p && typeof p === 'object' ? p.syllables : undefined;
+    if (syl === undefined || syl === null) return false;
+    return !Array.isArray(syl) || syl.length > 0;
+  }));
+}
+
+const refuse = (reasons: string[]): GuardResult => ({
+  ok: false,
+  status: 409,
+  body: { error: 'write-guard', reasons, minContract: MIN_TIER_CONTRACT },
+});
+
+/**
  * Decide whether a save may overwrite `stored` (the document as it is in the
  * database). Logs every refusal with the client value and the reasons; the
  * rollout watches those lines.
+ *
+ * Fails CLOSED: when the stored document cannot be read by the rules (a
+ * syllable without an anchor, a null track, ...), the save is refused with
+ * reason 'unreadable' unless the document is truly untiered.
  */
 export function checkWriteGuard(stored: any, clientHeader: string | undefined, id?: unknown): GuardResult {
   if (clientKnowsSyllables(clientHeader)) return { ok: true };
-  if (!stored || !Array.isArray(stored.phraseGrid)) return { ok: true };
+  if (!stored) return { ok: true };
+  const client = clientHeader ?? '-';
+  if (!Array.isArray(stored.phraseGrid)) {
+    if (!storedTierPresent(stored)) return { ok: true };
+    console.warn(`write-guard: refused save of ${String(id)} client=${client} reasons=unreadable (no phraseGrid)`);
+    return refuse(['unreadable']);
+  }
   let safe: boolean;
   let reasons: string[];
   try {
     [safe, reasons] = legacySafe(stored);
   } catch (err) {
-    // A document the reference rules cannot read (e.g. a row-0 trajectory with
-    // no uniqueId in a tiered phrase). Refusing would block a save for a reason
-    // the contract does not define, so let it through and say so.
-    console.warn(`write-guard: could not evaluate ${String(id)} (client=${clientHeader ?? '-'}):`, err);
-    return { ok: true };
+    if (!storedTierPresent(stored)) {
+      console.warn(`write-guard: could not evaluate ${String(id)} (client=${client}); untiered, allowed:`, String(err));
+      return { ok: true };
+    }
+    console.warn(`write-guard: refused save of ${String(id)} client=${client} reasons=unreadable (${String(err)})`);
+    return refuse(['unreadable']);
   }
   if (safe) return { ok: true };
-  console.warn(`write-guard: refused save of ${String(id)} client=${clientHeader ?? '-'} reasons=${reasons.join(',')}`);
-  return {
-    ok: false,
-    status: 409,
-    body: { error: 'write-guard', reasons, minContract: MIN_TIER_CONTRACT },
-  };
+  console.warn(`write-guard: refused save of ${String(id)} client=${client} reasons=${reasons.join(',')}`);
+  return refuse(reasons);
 }

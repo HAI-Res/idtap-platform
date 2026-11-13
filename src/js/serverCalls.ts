@@ -119,16 +119,18 @@ const getAudioDBEntry = async (_id: string): Promise<RecType> => {
 
 const savePiece = async (piece: Piece) => {
   console.log(piece)
-  const data = JSON.stringify(piece);
   let result;
-  let request = {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json', 'X-IDTAP-Client': IDTAP_CLIENT
-    },
-    body: data
-  };
   try {
+    // inside the try: serializing runs the syllable tier's dual-write, and a
+    // failure there must be reported like a failed request, not thrown past it
+    const data = JSON.stringify(piece);
+    const request = {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json', 'X-IDTAP-Client': IDTAP_CLIENT
+      },
+      body: data
+    };
     const res = await fetch(url + 'updateTranscription', request);
     if (res.ok) {
       result = await res.json()
