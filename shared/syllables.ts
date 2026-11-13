@@ -143,6 +143,13 @@ export function packOf(piece: { system?: System | null }): Pack {
   return loadPack(resolveSystem(piece).phonology as string);
 }
 
+/** Pack keys are NFC (contract 0.3.1): look a stored key up in NFC; never rewrite it. */
+export function nfc<T>(x: T): T {
+  if (typeof x === 'string') return x.normalize('NFC') as unknown as T;
+  if (Array.isArray(x)) return x.map(y => nfc(y)) as unknown as T;
+  return x;
+}
+
 export function codasOf(pack: Pack): { [key: string]: PackEntry } {
   return pack.codas === 'consonants' ? pack.consonants : pack.codas;
 }
@@ -286,7 +293,8 @@ function legacyEntry(pack: Pack, table: 'consonants' | 'vowels' | 'codas', key: 
   if (key === null || key === undefined || Array.isArray(key)) return null;
   if (pack.id === LEGACY_PACK) {
     const map = table === 'codas' ? codasOf(pack) : pack[table];
-    const e = Object.prototype.hasOwnProperty.call(map, key) ? map[key] : undefined;
+    const k = nfc(key);
+    const e = Object.prototype.hasOwnProperty.call(map, k) ? map[k] : undefined;
     if (e === undefined) return [key, undefined, undefined, undefined]; // unknown string: kept as-is
     const leg = e.legacy;
     if (!leg) return null; // e.g. ṇa: no legacy form
@@ -426,7 +434,7 @@ function keys(x: PhonemeKey | undefined | null): string[] {
 /** final_key: key into pack.finals (nucleus + coda), or null for a coda cluster. */
 export function finalKey(syl: Syllable): string | null {
   if (Array.isArray(syl.coda)) return null;
-  return (syl.nucleus || '') + (syl.coda || '');
+  return nfc((syl.nucleus || '') + (syl.coda || ''));
 }
 
 const own = (m: object | undefined | null, k: string) => !!m && Object.prototype.hasOwnProperty.call(m, k);
@@ -434,7 +442,8 @@ const own = (m: object | undefined | null, k: string) => !!m && Object.prototype
 /** derive_ipa: onset IPA + the final's (or nucleus + coda) IPA. Never stored. null when a part is unknown. */
 export function deriveIpa(syl: Syllable, pack: Pack): string | null {
   const parts: string[] = [];
-  for (const k of keys(syl.onset)) {
+  for (const k0 of keys(syl.onset)) {
+    const k = nfc(k0);
     if (!own(pack.consonants, k)) return null;
     parts.push(pack.consonants[k].ipa as string);
   }
@@ -445,11 +454,13 @@ export function deriveIpa(syl: Syllable, pack: Pack): string | null {
     parts.push(f.ipa);
   } else {
     if (syl.nucleus !== undefined && syl.nucleus !== null) {
-      if (!own(pack.vowels, syl.nucleus)) return null;
-      parts.push(pack.vowels[syl.nucleus].ipa ?? '');
+      const n = nfc(syl.nucleus);
+      if (!own(pack.vowels, n)) return null;
+      parts.push(pack.vowels[n].ipa ?? '');
     }
     const codas = codasOf(pack);
-    for (const k of keys(syl.coda)) {
+    for (const k0 of keys(syl.coda)) {
+      const k = nfc(k0);
       if (!own(codas, k)) return null;
       parts.push(codas[k].ipa as string);
     }
@@ -511,15 +522,15 @@ export function checkInvariants(piece: PieceLike): Violation[] {
         for (const [f, table, flag] of [['onset', pack.consonants, 'onsetClusters'], ['coda', codas, 'codaClusters']] as const) {
           const x = s[f];
           if (Array.isArray(x) && !pack.flags[flag]) v.push(['cluster-not-allowed', where]);
-          for (const key of keys(x)) if (!own(table, key)) v.push(['key-unknown', where]);
+          for (const key of keys(x)) if (!own(table, nfc(key))) v.push(['key-unknown', where]);
         }
         const nuc = s.nucleus ?? null;
-        if (nuc !== null && !own(pack.vowels, nuc)) v.push(['key-unknown', where]);
+        if (nuc !== null && !own(pack.vowels, nfc(nuc))) v.push(['key-unknown', where]);
         const lyricVowel = (s.lyric || ({} as any)).vowel ?? null;
         if (nuc !== lyricVowel) v.push(['nucleus-lyric-mismatch', where]);
         for (const obs of ['lyric', 'sung'] as const) {
           const ov = ((s[obs] || {}) as any).vowel ?? null;
-          if (ov !== null && !own(pack.vowels, ov)) v.push(['key-unknown', where]);
+          if (ov !== null && !own(pack.vowels, nfc(ov))) v.push(['key-unknown', where]);
         }
         if (s.tone !== undefined && s.tone !== null) {
           if (!pack.flags.tones) v.push(['tone-not-allowed', where]);
@@ -606,7 +617,7 @@ export function legacySafe(piece: PieceLike): [boolean, string[]] {
             [s.onset, pack.consonants], [s.coda, codasOf(pack)],
             [s.nucleus, pack.vowels], [(s.lyric || ({} as any)).vowel, pack.vowels]];
           for (const [k, table] of checks) {
-            if (typeof k === 'string' && own(table, k) && !('legacy' in table[k])) reasons.add('key');
+            if (typeof k === 'string' && own(table, nfc(k)) && !('legacy' in table[nfc(k)])) reasons.add('key');
           }
         }
       }
