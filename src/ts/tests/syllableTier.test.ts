@@ -218,12 +218,12 @@ describe('re-homing through the pool (editor-style in-memory edits)', () => {
       .toEqual([['a', null], ['c', 'ग']]);
   });
 
-  it('deleting an anchor trajectory drops its syllable; the rest re-derive from their own fields', () => {
+  it('deleting an anchor trajectory moves its syllable to the next note of its extent (spec §13)', () => {
     const piece = twoSyllables();
     piece.phraseGrid[0][0].trajectoryGrid[0].splice(0, 1);
     piece.phraseGrid[0][0].reset();
     const { dropped } = piece.syncSyllables();
-    expect(dropped).toEqual(['a']);
+    expect(dropped).toEqual([]);
     const out = save(piece);
     expect(out.phraseGrid[0][0].syllables.map((s: any) => [s.anchor.traj, s.nucleus]))
       .toEqual([['b', 'ā'], ['c', 'a']]);
@@ -442,8 +442,10 @@ describe('Swift review cases, in TS (flag on)', () => {
     const out = save(piece);
     expect(row0(out).map((t: any) => [t.vowel ?? null, t.startConsonant ?? null, t.endConsonant ?? null]))
       .toEqual([['ā', null, null], ['ā', null, 'la']]);
+    // the syllable moved to t2 (spec §13) and kept its vowel and source; its
+    // onset went with t1, the trajectory that carried it
     expect(out.phraseGrid[0][0].syllables).toEqual([
-      { anchor: { traj: 't2', t: 0 }, nucleus: 'ā', coda: 'la', lyric: { vowel: 'ā', source: 'human' } }]);
+      { anchor: { traj: 't2', t: 0 }, nucleus: 'ā', coda: 'la', lyric: { vowel: 'ā', source: 'pack' } }]);
   });
 
   it('2. a trajectory drawn onto the end of a sounding one starts its own syllable (i ka), t1 keeps la', () => {

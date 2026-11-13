@@ -230,6 +230,12 @@ class Piece {
    * conformance tests use it to exercise the full 0.3.0 save.
    */
   persistSyllables: 'auto' | 'all' = 'auto';
+  /**
+   * Each syllable's extent (row-0 uniqueIds) as of the last load, save or tier
+   * edit, so a syllable whose anchor trajectory is deleted can move to the next
+   * sounding trajectory of its old extent (spec §13) instead of vanishing.
+   */
+  private lastSyllableExtents: WeakMap<Syllable, string[]> = new WeakMap();
   /** Load-time invariant violations (errors and the track-not-vocal warning). */
   syllableViolations: Violation[] = [];
 
@@ -1698,6 +1704,7 @@ class Piece {
       if (ph.syllables !== undefined && !this.isFrozen(ph)) stored.add(ph);
     }));
     if (stored.size > 0) this.projectSyllablesOnto(stored);
+    this.rememberSyllableExtents();
   }
 
   private invariantsOf(lists: Syllable[][][]): Violation[] {
@@ -1925,10 +1932,32 @@ class Piece {
   private reprojectTrack(track: number) {
     const set = new Set<Phrase>((this.phraseGrid[track] || []).filter(ph => !this.isFrozen(ph)));
     if (set.size) this.projectSyllablesOnto(set);
+    this.rememberSyllableExtents();
   }
 
-  /** Write parts onto a syllable: keys, nucleus = lyric.vowel, source human, romanization from the keys. */
-  private writeParts(syl: Syllable, parts: SyllableParts) {
+  private rememberSyllableExtents() {
+    this.phraseGrid.forEach((_, k) => {
+      for (const sp of this.syllableSpans(k)) {
+        if (!sp.frozen) this.lastSyllableExtents.set(sp.syllable, sp.trajs.map(t => t.uniqueId!));
+      }
+    });
+  }
+
+  /** “x”: how a syllable is named in a status line or a refusal. */
+  static syllableLabel(syl: Syllable | undefined): string {
+    if (!syl) return '“?”';
+    return '“' + (syl.romanization || syl.orthography || '?') + '”';
+  }
+
+  /**
+   * Write parts onto a syllable (spec §5.4, §6.4): keys; nucleus = lyric.vowel;
+   * source human; romanization regenerated from the keys. Orthography: Hindi
+   * keeps typed Devanagari, and a change of keys without new Devanagari clears
+   * it (it would no longer match); Kurmanji's is the romanization; Cantonese's
+   * comes only from the character box. -> a status note when something was cleared.
+   */
+  private writeParts(syl: Syllable, parts: SyllableParts): string | undefined {
+    const before = JSON.stringify([syl.onset, syl.nucleus, syl.coda, syl.tone]);
     for (const k of ['onset', 'nucleus', 'coda', 'tone'] as const) {
       if (parts[k] === undefined || parts[k] === null || (Array.isArray(parts[k]) && (parts[k] as string[]).length === 0)) delete syl[k];
       else (syl as any)[k] = parts[k];
@@ -1936,12 +1965,21 @@ class Piece {
     syl.lyric = { vowel: syl.nucleus ?? null, source: 'human' };
     const roman = this.pack ? romanizationOf(this.pack, syl) : undefined;
     if (roman === undefined) delete syl.romanization; else syl.romanization = roman;
-    if (parts.orthography !== undefined) {
+    const keysChanged = before !== JSON.stringify([syl.onset, syl.nucleus, syl.coda, syl.tone]);
+    let note: string | undefined;
+    const packId = this.pack?.id;
+    if (packId === 'kurmanji') {
+      if (syl.romanization) syl.orthography = syl.romanization; else delete syl.orthography;
+    } else if (parts.orthography !== undefined) {
       if (parts.orthography === '') delete syl.orthography; else syl.orthography = parts.orthography;
+    } else if (packId === 'hindi-urdu' && keysChanged && syl.orthography) {
+      delete syl.orthography;
+      note = 'The typed Devanagari no longer matched, so it was cleared.';
     }
     if (parts.wordStart !== undefined) {
       if (parts.wordStart) syl.wordStart = true; else delete syl.wordStart;
     }
+    return note;
   }
 
   private spanIndexOf(spans: SyllableSpan[], syl: Syllable) {
@@ -1966,7 +2004,7 @@ class Piece {
     if (f.slice(a, b + 1).some(x => x.frozen)) return { ok: false, reason: 'Part of this run is in a phrase whose stored syllables are damaged; it is kept as stored and cannot be edited.' };
     let k = a;
     while (k <= b && silent(f[k].traj)) k++;
-    if (k > b) return { ok: false, reason: 'The run is all silence.' };
+    if (k > b) return { ok: false, reason: 'A syllable cannot start on a silence.' };
     const spans = this.syllableSpans(track).filter(x => !x.frozen);
     const idxOf = new Map(f.map((x, i) => [x.traj.uniqueId!, i]));
     const inside = spans.filter(x => { const i = idxOf.get(x.syllable.anchor.traj)!; return i >= a && i <= b; });
@@ -1982,14 +2020,25 @@ class Piece {
     this.syllablePool = this.syllablePool!.filter(x => !remove.has(x));
     if (keep) keep.anchor = { ...keep.anchor, traj: f[b + 1].traj.uniqueId!, t: 0 };
     const syl = { anchor: { traj: f[k].traj.uniqueId!, t: 0 } } as Syllable;
-    this.writeParts(syl, parts);
+    this.writeParts(syl, { wordStart: true, ...parts });
     this.syllablePool!.push(syl);
     this.reprojectTrack(track);
-    const mine = this.syllableSpans(track).find(x => x.syllable === syl)!;
-    const endK = idxOf.get(mine.trajs[mine.trajs.length - 1].uniqueId!)!;
-    return endK > b
-      ? { ok: true, syllable: syl, warning: `The syllable also covers ${endK - b} note(s) after the selection, up to the next syllable or silence.` }
-      : { ok: true, syllable: syl };
+    // spec §8.1 step 5: the syllable stops at the first silence in the run
+    const sil = f.slice(k, b + 1).findIndex(x => silent(x.traj));
+    const warning = sil >= 0
+      ? `${Piece.syllableLabel(syl)} stops at the silence at note ${k + sil + 1}.` : undefined;
+    return { ok: true, syllable: syl, warning };
+  }
+
+  /** Syllables whose start lies in a run (the confirmation before setSyllableOnRun replaces them). */
+  syllablesStartingInRun(track: number, firstUid: string, lastUid: string): Syllable[] {
+    const f = this.lyricFlat(track);
+    let a = f.findIndex(x => x.traj.uniqueId === firstUid);
+    let b = f.findIndex(x => x.traj.uniqueId === lastUid);
+    if (a < 0 || b < 0) return [];
+    if (a > b) [a, b] = [b, a];
+    const inRun = new Set(f.slice(a, b + 1).map(x => x.traj.uniqueId!));
+    return this.syllableSpans(track).filter(x => !x.frozen && inRun.has(x.syllable.anchor.traj)).map(x => x.syllable);
   }
 
   /** Picked or typed parts for an existing syllable (lyric.source becomes human). */
@@ -1997,9 +2046,9 @@ class Piece {
     const allowed = this.syllableEditingAllowed(track);
     if (!allowed.ok) return allowed;
     if (!this.syllablePool!.includes(syl)) return { ok: false, reason: 'That syllable cannot be edited here (it is stored in a damaged phrase, or gone).' };
-    this.writeParts(syl, parts);
+    const note = this.writeParts(syl, parts);
     this.reprojectTrack(track);
-    return { ok: true, syllable: syl };
+    return { ok: true, syllable: syl, warning: note };
   }
 
   /**
@@ -2018,35 +2067,80 @@ class Piece {
     const k = f.findIndex(x => x.traj.uniqueId === syl.anchor.traj);
     const nk = k + dir;
     const mandatory = k === 0 || silent(f[k - 1].traj);
-    if (mandatory && dir > 0) return { ok: false, reason: 'The first note after a silence must start a syllable, so this start cannot move right. Merge or split instead.' };
+    if (mandatory && dir > 0) return { ok: false, reason: 'The first note after a silence must start a syllable (unanchored-start), so this start cannot move right.' };
     if (nk < 0 || nk >= f.length || silent(f[nk].traj)) return { ok: false, reason: dir < 0 ? 'A syllable cannot reach back across a silence.' : 'A syllable cannot start on a silence.' };
     if (f[nk].frozen) return { ok: false, reason: 'The neighbouring phrase is kept as stored and cannot be edited.' };
     const neighbour = spans[i + dir];
     const nIdx = neighbour ? f.findIndex(x => x.traj.uniqueId === neighbour.syllable.anchor.traj) : -1;
-    if (neighbour && (dir < 0 ? nk <= nIdx : nk >= nIdx)) return { ok: false, reason: 'That note already starts another syllable.' };
+    if (neighbour && (dir < 0 ? nk <= nIdx : nk >= nIdx)) return { ok: false, reason: `That note already starts ${Piece.syllableLabel(neighbour.syllable)}.` };
     syl.anchor = { ...syl.anchor, traj: f[nk].traj.uniqueId!, t: 0 };
     this.reprojectTrack(track);
     return { ok: true, syllable: syl };
   }
 
   /**
-   * Split a syllable in two at a trajectory inside it (default: its middle).
-   * The second part starts with no text (lyric.vowel null); give it text next.
+   * Spec §8.4: `/` does not change the data. It returns the run the editor
+   * selects for the second syllable: from the split point (the trajectory given,
+   * if it is after the start; otherwise the middle) to the end of the extent.
+   * The first pick or typed commit then creates it through setSyllableOnRun.
    */
-  splitSyllable(track: number, syl: Syllable, atUid?: string): SyllableEditResult {
+  splitRunFor(track: number, syl: Syllable, atUid?: string):
+    { ok: true; firstUid: string; lastUid: string } | { ok: false; reason: string } {
     const allowed = this.syllableEditingAllowed(track);
     if (!allowed.ok) return allowed;
     const spans = this.syllableSpans(track).filter(x => !x.frozen);
     const me = spans[this.spanIndexOf(spans, syl)];
     if (!me) return { ok: false, reason: 'That syllable cannot be edited here.' };
-    if (me.trajs.length < 2) return { ok: false, reason: 'A one-note syllable cannot be split: select more notes, or split the note itself.' };
-    let at = atUid ? me.trajs.findIndex(t => t.uniqueId === atUid) : Math.floor(me.trajs.length / 2);
-    if (at <= 0) return { ok: false, reason: 'Split inside the syllable, after its first note.' };
-    const ns = { anchor: { traj: me.trajs[at].uniqueId!, t: 0 } } as Syllable;
-    this.writeParts(ns, {});
-    this.syllablePool!.push(ns);
+    if (me.trajs.length < 2) return { ok: false, reason: 'A one-note syllable cannot be split. Use split note here.' };
+    let at = atUid ? me.trajs.findIndex(t => t.uniqueId === atUid) : -1;
+    if (at <= 0) at = Math.floor(me.trajs.length / 2);
+    return { ok: true, firstUid: me.trajs[at].uniqueId!, lastUid: me.trajs[me.trajs.length - 1].uniqueId! };
+  }
+
+  /**
+   * Spec §8.3 "Split note here": split a row-0 trajectory at `fraction` (0..1,
+   * exclusive) and anchor `syl` on the second part at t = 0. The first part
+   * keeps its uniqueId, so other anchors on it stay put. Held notes (fixed,
+   * id 0) and vibrato (id 13) split exactly; bends would change shape, so they
+   * are refused in this build.
+   */
+  splitNoteHere(track: number, syl: Syllable, trajUid: string, fraction: number): SyllableEditResult {
+    const allowed = this.syllableEditingAllowed(track);
+    if (!allowed.ok) return allowed;
+    if (!(fraction > 0 && fraction < 1)) return { ok: false, reason: 'The split point must be inside the note.' };
+    const f = this.lyricFlat(track);
+    const x = f.find(y => y.traj.uniqueId === trajUid);
+    if (!x) return { ok: false, reason: 'That note is not on this track.' };
+    if (x.frozen) return { ok: false, reason: `Phrase ${this.phraseGrid[track].indexOf(x.phrase) + 1} is frozen.` };
+    if (!this.syllablePool!.includes(syl)) return { ok: false, reason: 'That syllable cannot be edited here.' };
+    const t = x.traj;
+    if (t.id !== 0 && t.id !== 13) {
+      return { ok: false, reason: 'Split note here works on held notes and vibrato in this build; this note is a glide, which a split would reshape.' };
+    }
+    const row = x.phrase.trajectoryGrid[0];
+    const idx = row.indexOf(t);
+    const total = t.durTot;
+    const json: any = t.toJSON();
+    const second = new Trajectory({
+      ...json,
+      pitches: t.pitches.map(p => new Pitch(p)),
+      durTot: total * (1 - fraction),
+      durArray: [1],
+      articulations: {},
+      vibObj: t.id === 13 ? { ...t.vibObj } : undefined,
+      instrumentation: t.instrumentation,
+      uniqueId: undefined, num: undefined, groupId: undefined, automation: undefined,
+      vowel: undefined, startConsonant: undefined, endConsonant: undefined,
+    });
+    t.durTot = total * fraction;
+    // a consonant mirror at '1.00' belongs to the end of the note: move it over
+    const endArt = t.articulations['1.00'];
+    if (endArt) { second.articulations['1.00'] = endArt; delete t.articulations['1.00']; }
+    row.splice(idx + 1, 0, second);
+    x.phrase.reset();
+    syl.anchor = { ...syl.anchor, traj: second.uniqueId!, t: 0 };
     this.reprojectTrack(track);
-    return { ok: true, syllable: ns };
+    return { ok: true, syllable: syl };
   }
 
   /**
@@ -2062,7 +2156,7 @@ class Piece {
     const i = this.spanIndexOf(spans, syl);
     if (i < 0) return { ok: false, reason: 'That syllable cannot be edited here.' };
     const k = f.findIndex(x => x.traj.uniqueId === syl.anchor.traj);
-    if (k === 0 || silent(f[k - 1].traj)) return { ok: false, reason: 'This syllable follows a silence, so there is no previous syllable for its notes to join. Clear its text instead.' };
+    if (k === 0 || silent(f[k - 1].traj)) return { ok: false, reason: 'This syllable follows a silence, so it has no previous syllable to join (unanchored-start).' };
     if (f[k - 1].frozen) return { ok: false, reason: 'The previous phrase is kept as stored and cannot be edited.' };
     this.syllablePool = this.syllablePool!.filter(x => x !== syl);
     this.reprojectTrack(track);
@@ -2070,19 +2164,32 @@ class Piece {
     return { ok: true, syllable: prev?.syllable };
   }
 
-  /** Clear a syllable's text but keep its start (lyric.vowel null). */
-  clearSyllable(track: number, syl: Syllable): SyllableEditResult {
-    return this.setSyllableParts(track, syl, { orthography: '', wordStart: false });
-  }
 
   syncSyllables(): { dropped: string[] } {
     if (this.syllablePool === undefined) this.initSyllablePool();
     const loc = this.syllableLocations();
     const dropped: string[] = [];
+    // spec §13: a syllable whose anchor trajectory is gone moves to the next
+    // sounding trajectory of its old extent that starts nothing; otherwise it
+    // is dropped. Two syllables on one trajectory: the first is kept.
+    const anchoredUids = new Set(this.syllablePool!.filter(s => loc.has(s.anchor.traj)).map(s => s.anchor.traj));
+    const trajOf = new Map<string, Trajectory>();
+    this.phraseGrid.forEach(track => track.forEach(ph => (ph.trajectoryGrid[0] || []).forEach(t => trajOf.set(t.uniqueId!, t))));
+    const seen = new Set<string>();
     this.syllablePool = this.syllablePool!.filter(s => {
-      if (loc.has(s.anchor.traj)) return true;
-      dropped.push(s.anchor.traj);
-      return false;
+      if (!loc.has(s.anchor.traj)) {
+        const old = this.lastSyllableExtents.get(s) || [];
+        const next = old.slice(1).find(u => {
+          const t = trajOf.get(u); const l = loc.get(u);
+          return t && l && !silent(t) && !this.isFrozen(l.phrase) && !anchoredUids.has(u);
+        });
+        if (!next) { dropped.push(s.anchor.traj); return false; }
+        s.anchor = { ...s.anchor, traj: next, t: 0 };
+        anchoredUids.add(next);
+      }
+      if (seen.has(s.anchor.traj)) { dropped.push(s.anchor.traj); return false; }
+      seen.add(s.anchor.traj);
+      return true;
     });
     const pack = this.pack;
     if (pack && pack.id === LEGACY_PACK) this.resyncFromLegacy(pack);
@@ -2113,6 +2220,7 @@ class Piece {
       persisted.add(ph);
     }));
     if (persisted.size > 0) this.projectSyllablesOnto(persisted);
+    this.rememberSyllableExtents();
     return { dropped };
   }
 
