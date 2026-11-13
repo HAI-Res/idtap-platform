@@ -692,3 +692,46 @@ export function clientKnowsSyllables(h: string | undefined | null): boolean {
   const p = parseClientHeader(h);
   return !!p && p.version !== null && !semverLt(p.version, '0.3.0');
 }
+
+// ------------------------------------------------------------------ tradition switch
+/**
+ * May a piece's system change to `next`? (Lyric mode's Edit Tradition, Jon's
+ * provisional defaults of 2026-11-13.) Reads a stored document or a model piece.
+ * - The same phonology (e.g. Hindustani by default -> explicit hindi-urdu, which
+ *   turns the tier on) is always allowed: the legacy fields heal as usual.
+ * - Any other phonology is refused while a vocal track carries legacy phonetic
+ *   fields or a non-empty syllable tier: there is no conversion, and the new
+ *   pack's empty projection would erase the Hindi vowels.
+ * - Removing a system is not offered (one-way for now).
+ */
+export function systemChangeAllowed(piece: PieceLike, next: System | null | undefined): { ok: true } | { ok: false; reason: string } {
+  if (!next || typeof next !== 'object' || Array.isArray(next)) {
+    return { ok: false, reason: 'A tradition cannot be removed once set.' };
+  }
+  const nextPh = resolveSystem({ system: next }).phonology as string;
+  if (!PACKS[nextPh]) return { ok: false, reason: `No phoneme pack '${nextPh}' in this version.` };
+  for (const [k, v] of Object.entries(next)) {
+    const okShape = typeof v === 'string' || (Array.isArray(v) && v.every(x => typeof x === 'string'));
+    if (!okShape) return { ok: false, reason: `system.${k} must be a string or a list of strings.` };
+  }
+  const curPh = resolveSystem(piece).phonology as string;
+  if (curPh === nextPh) return { ok: true };
+  const grid = Array.isArray(piece.phraseGrid) ? piece.phraseGrid : [];
+  let phonetic = false;
+  grid.forEach((track, k) => {
+    if (!Array.isArray(track) || !vocalTrack(piece, k)) return;
+    for (const ph of track) {
+      if (!ph || typeof ph !== 'object') continue;
+      const syl = (ph as PhraseLike).syllables;
+      if (syl !== undefined && syl !== null && (!Array.isArray(syl) || syl.length > 0)) phonetic = true;
+      for (const t of row0(ph as PhraseLike)) if (t && hasPhonetics(t)) phonetic = true;
+    }
+  });
+  if (phonetic) {
+    return {
+      ok: false,
+      reason: `This piece already has ${curPh} vowels or syllables on a vocal track. Switching to ${nextPh} would erase them, so it is not allowed; there is no conversion between traditions.`,
+    };
+  }
+  return { ok: true };
+}
