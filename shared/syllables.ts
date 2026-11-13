@@ -231,6 +231,18 @@ export function healTrajs(trajs: TrajLike[]): Syllable[] {
 
 export const healPhrase = (ph: PhraseLike) => healTrajs(row0(ph));
 
+/**
+ * vocal_track: syllables live on vocal tracks only (Jon, 2026-11-13). A track is
+ * vocal when instrumentation[k] is a vocal label; a missing label is not vocal.
+ * Non-vocal tracks get no heal and no projection: their legacy fields stand
+ * exactly as stored (the editor's default 'a' on instrumental trajectories is
+ * not text), and a stored tier there is kept, warned about, never projected.
+ */
+export function vocalTrack(piece: { instrumentation?: string[] | null }, k: number): boolean {
+  const instr = piece.instrumentation || [];
+  return k < instr.length && VOCAL_INSTRUMENTS.includes(instr[k]);
+}
+
 export function trackIsPhonetic(track: PhraseLike[]): boolean {
   return trackFlat(track).some(([, , t]) => hasPhonetics(t));
 }
@@ -238,14 +250,15 @@ export function trackIsPhonetic(track: PhraseLike[]): boolean {
 /** heal_piece: returns a copy; phrases with a `syllables` key keep it (even []). */
 export function healPiece<P extends PieceLike>(piece: P): P {
   const pc = clone(piece);
-  for (const track of pc.phraseGrid) {
+  pc.phraseGrid.forEach((track, k) => {
+    if (!vocalTrack(pc, k)) return; // nothing is created on a non-vocal track
     const phonetic = trackIsPhonetic(track);
     for (const ph of track) {
       if (!('syllables' in ph) || ph.syllables === undefined) {
         ph.syllables = phonetic ? healPhrase(ph) : [];
       }
     }
-  }
+  });
   return pc;
 }
 
@@ -336,11 +349,16 @@ export function projectTrack(pack: Pack, trajs: TrajLike[], syllables: Syllable[
 export function projectPiece(piece: PieceLike): { [uid: string]: LegacyFields } {
   const pack = packOf(piece);
   const res: { [uid: string]: LegacyFields } = {};
-  for (const track of piece.phraseGrid) {
+  piece.phraseGrid.forEach((track, k) => {
     const trajs = trackFlat(track).map(x => x[2]);
+    if (!vocalTrack(piece, k)) {
+      // non-vocal tracks are never projected: the stored fields stand
+      for (const t of trajs) res[uidOf(t)] = legacyOfTraj(t);
+      return;
+    }
     const syls = track.flatMap(ph => ph.syllables || []);
     Object.assign(res, projectTrack(pack, trajs, syls));
-  }
+  });
   return res;
 }
 
@@ -360,9 +378,10 @@ export function legacyOfTraj(t: TrajLike): LegacyFields {
 export function applyProjection<P extends PieceLike>(piece: P): P {
   const pc = clone(piece);
   const proj = projectPiece(pc);
-  for (const track of pc.phraseGrid) {
+  pc.phraseGrid.forEach((track, k) => {
+    if (!vocalTrack(pc, k)) return; // left exactly as stored
     for (const [, , t] of trackFlat(track)) writeLegacy(t, proj[uidOf(t)]);
-  }
+  });
   return pc;
 }
 
@@ -566,8 +585,11 @@ export function legacySafe(piece: PieceLike): [boolean, string[]] {
     // heal(strip(piece)) compared phrase by phrase, healing only the phrases that
     // are compared: equal to the reference, and a never-tiered phrase without
     // uniqueIds cannot make the check throw.
-    for (const track of piece.phraseGrid) {
-      if (!track.some(ph => Array.isArray(ph.syllables))) continue;
+    piece.phraseGrid.forEach((track, k) => {
+      if (!track.some(ph => Array.isArray(ph.syllables))) return;
+      // a stored tier on a non-vocal track is not rebuilt by the heal, so an old
+      // client's save would lose it
+      if (!vocalTrack(piece, k)) { reasons.add('boundary'); return; }
       const phonetic = trackIsPhonetic(track);
       for (const ph of track) {
         const stored = ph.syllables;
@@ -577,7 +599,7 @@ export function legacySafe(piece: PieceLike): [boolean, string[]] {
           reasons.add('boundary');
         }
       }
-    }
+    });
   }
   return [reasons.size === 0, [...reasons].sort()];
 }

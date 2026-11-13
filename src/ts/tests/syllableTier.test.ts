@@ -340,3 +340,27 @@ describe('insertFixedTrajLeft (editor)', () => {
     expect(out.phraseGrid[0][0].syllables).toEqual([{ ...syl('n', 'ā', { onset: 'ba' }), orthography: 'बा' }]);
   });
 });
+
+describe('vocal tracks only (Jon, 2026-11-13)', () => {
+  it('an instrumental track gets no tier, even with the flag on, and its legacy fields stand', () => {
+    const src = pieceJson([phrase('p0', [
+      traj({ uid: 's1', v: 'a' }), traj({ uid: 's2', v: 'a', s: 'ka' }),
+    ])], { instrumentation: ['Sitar'], system: { phonology: 'hindi-urdu' } });
+    const piece = Piece.fromJSON(clone(src));
+    piece.phraseGrid[0][0].trajectories[0].updateVowel('ā'); // a dropdown-style edit
+    const out = save(piece);
+    expect('syllables' in out.phraseGrid[0][0]).toBe(false);
+    expect(row0(out).map((t: any) => [t.vowel, t.startConsonant ?? null])).toEqual([['ā', null], ['a', 'ka']]);
+  });
+
+  it('a tier stored on an instrumental track is kept verbatim, not projected, and warned about', () => {
+    const stored = [syl('s1', 'ī')];
+    const src = pieceJson([phrase('p0', [traj({ uid: 's1', v: 'a' })], stored)], { instrumentation: ['Sitar'] });
+    const piece = Piece.fromJSON(clone(src));
+    expect(piece.syllableViolations.map(v => v[0])).toEqual(['track-not-vocal']);
+    const out = save(piece);
+    expect(out.phraseGrid[0][0].syllables).toEqual(stored);
+    expect(row0(out)[0].vowel).toBe('a');
+    expect(legacySafe(out)).toEqual([false, ['boundary']]);
+  });
+});

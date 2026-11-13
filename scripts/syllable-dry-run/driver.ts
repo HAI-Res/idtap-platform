@@ -131,6 +131,7 @@ function main() {
     emptyString: {} as { [k: string]: number }, nulls: {} as { [k: string]: number },
     nonVocalPhoneticTracks: 0, nonVocalPhoneticPieces: 0,
     violationsByCode: {} as { [k: string]: number }, piecesWithErrors: 0,
+    storedTrajsWithoutUid: 0, piecesWithStoredTrajsWithoutUid: 0,
   };
   const examples: any = { gate: [], aVsRaw: [], flagOff: [], failures: [], nonVocal: [], violations: [] };
   const push = (k: string, x: any) => { if (examples[k].length < maxEx) examples[k].push(x); };
@@ -208,8 +209,13 @@ function main() {
       if (!doc.system && keyed > stored) totals.flagOffSyllableKeys += keyed - stored;
     }
     if (b) {
-      let found: [string, string][] = b.violations ?? [];
-      try { found = found.concat(checkInvariants(b.out).filter(v => !found.some(f => f[0] === v[0] && f[1] === v[1]))); } catch { /* unknown pack */ }
+      // As the contract does: invariants of B's saved piece, i.e. after the loader
+      // assigned ids. Stored trajectories that lacked one are counted separately.
+      const loadUidMissing = (b.violations ?? []).filter(v => v[0] === 'traj-uid-missing').length;
+      totals.storedTrajsWithoutUid += loadUidMissing;
+      if (loadUidMissing) totals.piecesWithStoredTrajsWithoutUid++;
+      let found: [string, string][] = [];
+      try { found = checkInvariants(b.out); } catch (e) { push('failures', { id, side: 'B-invariants', error: String(e) }); }
       const [errors] = splitViolations(found);
       if (errors.length) totals.piecesWithErrors++;
       found.forEach(([code]) => inc(totals.violationsByCode, code));
@@ -248,6 +254,7 @@ function main() {
   line('B flag off vs A: pieces with diffs', totals.flagOffVsAPieces);
   line('B invariant violations by code', totals.violationsByCode);
   line('B pieces with invariant errors', totals.piecesWithErrors);
+  line('stored row-0 trajs without uniqueId', `${totals.storedTrajsWithoutUid} in ${totals.piecesWithStoredTrajsWithoutUid} pieces (ids assigned on load)`);
   console.log(gatePass ? 'GATE PASS' : 'GATE FAIL');
   if (opt.report) console.log(`report: ${path.resolve(opt.report)}`);
   process.exit(gatePass ? 0 : 1);

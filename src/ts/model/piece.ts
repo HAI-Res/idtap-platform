@@ -35,6 +35,7 @@ import {
   resolveSystem,
   healTrajs,
   trackIsPhonetic,
+  vocalTrack,
   projectTrack,
   spansFromAnchors,
   checkInvariants,
@@ -1589,7 +1590,8 @@ class Piece {
    */
   private initSyllablePool(): Syllable[][][] {
     const pool: Syllable[] = [];
-    const lists = this.phraseGrid.map(track => {
+    const lists = this.phraseGrid.map((track, k) => {
+      const vocal = vocalTrack(this, k);
       const phonetic = trackIsPhonetic(track.map(ph => ({ trajectoryGrid: [ph.trajectoryGrid[0] || []] })));
       return track.map(ph => {
         let list: Syllable[];
@@ -1598,7 +1600,8 @@ class Piece {
           this.storedSyllablePhraseUids.add(ph.uniqueId);
           (ph.trajectoryGrid[0] || []).forEach(t => this.storedSyllableTrajUids.add(t.uniqueId!));
         } else {
-          list = phonetic ? healTrajs(ph.trajectoryGrid[0] || []) : [];
+          // non-vocal tracks: nothing is created, legacy fields stand as stored
+          list = vocal && phonetic ? healTrajs(ph.trajectoryGrid[0] || []) : [];
         }
         pool.push(...list);
         return list;
@@ -1688,7 +1691,8 @@ class Piece {
   private projectSyllablesOnto(phrases: Set<Phrase>) {
     const pack = this.pack;
     if (!pack) return; // unknown phonology id: leave the legacy fields alone
-    this.phraseGrid.forEach(track => {
+    this.phraseGrid.forEach((track, k) => {
+      if (!vocalTrack(this, k)) return; // never projected: stored fields stand
       if (!track.some(ph => phrases.has(ph))) return;
       const trajs = track.flatMap(ph => ph.trajectoryGrid[0] || []);
       const proj = projectTrack(pack, trajs, this.poolForTrack(trajs));
@@ -1715,7 +1719,8 @@ class Piece {
   private resyncFromLegacy(pack: Pack) {
     const norm = (v: string | null | undefined) => (v === undefined || v === null ? null : v);
     const keyFields = ['vowel', 'startConsonant', 'endConsonant'] as const;
-    this.phraseGrid.forEach(track => {
+    this.phraseGrid.forEach((track, k) => {
+      if (!vocalTrack(this, k)) return; // no tier is built on a non-vocal track
       const trajs = track.flatMap(ph => ph.trajectoryGrid[0] || []);
       const syls = this.poolForTrack(trajs);
       const proj = projectTrack(pack, trajs, syls);
@@ -1806,7 +1811,8 @@ class Piece {
     const persisted = new Set<Phrase>();
     this.phraseGrid.forEach((track, k) => track.forEach((ph, pi) => {
       const row = ph.trajectoryGrid[0] || [];
-      const keep = this.syllableTierEnabled || this.persistSyllables === 'all'
+      const create = (this.syllableTierEnabled || this.persistSyllables === 'all') && vocalTrack(this, k);
+      const keep = create
         || this.storedSyllablePhraseUids.has(ph.uniqueId)
         || row.some(t => this.storedSyllableTrajUids.has(t.uniqueId!));
       if (!keep) {
