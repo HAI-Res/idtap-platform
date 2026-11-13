@@ -497,7 +497,7 @@ type RecUpdateType = {
   saEstimate: number,
   saVerified: boolean,
   octOffset: -1 | 0,
-  explicitPermissions: {
+  explicitPermissions?: {
     publicView: boolean,
     edit: string[],
     view: string[]

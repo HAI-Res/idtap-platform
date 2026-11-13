@@ -19,7 +19,7 @@ import { $push } from 'mongo-dot-notation';
 import apiRoutes from './apiRoutes';
 import packRoutes from './packRoutes';
 import { checkWriteGuard, validClientHeader } from './writeGuard';
-import { unsafeUpdateKeys, UNSAFE_KEYS_ERROR } from './updateKeys';
+import { unsafeUpdateKeys, UNSAFE_KEYS_ERROR, recordingUpdates } from './updateKeys';
 import oauthRoutes from './oauthRoutes';
 import authRoutes from './authRoutes';
 import cookieParser from 'cookie-parser';
@@ -1444,25 +1444,28 @@ const runServer = async () => {
 		if (!canEdit(rec, req.user!.uid)) { res.status(403).json({ error: 'forbidden' }); return; }
 		const badKeys = unsafeUpdateKeys(req.body.updates);
 		if (badKeys.length) { res.status(400).json(UNSAFE_KEYS_ERROR(badKeys)); return; }
+		const updates = recordingUpdates(req.body.updates, isOwner(rec, req.user!.uid));
 		const isoDateString = new Date().toISOString();
 		const update = { $set: {
-		  ...req.body.updates,
+		  ...updates,
 		  dateModified: isoDateString
 		 } };
 		const result = await audioRecordings.updateOne(query, update);
-		if (req.body.ae_id !== undefined) {
+		// Mirror into the parent audio event's copy. The parent comes from the stored
+		// recording, never from the body, so a save can't write into another event.
+		if (rec.parentID && rec.parentTrackNumber !== undefined && rec.parentTrackNumber !== null) {
 		  const aeUpdate: { [key: string]: any } = {};
-		  Object.keys(req.body.updates).forEach(key => {
-			aeUpdate[key] = JSON.parse(JSON.stringify(req.body.updates[key]));
+		  Object.keys(updates).forEach(key => {
+			aeUpdate[key] = JSON.parse(JSON.stringify(updates[key]));
 		  })
 		  aeUpdate['audioFileId'] = new ObjectId(req.body._id);
 		  delete aeUpdate['_id'];
 
-		  const aeQuery = { _id: new ObjectId(req.body.ae_id) };
+		  const aeQuery = { _id: new ObjectId(String(rec.parentID)) };
 		  const aeUpdateKeys = Object.keys(aeUpdate);
 		  const aeUpdateFull: { $set: { [key: string]: any } } = { $set: {} };
 		  aeUpdateKeys.forEach(key => {
-			const path = `recordings.${req.body.parentTrackNum}.${key}`;
+			const path = `recordings.${rec.parentTrackNumber}.${key}`;
 			aeUpdateFull.$set[path] = aeUpdate[key];
 		  });
 		  aeUpdateFull.$set['dateModified'] = isoDateString;
