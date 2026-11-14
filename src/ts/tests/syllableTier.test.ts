@@ -218,12 +218,12 @@ describe('re-homing through the pool (editor-style in-memory edits)', () => {
       .toEqual([['a', null], ['c', 'ग']]);
   });
 
-  it('deleting an anchor trajectory drops its syllable; the rest re-derive from their own fields', () => {
+  it('deleting an anchor trajectory moves its syllable to the next note of its extent (spec §13)', () => {
     const piece = twoSyllables();
     piece.phraseGrid[0][0].trajectoryGrid[0].splice(0, 1);
     piece.phraseGrid[0][0].reset();
     const { dropped } = piece.syncSyllables();
-    expect(dropped).toEqual(['a']);
+    expect(dropped).toEqual([]);
     const out = save(piece);
     expect(out.phraseGrid[0][0].syllables.map((s: any) => [s.anchor.traj, s.nucleus]))
       .toEqual([['b', 'ā'], ['c', 'a']]);
@@ -432,7 +432,7 @@ describe('Swift review cases, in TS (flag on)', () => {
   const HINDUSTANI = { phonology: 'hindi-urdu' };
   const silence = (dur: number) => new Trajectory({ id: 12, durTot: dur, pitches: [] });
 
-  it('1. deleting the trajectory that anchors the only syllable keeps the rest of it (ā ā la)', () => {
+  it('1. deleting the trajectory that anchors the only syllable keeps the syllable, re-anchored (ā ā la, onset kept)', () => {
     const piece = Piece.fromJSON(clone(pieceJson([phrase('p0', [
       traj({ uid: 't1', v: 'ā', s: 'ba' }), traj({ uid: 't2', v: 'ā' }), traj({ uid: 't3', v: 'ā', e: 'la' }),
     ])], { system: HINDUSTANI })));
@@ -440,28 +440,57 @@ describe('Swift review cases, in TS (flag on)', () => {
     ph.trajectoryGrid[0].splice(0, 1);
     ph.reset();
     const out = save(piece);
+    // spec §13: the syllable moves to t2 and keeps its whole text; with a system
+    // set the tier is the source, so the legacy fields follow it
     expect(row0(out).map((t: any) => [t.vowel ?? null, t.startConsonant ?? null, t.endConsonant ?? null]))
-      .toEqual([['ā', null, null], ['ā', null, 'la']]);
+      .toEqual([['ā', 'ba', null], ['ā', null, 'la']]);
     expect(out.phraseGrid[0][0].syllables).toEqual([
-      { anchor: { traj: 't2', t: 0 }, nucleus: 'ā', coda: 'la', lyric: { vowel: 'ā', source: 'human' } }]);
+      { anchor: { traj: 't2', t: 0 }, onset: 'ba', nucleus: 'ā', coda: 'la', lyric: { vowel: 'ā', source: 'pack' } }]);
   });
 
-  it('2. a trajectory drawn onto the end of a sounding one starts its own syllable (i ka), t1 keeps la', () => {
+  const drawOntoEnd = (system?: any) => {
     const piece = Piece.fromJSON(clone(pieceJson([phrase('p0', [
       traj({ uid: 't1', v: 'ā', s: 'ba', e: 'la' }), traj({ uid: 's', id: 12 }), traj({ uid: 't5', v: 'ī' }),
-    ])], { system: HINDUSTANI })));
+    ])], system ? { system } : {})));
     const ph = piece.phraseGrid[0][0];
-    // what drawing at 0.5-0.8 s does: the silence after t1 becomes [new, shorter silence]
+    // drawing at 0.5-0.8 s: the silence after t1 becomes [new, shorter silence]
     const drawn = new Trajectory({ id: 0, durTot: 0.3, pitches: ph.trajectories[0].pitches, vowel: 'i', startConsonant: 'ka' });
     ph.trajectoryGrid[0].splice(1, 1, drawn, silence(0.2));
     ph.reset();
-    const out = save(piece);
+    return { out: save(piece), drawn };
+  };
+
+  it('2. flag on: a note drawn onto a syllable\'s end joins it; legacy fields are not an entry point', () => {
+    const { out, drawn } = drawOntoEnd(HINDUSTANI);
+    // the tier is unchanged: the drawn note is in t1's extent, and its stray
+    // legacy fields are overwritten by the projection (the coda projects onto
+    // the extent's new last note)
+    expect(out.phraseGrid[0][0].syllables.map((x: any) => [x.anchor.traj, x.onset ?? null, x.nucleus, x.coda ?? null]))
+      .toEqual([['t1', 'ba', 'ā', 'la'], ['t5', null, 'ī', null]]);
+    const r = row0(out);
+    expect(r[1].uniqueId).toBe(drawn.uniqueId);
+    expect([r[1].vowel, r[1].startConsonant ?? null, r[1].endConsonant]).toEqual(['ā', null, 'la']);
+  });
+
+  it('2b. no system: the drawn note with its own legacy fields starts its own syllable (ka i), t1 keeps la', () => {
+    const { out } = drawOntoEnd(undefined);
     const r = row0(out);
     expect([r[0].vowel, r[0].startConsonant, r[0].endConsonant]).toEqual(['ā', 'ba', 'la']);
     expect([r[1].vowel, r[1].startConsonant, r[1].endConsonant ?? null]).toEqual(['i', 'ka', null]);
-    expect(out.phraseGrid[0][0].syllables.map((x: any) => [x.anchor.traj === 't1' ? 't1' : x.anchor.traj === drawn.uniqueId ? 'drawn' : x.anchor.traj,
-      x.onset ?? null, x.nucleus, x.coda ?? null]))
-      .toEqual([['t1', 'ba', 'ā', 'la'], ['drawn', 'ka', 'i', null], ['t5', null, 'ī', null]]);
+  });
+
+  it('4. flag on: a note drawn into a silence with no phonemes stores no empty syllable', () => {
+    const piece = Piece.fromJSON(clone(pieceJson([phrase('p0', [
+      traj({ uid: 'n1', v: 'a', s: 'ka' }), traj({ uid: 's', id: 12 }), traj({ uid: 'n3', v: 'i' }),
+    ])], { system: HINDUSTANI })));
+    const ph = piece.phraseGrid[0][0];
+    const nt = new Trajectory({ id: 0, durTot: 0.5, pitches: ph.trajectories[0].pitches });
+    ph.trajectoryGrid[0].splice(1, 1, nt);
+    ph.reset();
+    const out = save(piece);
+    expect(out.phraseGrid[0][0].syllables.map((x: any) => x.anchor.traj)).toEqual(['n1', 'n3']);
+    expect(out.phraseGrid[0][0].syllables.every((x: any) => x.nucleus !== undefined)).toBe(true);
+    expect(row0(out)[1].vowel).toBe('a'); // it continues n1's syllable
   });
 
   for (const [phonology, nucleus] of [['jyutping', 'i'], ['kurmanji', 'e']] as const) {

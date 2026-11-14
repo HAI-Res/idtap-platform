@@ -18,6 +18,8 @@ import 'dotenv/config';
 import { $push } from 'mongo-dot-notation';
 import apiRoutes from './apiRoutes';
 import packRoutes from './packRoutes';
+import systemRoutes, { systemChangeError } from './systemRoutes';
+import { validateSystem } from '../shared/syllables';
 import { checkWriteGuard, validClientHeader } from './writeGuard';
 import { unsafeUpdateKeys, UNSAFE_KEYS_ERROR, recordingUpdates } from './updateKeys';
 import oauthRoutes from './oauthRoutes';
@@ -357,6 +359,13 @@ const runServer = async () => {
 	  // creates new transcription entry in transcriptions collection
 	  try {
 		const insert = req.body;
+		// PROP-7: a tradition chosen at creation (absent = Hindustani)
+		if (insert.system !== undefined && insert.system !== null) {
+		  const valid = validateSystem(insert.system);
+		  if (!valid.ok) { res.status(400).json({ error: valid.reason }); return; }
+		} else {
+		  delete insert.system;
+		}
 		insert.userID = req.user!.uid; // owner is the authenticated user, not client-supplied
 		insert['dateCreated'] = new Date(insert.dateCreated);
 		insert['dateModified'] = new Date(insert.dateModified);
@@ -374,6 +383,8 @@ const runServer = async () => {
 		res.status(500).send(err);
 	  }
 	});
+
+	app.use(systemRoutes(transcriptions, { requireSession, requireCsrfHeader }));
 
 	app.post('/updateTranscription', requireSession, requireCsrfHeader, async (req, res) => {
 	  // updates a transcription
@@ -405,6 +416,9 @@ const runServer = async () => {
 		// syllable tier it would lose.
 		const guard = checkWriteGuard(target, req.get('X-IDTAP-Client'), req.body._id);
 		if (!guard.ok) { res.status(guard.status).json(guard.body); return; }
+		if (req.body.system === null) delete updateObj.system; // a $set of null would clear the tradition
+		const sysErr = systemChangeError(target, req.body.system ?? undefined, req.body.phraseGrid);
+		if (sysErr) { res.status(sysErr.status).json({ error: sysErr.error }); return; }
 		const result = await transcriptions.updateOne(query, update);
 		res.send(JSON.stringify({ ...result, dateModified: updateObj['dateModified'] }))
 	  } catch (err) {

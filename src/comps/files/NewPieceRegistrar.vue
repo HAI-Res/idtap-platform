@@ -73,8 +73,19 @@
 
 
       </div>
+      <div class='formRow'>
+        <label>Tradition</label>
+        <select v-model='tradition' aria-label='Sung text tradition'>
+          <option value='hindustani'>Hindustani</option>
+          <option value='jyutping'>Cantonese</option>
+          <option value='kurmanji'>Kurmanji</option>
+        </select>
+      </div>
+      <div class='formRow note' v-if='tradition !== "hindustani"'>
+        Pitch is still described with a raga for now; other pitch systems come later.
+      </div>
       <div class="formRow">
-        <label class='ragaLabel'>Raga</label>
+        <label class='ragaLabel'>{{ tradition === 'hindustani' ? 'Raga' : 'Tuning (raga)' }}</label>
         <input class='ragaCheck' type='checkbox' v-model='showRaagEditor'>
         <select v-model='raga' ref='raga'>
           <option v-for='raag in raags' :key='raag'>
@@ -340,6 +351,7 @@ import { Instrument } from '@shared/enums'
 import UserSearch from '@/comps/files/UserSearch.vue';
 
 type NewPieceRegistrarDataType = {
+  tradition: 'hindustani' | 'jyutping' | 'kurmanji',
   title?: string;
   transcriber?: string;
   raga?: string;
@@ -388,6 +400,7 @@ export default defineComponent({
   },
   data(): NewPieceRegistrarDataType {
     return {
+      tradition: 'hindustani',
       title: undefined,
       transcriber: undefined,
       raga: undefined,
@@ -500,6 +513,10 @@ export default defineComponent({
   },
 
   computed: {
+    // PROP-7: Hindustani leaves `system` absent; the others turn the syllable tier on
+    traditionSystem(): { phonology: string } | undefined {
+      return this.tradition === 'hindustani' ? undefined : { phonology: this.tradition };
+    },
     readyToSubmit() {
       if (this.errors.length === 0) {
         return true
@@ -901,6 +918,7 @@ export default defineComponent({
           // }
           newPieceInfo = {
             title: this.title,
+            system: this.traditionSystem,
             transcriber: this.passedInData.transcriber,
             raga: this.raga,
             permissions: this.permissions,
@@ -919,6 +937,7 @@ export default defineComponent({
           const ae = this.allEvents[this.aeIdx!];
           newPieceInfo = {
             title: this.title,
+            system: this.traditionSystem,
             transcriber: this.passedInData.transcriber,
             raga: this.passedInData.raga,
             permissions: this.permissions,
@@ -940,6 +959,7 @@ export default defineComponent({
       } else {
         let newPieceInfo: {
             title?: string,
+            system?: { phonology: string },
             transcriber?: string,
             raga?: string,
             permissions?: string,
@@ -964,6 +984,7 @@ export default defineComponent({
             const fundamental = 246;
             newPieceInfo = {
               title: this.title,
+              system: this.traditionSystem,
               transcriber: this.transcriber,
               raga: this.raga,
               permissions: this.permissions,
@@ -984,6 +1005,7 @@ export default defineComponent({
             const oct = this.instrumentation[0] === Instrument.Vocal_M ? 1 : 2; 
             newPieceInfo = {
               title: this.title,
+              system: this.traditionSystem,
               transcriber: this.transcriber,
               raga: this.raga,
               permissions: this.permissions,
@@ -1005,6 +1027,7 @@ export default defineComponent({
             undefined;
           newPieceInfo = {
             title: this.title,
+            system: this.traditionSystem,
             transcriber: this.transcriber,
             raga: this.raga,
             permissions: this.permissions,
@@ -1109,6 +1132,12 @@ export default defineComponent({
 </script>
 
 <style scoped>
+.formRow.note {
+  font-size: 13px;
+  color: #333;
+  height: auto;
+  padding: 0 10px 4px 10px;
+}
 
 .formContainer {
   height: 100%;

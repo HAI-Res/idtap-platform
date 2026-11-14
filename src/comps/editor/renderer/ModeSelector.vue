@@ -5,7 +5,9 @@
       v-for='(mode, mIdx) in possibleModeTiles' 
       :key='mode'
       :id='`${mIdx}`'
-      @click='() => $emit("update:selectedMode", mode)'
+      :class='{ disabledTile: !!disabled[String(mode)] }'
+      :aria-disabled='!!disabled[String(mode)]'
+      @click='() => { if (!disabled[String(mode)]) $emit("update:selectedMode", mode) }'
       @mouseover='handleMouseOver'
       @mouseout='handleMouseOut'
       >
@@ -41,6 +43,11 @@ export default defineComponent({
     tooltipTexts: {
       type: Object as PropType<string[]>,
       required: true
+    },
+    /** mode -> reason it is unavailable: the tile is dimmed and ignores clicks */
+    disabled: {
+      type: Object as PropType<Record<string, string | undefined>>,
+      default: () => ({})
     }
   },
   setup(props, { emit }) {
@@ -154,5 +161,9 @@ export default defineComponent({
   font-size: 10px;
   text-align: right;
   pointer-events: none;
+}
+.disabledTile {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 </style>

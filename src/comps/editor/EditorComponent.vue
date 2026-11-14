@@ -90,9 +90,13 @@
       @open:addToCollection='showAddToCollection = true'
       @open:removeFromCollection='showRemoveFromCollection = true'
       @selectAssemblagePhrase='selectAssemblagePhrase'
+      :lyric='lyric'
+      :lyricMode='lyricMode'
+      :lyricUnavailable='lyricUnavailable'
+      @updatedSystem='onUpdatedSystem'
       />
     <div class='controlBox'>
-      <div class='scrollingControlBox'>
+      <div class='scrollingControlBox' :class='{ compact: lyricMode }'>
         <div class='cbRow'>
           <label for='loop'>Loop</label>
           <input id='loop' type='checkbox' v-model='loop' @click='updateLoop'>
@@ -153,7 +157,12 @@
         </div>
         <div class='instructionsIcon' @click='toggleInstructions'>?</div>
       </div>
+      <SyllablePicker
+        v-if='lyricMode && lyric'
+        :lyric='lyric'
+        />
       <TrajSelectPanel 
+        v-else
         ref='trajSelectPanel' 
         :editable='editable' 
         :ctrlBoxWidth='controlBoxWidth'
@@ -391,6 +400,8 @@ import { DEFAULT_TRANSCRIPTION_ID } from '@/config';
 import { prefetchSpectrogramData } from '@/ts/workers/workerManager.ts';
 import EditorAudioPlayer from '@/comps/editor/audioPlayer/EditorAudioPlayer.vue';
 import TrajSelectPanel from '@/comps/editor/TrajSelectPanel.vue';
+import SyllablePicker from '@/comps/editor/lyric/SyllablePicker.vue';
+import { LyricController } from '@/comps/editor/lyric/lyricController';
 import ContextMenu from'@/comps/ContextMenu.vue';
 import instructionsText from '@/assets/texts/editor_instructions.html?raw';
 import Renderer from '@/comps/editor/Renderer.vue';
@@ -400,7 +411,7 @@ import AddToCollection from '@/comps/AddToCollection.vue';
 import RemoveFromCollection from '@/comps/RemoveFromCollection.vue';
 import { detect, BrowserInfo } from 'detect-browser';
 import { throttle } from 'lodash';
-import { defineComponent, useStore } from 'vue';
+import { defineComponent, useStore, reactive } from 'vue';
 
 import { 
   ContextMenuOptionType, 
@@ -632,6 +643,7 @@ type EditorDataType = {
   showPhonemes: boolean,
   instTracks: InstrumentTrackType[],
   selectedMode: EditorMode,
+  lyric: LyricController | null,
   trajSelStatus: TrajSelectionStatus,
   sargamMagnetMode: boolean,
   selectedPhraseDivUid?: string,
@@ -797,6 +809,7 @@ export default defineComponent({
       showPhonemes: true,
       instTracks: [],
       selectedMode: EditorMode.None,
+      lyric: null,
       trajSelStatus: undefined,
       sargamMagnetMode: true,
       selectedPhraseDivUid: undefined,
@@ -840,6 +853,7 @@ export default defineComponent({
     return { route, router }
   },
   components: {
+    SyllablePicker,
     EditorAudioPlayer,
     TrajSelectPanel,
     ContextMenu,
@@ -1180,6 +1194,16 @@ export default defineComponent({
     },
 
     selectedMode(newVal, oldVal) {
+      if (newVal === EditorMode.Lyric && this.lyricUnavailable) {
+        this.selectedMode = oldVal;
+        return;
+      }
+      if (newVal === EditorMode.Lyric || oldVal === EditorMode.Lyric) {
+        // the picker needs a wider column (spec §5); the plot shrinks
+        this.controlBoxWidth = newVal === EditorMode.Lyric ? 360 : 240;
+        if (oldVal === EditorMode.Lyric) this.lyric?.clearSelection();
+        this.$nextTick(() => this.handleWindowResize());
+      }
       if (oldVal === EditorMode.Meter) {
         const ap = this.$refs.audioPlayer as APType;
         const mc = ap.$refs.meterControls as MeterControlsType;
@@ -1193,6 +1217,17 @@ export default defineComponent({
   },
 
   computed: {
+
+    lyricMode(): boolean {
+      return this.selectedMode === EditorMode.Lyric;
+    },
+    /** why lyric mode is unavailable, for the L tile (spec §4); undefined when it is */
+    lyricUnavailable(): string | undefined {
+      void this.editingInstIdx;
+      if (!this.lyric) return 'Loading';
+      const a = this.lyric.available(this.editable);
+      return a.ok ? undefined : a.reason;
+    },
 
     // True when on-screen motion must be suppressed: OS prefers-reduced-motion
     // or a listed user. Reactive in both inputs (see motionPrefs.ts).
@@ -1386,7 +1421,8 @@ export default defineComponent({
     
 
     clearTSP() {
-      const tsp = this.$refs.trajSelectPanel as TSPType;
+      const tsp = this.$refs.trajSelectPanel as TSPType | undefined;
+      if (!tsp) return; // lyric mode shows the picker instead
       tsp.startConsonant = undefined;
       tsp.endConsonant = undefined;
     },
@@ -1888,6 +1924,25 @@ export default defineComponent({
       }
     },
 
+    /** A lyric-mode edit: mark unsaved; a split note needs the plot redrawn. */
+    onLyricChange(structural: boolean) {
+      this.unsavedChanges = true;
+      if (structural) {
+        const r = this.$refs.renderer as RendererType;
+        const tl = r?.$refs?.transcriptionLayer as unknown as { resetTranscription?: () => void } | undefined;
+        tl?.resetTranscription?.();
+      }
+    },
+
+    /** Edit Tradition saved a new system (server-side): mirror it in memory. */
+    onUpdatedSystem(system: { phonology: string, display?: string[] }) {
+      this.piece.system = { ...system };
+      if (this.lyric) this.lyric.version++;
+      const r = this.$refs.renderer as RendererType;
+      const tl = r?.$refs?.transcriptionLayer as unknown as { resetTranscription?: () => void } | undefined;
+      tl?.resetTranscription?.(); // legacy labels are hidden on a piece with a system (§10)
+    },
+
     handleWindowResize() {
       this.fullWidth = window.innerWidth;
       if (this.$refs.audioPlayer) this.resizeHeight();
@@ -1953,7 +2008,8 @@ export default defineComponent({
         .includes(this.piece.instrumentation?.[track] as Instrument);
       // ...and the legacy fields are hindi-urdu only: on another pack the panel
       // hides its dropdowns but may still hold a value from an earlier piece
-      const legacyPack = this.piece.resolvedSystem.phonology === 'hindi-urdu';
+      // with a system set, sung text is entered in lyric mode (SPEC-provisional Q6)
+      const legacyPack = !this.piece.syllableTierEnabled;
       if (!vocalTrack || !legacyPack || stringIdx !== 0) {
         trajObj.vowel = undefined;
         trajObj.startConsonant = undefined;
@@ -2542,7 +2598,17 @@ export default defineComponent({
     handleKeydown(e: KeyboardEvent) {
       // Typing in a field (tempo, go-to-time, labels...) is not a shortcut.
       if (isTypingInField(e)) return;
-      if (this.selectedMode === EditorMode.Trajectory || this.selectedTraj) {
+      // Lyric mode (SPEC-provisional §11): its keys go to the lyric controller;
+      // Space, [ ] and Cmd/Ctrl shortcuts stay as they are.
+      if (this.selectedMode === EditorMode.Lyric && this.lyric) {
+        const r = this.lyric.key(e);
+        if (r === 'leave') { e.preventDefault(); this.selectedMode = EditorMode.None; return; }
+        if (r) { e.preventDefault(); return; }
+      } else if (e.key === 'l' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) {
+        if (!this.lyricUnavailable) this.selectedMode = EditorMode.Lyric;
+        return;
+      }
+      if ((this.selectedMode === EditorMode.Trajectory || this.selectedTraj) && this.$refs.trajSelectPanel) {
         const tsp = this.$refs.trajSelectPanel as TSPType;
         const keyNums = tsp.kNumsFiltered;
         if (keyNums.includes(e.key)) {
@@ -2563,6 +2629,9 @@ export default defineComponent({
     getPieceFromJson(piece: Piece, ruleSet?: RuleSetType) {
       if (ruleSet) piece.raga.ruleSet = ruleSet;
       this.piece = Piece.fromJSON(piece);
+      this.lyric = reactive(new LyricController(
+        this.piece, () => this.editingInstIdx, structural => this.onLyricChange(structural),
+      )) as unknown as LyricController;
       this.dateModified = new Date(this.piece.dateModified);
       this.fixTrajs();
       this.piece.durArrayFromPhrases();
@@ -3013,4 +3082,10 @@ input[type='checkbox'] {
 }
 
 
+.scrollingControlBox.compact {
+  /* lyric mode: the picker gets most of the column (SPEC-provisional §5) */
+  height: auto;
+  max-height: 35%;
+  flex: 0 0 auto;
+}
 </style>

@@ -73,6 +73,11 @@
     :transMetadata='selectedPiece'
     @close='showEditInstrumentation = false'
   />
+  <EditTradition
+    v-if='showEditTradition && selectedPiece !== undefined'
+    :pieceId='String(selectedPiece._id)'
+    @close='showEditTradition = false'
+  />
   <AddToCollection
     v-if='addToCollectionModalOpen'
     :possibleCollections='editableCols'
@@ -140,6 +145,7 @@ import {
 } from '@shared/types';
 import { SortState, Instrument } from '@shared/enums';
 import EditInstrumentation from '@/comps/EditInstrumentation.vue';
+import EditTradition from '@/comps/EditTradition.vue';
 
 type FileManagerDataType = {
   designPieceModal: boolean;
@@ -180,6 +186,7 @@ type FileManagerDataType = {
   ftLabels: FilterableTableType[],
   allMusicians?: MusicianNameType[],
   showEditInstrumentation: boolean,
+  showEditTradition: boolean,
   viewedTranscriptions: { [key: string]: string }
 }
 
@@ -309,12 +316,14 @@ export default defineComponent({
         }
       ],
       showEditInstrumentation: false,
+      showEditTradition: false,
       viewedTranscriptions: {}
     };
   },
 
   components: {
     NewPieceRegistrar,
+    EditTradition,
     ContextMenu,
     AddToCollection,
     RemoveFromCollection,
@@ -496,6 +505,16 @@ export default defineComponent({
           enabled: this.owned(item),
           action: () => {
             this.editInstrumentation();
+            this.contextMenuClosed = true;
+          }
+        })
+        this.contextMenuChoices.push({
+          // PROP-7: editors, not only owners (SPEC-provisional §3)
+          text: 'Edit Tradition',
+          enabled: !!this.permissionToEdit(item),
+          action: () => {
+            this.selectedPiece = item;
+            this.showEditTradition = true;
             this.contextMenuClosed = true;
           }
         })

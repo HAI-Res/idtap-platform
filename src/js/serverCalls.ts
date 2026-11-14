@@ -2212,8 +2212,45 @@ const logout = async (): Promise<void> => {
   await fetch(url + 'session/logout', { method: 'POST', credentials: 'same-origin' });
 };
 
+
+// PROP-7 Edit Tradition (lyric mode). Errors come back as { error } so the
+// modal can show them (spec §3: "on a server error, show it in the modal").
+type SystemValue = { phonology: string, display?: string[] };
+const getTranscriptionSystemOptions = async (id: string): Promise<
+  { system: SystemValue | null, editable: boolean, options: { [phonology: string]: { ok: boolean, reason?: string } } }
+  | { error: string }> => {
+  try {
+    const res = await fetch(url + 'transcriptionSystemOptions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-IDTAP-Client': IDTAP_CLIENT },
+      body: JSON.stringify({ id }),
+    });
+    const body = await res.json().catch(() => ({}));
+    return res.ok ? body : { error: body.error || `Server error ${res.status}` };
+  } catch (err) {
+    return { error: String(err) };
+  }
+};
+
+const updateTranscriptionSystem = async (id: string, system: SystemValue):
+  Promise<{ ok: true, system: SystemValue } | { error: string }> => {
+  try {
+    const res = await fetch(url + 'updateTranscriptionSystem', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-IDTAP-Client': IDTAP_CLIENT },
+      body: JSON.stringify({ id, system }),
+    });
+    const body = await res.json().catch(() => ({}));
+    return res.ok ? body : { error: body.error || `Server error ${res.status}` };
+  } catch (err) {
+    return { error: String(err) };
+  }
+};
+
 export {
   getPiece,
+  getTranscriptionSystemOptions,
+  updateTranscriptionSystem,
   getSession,
   logout,
   savePiece,
