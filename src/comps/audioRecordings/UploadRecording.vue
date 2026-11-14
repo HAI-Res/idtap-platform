@@ -337,7 +337,7 @@
           </div>
         </div>
 
-        <div class='editingSubFrame' v-if='editRecIdx === 3'>
+        <div class='editingSubFrame' v-if='editRecIdx === 3 && ownsEditingRec'>
           <div class='modalRow'>
             <label>Visibility</label>
             <select v-model='editingRec!.explicitPermissions!.publicView'>
@@ -385,7 +385,7 @@
             {{ "<" }}
           </button>
           <button @click='saveUpdates'>Save Updates</button>
-          <button @click='editRecIdx++' :disabled='editRecIdx>2'>
+          <button @click='editRecIdx++' :disabled='editRecIdx >= lastEditPage'>
             {{ ">" }}
           </button>
         </div>
@@ -561,6 +561,15 @@ export default defineComponent({
   },
 
   computed: {
+
+    // Only the owner sees the sharing page (page 3) of the edit form.
+    ownsEditingRec(): boolean {
+      return !!this.editingRec && this.editingRec.userID === this.$store.state.userID;
+    },
+
+    lastEditPage(): number {
+      return this.ownsEditingRec ? 3 : 2;
+    },
 
     // SERVER_BASE is a module import and isn't visible in the Options-API template,
     // so expose the media URL as a computed the template can bind to.
@@ -883,10 +892,13 @@ export default defineComponent({
         saEstimate: this.saEstimate,
         saVerified: this.saVerified,
         octOffset: this.octOffset,
-        explicitPermissions: this.editingRec!.explicitPermissions!,
         title: this.recTitle,
 
       };
+      // Sharing is the owner's to change; editors never send it.
+      if (this.ownsEditingRec) {
+        recUpdates.explicitPermissions = this.editingRec!.explicitPermissions!;
+      }
       try {
         await this.saveMusicians(recUpdates);
         await this.saveLocation(recUpdates);

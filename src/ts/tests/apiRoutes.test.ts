@@ -317,3 +317,26 @@ describe('dotted / operator body keys (permission bypass)', () => {
     expect(wrote).toBe(false);
   });
 });
+
+import { recordingUpdates } from '../../../server/updateKeys';
+
+describe('recording saves: sharing is owner-only', () => {
+  const form = {
+    title: 'New title', saEstimate: 220, musicians: {},
+    explicitPermissions: { publicView: true, edit: ['editor', 'friend'], view: [] },
+    permissions: 'Public', userID: 'editor', _id: 'x', parentID: 'other-ae', parentTrackNumber: '3',
+  };
+  test('an editor who is not the owner keeps metadata changes but not sharing', () => {
+    expect(recordingUpdates(form, false)).toEqual({ title: 'New title', saEstimate: 220, musicians: {} });
+  });
+  test('the owner may change sharing, never ownership or parent links', () => {
+    expect(recordingUpdates(form, true)).toEqual({
+      title: 'New title', saEstimate: 220, musicians: {},
+      explicitPermissions: form.explicitPermissions, permissions: 'Public',
+    });
+  });
+  test('non-object updates write nothing', () => {
+    expect(recordingUpdates(null, true)).toEqual({});
+    expect(recordingUpdates(['title'], true)).toEqual({});
+  });
+});
