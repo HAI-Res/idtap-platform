@@ -18,6 +18,7 @@ import 'dotenv/config';
 import { $push } from 'mongo-dot-notation';
 import apiRoutes from './apiRoutes';
 import packRoutes from './packRoutes';
+import { transcribeUserRoutes, transcribeWorkerRoutes } from './transcribeRoutes';
 import systemRoutes, { systemChangeError } from './systemRoutes';
 import { validateSystem } from '../shared/syllables';
 import { checkWriteGuard, validClientHeader } from './writeGuard';
@@ -314,6 +315,11 @@ const runServer = async () => {
         // Bearer check (session-cookie clients read them too).
         app.use('/api/packs', packRoutes());
 
+        // Model transcription: the workers' side (shared token, not a Google
+        // sign-in), mounted ahead of the Bearer check. Off unless IDTAP_WORKER_TOKEN is set.
+        const transcribeCollections = { transcribeJobs: db.collection('transcribeJobs'), transcriptions, audioRecordings, users };
+        app.use('/worker', transcribeWorkerRoutes(transcribeCollections));
+
         // Authentication middleware for API routes
         app.use('/api', async (req, res, next) => {
           const authHeader = req.headers.authorization;
@@ -345,6 +351,7 @@ const runServer = async () => {
           locations: location 
         });
         app.use('/api', apiRouter);
+        app.use('/api', transcribeUserRoutes(transcribeCollections));
         
         // OAuth routes for Python client (no auth middleware)
         const oauthRouter = oauthRoutes({ users }, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET);
