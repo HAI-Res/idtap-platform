@@ -44,6 +44,14 @@
     @updateFrameView='newVal => recModalFrame = newVal'
     @updateEditingRecId='newVal => editingRecId = newVal'
   />
+  <TranscribeModal
+    v-if='!transcribeModalClosed && selectedRecording'
+    :recId='selectedRecording._id!'
+    :recordingTitle='getShorthand(selectedRecording)'
+    :saEstimate='selectedRecording.saEstimate'
+    :navHeight='navHeight'
+    @close='transcribeModalClosed = true'
+  />
   <AddToCollection 
     v-if='!addToCollectionModalClosed && selectedRecording'
     :possibleCollections='possibleCols'
@@ -84,6 +92,7 @@ import {
   getSortedMusicians,
   getAllTransOfAudioFile,
   deleteRecording,
+  getTranscriptionJobs,
   getEditableCollections
 } from '@/js/serverCalls.ts';
 import { displayTime } from '@/ts/utils.ts';
@@ -99,6 +108,7 @@ import {
 } from '@shared/types';
 import { SortState } from '@shared/enums';
 import PermissionsModal from '@/comps/PermissionsModal.vue';
+import TranscribeModal from '@/comps/audioRecordings/TranscribeModal.vue';
 import FilterableTable from '@/comps/FilterableTable.vue';
 
 type AudioRecordingsDataType = {
@@ -125,6 +135,8 @@ type AudioRecordingsDataType = {
   recModalFrame: 'uploadRec' | 'editRecMetadata',
   editingRecId?: string,
   permissionsModalClosed: boolean,
+  transcribeModalClosed: boolean,
+  transcribeEnabled: boolean,
   artifactID: string | undefined,
   ftLabels: FilterableTableType[],
   playingItemId?: number
@@ -156,6 +168,8 @@ export default defineComponent({
       selectedRecording: undefined,
       recModalFrame: 'uploadRec',
       permissionsModalClosed: true,
+      transcribeModalClosed: true,
+      transcribeEnabled: false,
       artifactID: undefined,
       ftLabels: [
       {
@@ -242,6 +256,7 @@ export default defineComponent({
     AddToCollection,
     RemoveFromCollection,
     PermissionsModal,
+    TranscribeModal,
     FilterableTable
   },
 
@@ -254,6 +269,8 @@ export default defineComponent({
 
   async created() {
     window.addEventListener('keydown', this.handleKeydown);
+    // Model transcription is offered only to accounts the server enables it for.
+    getTranscriptionJobs().then(r => { this.transcribeEnabled = !!r.enabled; }).catch(() => {});
     if (this.$store.state.userID === undefined) {
       if (this.$cookies.get('userID') === undefined) {
         this.$router.push('/')
@@ -492,6 +509,17 @@ export default defineComponent({
         },
         enabled: viewable
       });
+      if (this.transcribeEnabled) {
+        this.contextMenuChoices.push({
+          text: 'Transcribe with a Model…',
+          action: () => {
+            this.selectedRecording = rec;
+            this.transcribeModalClosed = false;
+            this.contextMenuClosed = true;
+          },
+          enabled: viewable
+        });
+      }
       this.contextMenuChoices.push({
         text: 'Edit Recording',
         action: () => {

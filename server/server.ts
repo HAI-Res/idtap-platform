@@ -392,6 +392,10 @@ const runServer = async () => {
 	});
 
 	app.use(systemRoutes(transcriptions, { requireSession, requireCsrfHeader }));
+	// Model transcription for the web app (cookie sign-in): the /api/transcribe routes under /session.
+	app.use('/session', requireSession,
+	  (req, res, next) => (req.method === 'GET' ? next() : requireCsrfHeader(req, res, next)),
+	  transcribeUserRoutes({ transcribeJobs: db.collection('transcribeJobs'), transcriptions, audioRecordings, users }, undefined, 'session'));
 
 	app.post('/updateTranscription', requireSession, requireCsrfHeader, async (req, res) => {
 	  // updates a transcription

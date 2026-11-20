@@ -105,6 +105,26 @@ describe('starting a job', () => {
   });
 });
 
+describe('the web app (session sign-in)', () => {
+  const sessionApp = (uid?: string) => {
+    const a = express();
+    a.use(express.json());
+    a.use((req, _res, next) => { if (uid) (req as any).user = { uid }; next(); });
+    a.use('/session', transcribeUserRoutes(c, opts, 'session'));
+    return a;
+  };
+  test('the session user id is the Mongo _id; the same rules apply', async () => {
+    const body = { recordingId: REC.toString(), model: 'rg_world_tx' };
+    const r = await request(sessionApp(OWNER.toString())).post('/session/transcribe').send(body);
+    expect(r.status).toBe(200);
+    expect(c.transcribeJobs.docs[0].userID).toBe(OWNER.toString());
+    expect((await request(sessionApp(OWNER.toString())).get('/session/transcribe')).body.jobs).toHaveLength(1);
+    expect((await request(sessionApp(OTHER.toString())).post('/session/transcribe').send(body)).status).toBe(403);
+    expect((await request(sessionApp()).post('/session/transcribe').send(body)).status).toBe(401);
+    expect((await request(sessionApp('not-an-id')).post('/session/transcribe').send(body)).status).toBe(401);
+  });
+});
+
 describe('the worker side', () => {
   const start = async () => (await request(app()).post('/api/transcribe')
     .send({ recordingId: REC.toString(), model: 'student', tonic: 220, title: 'T' })).body.jobId as string;

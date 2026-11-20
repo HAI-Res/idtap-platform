@@ -13,6 +13,7 @@
  *      GET  /api/transcribe          the caller's recent jobs
  *      GET  /api/transcribe/:id      status, events and the piece id when done
  *      POST /api/transcribe/:id/cancel
+ *    and the same four under /session for the web app's cookie sign-in.
  *  - worker routes, mounted at /worker with a shared token
  *    (IDTAP_WORKER_TOKEN; with it unset the whole feature is off):
  *      POST /worker/claim
@@ -82,13 +83,22 @@ const publicJob = (j: any) => ({
   error: j.error,
 });
 
-export function transcribeUserRoutes(collections: Collections, opts: TranscribeOptions = optionsFromEnv()) {
+/**
+ * `auth` says how the caller was identified upstream: 'bearer' (the /api router: req.user.id is the
+ * Google sub) or 'session' (the web app's cookie: req.user.uid is the Mongo user _id).
+ */
+export function transcribeUserRoutes(
+  collections: Collections, opts: TranscribeOptions = optionsFromEnv(), auth: 'bearer' | 'session' = 'bearer',
+) {
   const router = express.Router();
   const now = opts.now ?? (() => new Date());
 
   const actor = async (req: express.Request) => {
-    const user = await collections.users.findOne({ sub: req.user!.id });
-    return user ? { id: user._id.toString(), email: String(user.email || req.user!.email || '').toLowerCase() } : undefined;
+    const u = req.user as { id?: string; uid?: string; email?: string } | undefined;
+    const sessionId = auth === 'session' && u?.uid && ObjectId.isValid(u.uid) ? new ObjectId(u.uid) : null;
+    if (auth === 'session' && !sessionId) return undefined;
+    const user = await collections.users.findOne(sessionId ? { _id: sessionId } : { sub: u?.id });
+    return user ? { id: user._id.toString(), email: String(user.email || u?.email || '').toLowerCase() } : undefined;
   };
   const allowed = (email: string) =>
     !!opts.workerToken && !!opts.allowedUsers?.length && (opts.allowedUsers.includes('*') || opts.allowedUsers.includes(email));

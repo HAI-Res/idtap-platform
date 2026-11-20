@@ -2247,7 +2247,43 @@ const updateTranscriptionSystem = async (id: string, system: SystemValue):
   }
 };
 
+// ---- model transcription (server/transcribeRoutes.ts, the /session routes) ----
+import type { TranscribeEvent } from './transcribeStatus';
+
+export type TranscribeJob = {
+  _id: string,
+  status: 'queued' | 'running' | 'done' | 'failed' | 'cancelled',
+  model?: string,
+  recordingId: string,
+  events: TranscribeEvent[],
+  pieceId?: string,
+  error?: { code?: string, message?: string },
+};
+
+const transcribeFetch = async (path: string, method: 'GET' | 'POST', body?: unknown) => {
+  const response = await fetch(url + 'session/transcribe' + path, {
+    method,
+    headers: { 'Content-Type': 'application/json', 'X-IDTAP-Client': IDTAP_CLIENT },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  const json = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(json.error || `The server answered ${response.status}`);
+  return json;
+};
+
+/** Whether this account may start model transcriptions, and its recent jobs. */
+const getTranscriptionJobs = (): Promise<{ enabled: boolean, models: string[], jobs: TranscribeJob[] }> =>
+  transcribeFetch('', 'GET');
+const startTranscription = (params: Record<string, unknown>): Promise<{ jobId: string, queuedAhead: number }> =>
+  transcribeFetch('', 'POST', params);
+const getTranscriptionJob = (id: string): Promise<TranscribeJob> => transcribeFetch('/' + id, 'GET');
+const cancelTranscription = (id: string): Promise<{ cancelled: boolean }> => transcribeFetch('/' + id + '/cancel', 'POST', {});
+
 export {
+  getTranscriptionJobs,
+  startTranscription,
+  getTranscriptionJob,
+  cancelTranscription,
   getPiece,
   getTranscriptionSystemOptions,
   updateTranscriptionSystem,
