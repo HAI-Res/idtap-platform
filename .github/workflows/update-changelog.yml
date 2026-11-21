@@ -30,7 +30,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v3
         with:
-          node-version: 16
+          node-version: '22.23.4'
 
       - name: Make script executable
         run: chmod +x update-changelog.sh
@@ -76,7 +76,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '22.9.0'
+          node-version: '22.23.4'
 
       - name: Install pnpm
         run: npm install -g pnpm@9.15.9
