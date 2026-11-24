@@ -17,6 +17,7 @@ import { DN_ExtractorOptions } from '@shared/types';
 import 'dotenv/config';
 import { $push } from 'mongo-dot-notation';
 import apiRoutes from './apiRoutes';
+import modelRoutes from './modelRoutes';
 import packRoutes from './packRoutes';
 import systemRoutes, { systemChangeError } from './systemRoutes';
 import { validateSystem } from '../shared/syllables';
@@ -385,6 +386,8 @@ const runServer = async () => {
 	});
 
 	app.use(systemRoutes(transcriptions, { requireSession, requireCsrfHeader }));
+	// Model files for the desktop app, for signed-in users; off until IDTAP_MODELS_DIR names a pack.
+	app.use(modelRoutes({ requireSession }));
 
 	app.post('/updateTranscription', requireSession, requireCsrfHeader, async (req, res) => {
 	  // updates a transcription
